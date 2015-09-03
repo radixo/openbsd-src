@@ -1,4 +1,4 @@
-/*	$OpenBSD$	*/
+/*	$OpenBSD: dwc2var.h,v 1.15 2015/09/03 12:55:54 visa Exp $	*/
 /*	$NetBSD: dwc2var.h,v 1.3 2013/10/22 12:57:40 skrll Exp $	*/
 
 /*-
@@ -43,7 +43,6 @@ struct dwc2_qtd;
 
 struct dwc2_xfer {
 	struct usbd_xfer xfer;			/* Needs to be first */
-	struct usb_task	abort_task;
 
 	struct dwc2_hcd_urb *urb;
 	int packet_count;
@@ -90,8 +89,6 @@ typedef struct dwc2_softc {
 	 */
 
 	struct dwc2_hsotg *sc_hsotg;
-
-	struct mutex sc_lock;
 
 	bool sc_hcdenabled;
 	void *sc_rhc_si;
