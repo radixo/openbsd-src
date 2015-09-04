@@ -6,3 +6,6 @@ CVS
 
 # cscope files
 cscope.*
+
+# Kernel compiled files
+sys/arch/*/compile
