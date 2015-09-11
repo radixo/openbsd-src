@@ -37,6 +37,10 @@
  * special devices. It is allocated in checkalias and freed
  * in vgone.
  */
+
+#ifndef _SYS_SPECDEV_H_
+#define _SYS_SPECDEV_H_
+
 struct specinfo {
 	struct	vnode **si_hashchain;
 	struct	vnode *si_specnext;
@@ -108,3 +112,4 @@ int	spec_pathconf(void *);
 int	spec_advlock(void *);
 
 #endif	/* _KERNEL */
+#endif  /* _SYS_SPECDEV_H_ */

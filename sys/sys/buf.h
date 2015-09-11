@@ -144,6 +144,7 @@ struct buf {
 	LIST_ENTRY(buf) b_list;		/* All allocated buffers. */
 	LIST_ENTRY(buf) b_vnbufs;	/* Buffer's associated vnode. */
 	TAILQ_ENTRY(buf) b_freelist;	/* Free list position if not active. */
+	LIST_ENTRY(buf) b_wapbllist;	/* transaction buffer list */
 	int cache;			/* which cache are we in */
 	struct  proc *b_proc;		/* Associated proc; NULL if kernel. */
 	volatile long	b_flags;	/* B_* flags. */
@@ -157,6 +158,8 @@ struct buf {
 
 	TAILQ_ENTRY(buf) b_valist;	/* LRU of va to reuse. */
 
+	void * b_private;		/* private data for owner */
+	
 	union	bufq_data b_bufq;
 	struct	bufq	  *b_bq;	/* What bufq this buf is on */
 
@@ -221,12 +224,14 @@ struct bufcache {
 #define	B_COLD		0x01000000	/* buffer is on the cold queue */
 #define	B_BC		0x02000000	/* buffer is managed by the cache */
 #define	B_DMA		0x04000000	/* buffer is DMA reachable */
+#define B_LOCKED	0x08000000	/* Locked in core (not reusable). */
 
 #define	B_BITS	"\20\001AGE\002NEEDCOMMIT\003ASYNC\004BAD\005BUSY" \
     "\006CACHE\007CALL\010DELWRI\011DONE\012EINTR\013ERROR" \
     "\014INVAL\015NOCACHE\016PHYS\017RAW\020READ" \
     "\021WANTED\022WRITEINPROG\023XXX(FORMAT)\024DEFERRED" \
-    "\025SCANNED\026DAEMON\027RELEASED\030WARM\031COLD\032BC\033DMA"
+    "\025SCANNED\026DAEMON\027RELEASED\030WARM\031COLD\032BC\033DMA" \
+    "\034LOCKED"
 
 /*
  * This structure describes a clustered I/O.  It is stored in the b_saveaddr

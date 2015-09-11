@@ -83,4 +83,7 @@ struct dk_diskmap {
 
 #define	DIOCMAP		_IOWR('d', 119, struct dk_diskmap)
 
+/* sync disk cache */
+#define	DIOCCACHESYNC	_IOW('d', 118, int)	/* sync cache (force?) */
+
 #endif /* _SYS_DKIO_H_ */

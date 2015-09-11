@@ -105,6 +105,9 @@ struct wapbl_entry {
 #endif
 };
 
+/* WAPBL Feature Initialization */
+void	wapbl_init(void);
+
 /* Start using a log */
 int	wapbl_start(struct wapbl **, struct mount *, struct vnode *, daddr_t,
 		    size_t, size_t, struct wapbl_replay *,
@@ -166,7 +169,7 @@ void	wapbl_register_deallocation(struct wapbl *, daddr_t, int);
 void	wapbl_jlock_assert(struct wapbl *wl);
 void	wapbl_junlock_assert(struct wapbl *wl);
 
-void	wapbl_print(struct wapbl *wl, int full, void (*pr)(const char *, ...);
+void	wapbl_print(struct wapbl *wl, int full, int (*pr)(const char *, ...));
 
 #if defined(WAPBL_DEBUG) || defined(DDB)
 void	wapbl_dump(struct wapbl *);

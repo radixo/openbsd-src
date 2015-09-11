@@ -42,6 +42,7 @@
 #include <sys/namei.h>
 #include <sys/vnode.h>
 #include <sys/pool.h>
+#include <sys/wapbl.h>
 
 struct pool namei_pool;
 
@@ -155,6 +156,10 @@ vfsinit(void)
 
 	/* Initialize the vnode name cache. */
 	nchinit();
+
+#ifdef WAPBL
+	wapbl_init();
+#endif
 
 	/*
 	 * Stop using vfsconf and maxvfsconf as a temporary storage,
