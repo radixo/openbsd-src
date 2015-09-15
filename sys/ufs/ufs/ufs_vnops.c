@@ -64,6 +64,8 @@
 #include <ufs/ufs/dir.h>
 #include <ufs/ufs/ufsmount.h>
 #include <ufs/ufs/ufs_extern.h>
+#include <ufs/ffs/fs.h>
+#include <ufs/ufs/ufs_wapbl.h>
 #ifdef UFS_DIRHASH
 #include <ufs/ufs/dirhash.h>
 #endif
@@ -2066,4 +2068,49 @@ filt_ufsvnode(struct knote *kn, long hint)
 		return (1);
 	}
 	return (kn->kn_fflags != 0);
+}
+
+/*
+ * Allocate len bytes at offset off.
+ */
+int
+ufs_gop_alloc(struct vnode *vp, off_t off, off_t len, int flags,
+    struct ucred *cred)
+{
+        struct inode *ip = VTOI(vp);
+        int error, delta, bshift, bsize;
+
+        error = 0;
+        bshift = ip->i_fs->fs_bshift;
+        bsize = 1 << bshift;
+
+        delta = off & (bsize - 1);
+        off -= delta;
+        len += delta;
+
+        while (len > 0) {
+                bsize = MIN(bsize, len);
+
+                error = UFS_BUF_ALLOC(ip, off, bsize, cred, flags, NULL);
+                if (error) {
+                        goto out;
+                }
+
+                /*
+                 * increase file size now, UFS_BUF_ALLOC() requires that
+                 * EOF be up-to-date before each call.
+                 */
+
+                if (DIP(ip, size) < off + bsize) {
+                        /* ip->i_size = off + bsize; */
+			DIP_ASSIGN(ip, size, off + bsize);
+                }
+
+                off += bsize;
+                len -= bsize;
+        }
+
+out:
+	UFS_WAPBL_UPDATE(ip, 0);
+	return error;
 }

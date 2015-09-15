@@ -1466,6 +1466,42 @@ ffs_sbupdate(struct ufsmount *mp, int waitfor)
 }
 
 int
+ffs_cgupdate(struct ufsmount *mp, int waitfor)
+{
+	struct fs *fs = mp->um_fs;
+	struct buf *bp;
+	int blks;
+	void *space;
+	int i, size, error = 0, allerror = 0;
+
+	allerror = ffs_sbupdate(mp, waitfor);
+	blks = howmany(fs->fs_cssize, fs->fs_fsize);
+	space = fs->fs_csp;
+	for (i = 0; i < blks; i += fs->fs_frag) {
+		size = fs->fs_bsize;
+		if (i + fs->fs_frag > blks)
+			size = (blks - i) * fs->fs_fsize;
+		bp = getblk(mp->um_devvp, fsbtodb(fs, fs->fs_csaddr + i), size,
+		    0, 0);
+#ifdef FFS_EI
+		if (mp->um_flags & UFS_NEEDSWAP)
+			ffs_csum_swap((struct csum*)space,
+			    (struct csum*)bp->b_data, size);
+		else
+#endif
+			memcpy(bp->b_data, space, (u_int)size);
+		space = (char *)space + size;
+		if (waitfor == MNT_WAIT)
+			error = bwrite(bp);
+		else
+			bawrite(bp);
+	}
+	if (!allerror && error)
+		allerror = error;
+	return (allerror);
+}
+
+int
 ffs_init(struct vfsconf *vfsp)
 {
 	static int done;
