@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.c,v 1.148 2015/08/24 23:26:43 mpi Exp $	*/
+/*	$OpenBSD: nd6.c,v 1.152 2015/09/12 20:50:17 mpi Exp $	*/
 /*	$KAME: nd6.c,v 1.280 2002/06/08 19:52:07 itojun Exp $	*/
 
 /*
@@ -667,7 +667,7 @@ nd6_lookup(struct in6_addr *addr6, int create, struct ifnet *ifp,
 			 * called in rtrequest1 via ifa->ifa_rtrequest.
 			 */
 			bzero(&info, sizeof(info));
-			info.rti_flags = RTF_UP | RTF_HOST | RTF_LLINFO;
+			info.rti_flags = RTF_HOST | RTF_LLINFO;
 			info.rti_info[RTAX_DST] = sin6tosa(&sin6);
 			info.rti_info[RTAX_GATEWAY] =
 			    (struct sockaddr *)ifp->if_sadl;
@@ -1111,13 +1111,6 @@ nd6_rtrequest(int req, struct rtentry *rt)
 			nd6_llinfo_settimer(ln, -1);
 			ln->ln_state = ND6_LLINFO_REACHABLE;
 			ln->ln_byhint = 0;
-
-			/*
-			 * XXX Since lo0 is in the default rdomain we
-			 * should not (ab)use it for any route related
-			 * to an interface of a different rdomain.
-			 */
-			rt->rt_ifp = lo0ifp;
 
 			/*
 			 * Make sure rt_ifa be equal to the ifaddr
@@ -1699,7 +1692,7 @@ nd6_output(struct ifnet *ifp, struct mbuf *m0, struct sockaddr_in6 *dst,
 	return (0);
 
   sendpkt:
-	return ((*ifp->if_output)(ifp, m, sin6tosa(dst), rt));
+	return (ifp->if_output(ifp, m, sin6tosa(dst), rt));
 
   bad:
 	m_freem(m);
@@ -1850,7 +1843,7 @@ fill_drlist(void *oldp, size_t *oldlenp, size_t ol)
 			bzero(d, sizeof(*d));
 			d->rtaddr.sin6_family = AF_INET6;
 			d->rtaddr.sin6_len = sizeof(struct sockaddr_in6);
-			in6_recoverscope(&d->rtaddr, &dr->rtaddr, dr->ifp);
+			in6_recoverscope(&d->rtaddr, &dr->rtaddr);
 			d->flags = dr->flags;
 			d->rtlifetime = dr->rtlifetime;
 			d->expire = dr->expire;
@@ -1896,19 +1889,14 @@ fill_prlist(void *oldp, size_t *oldlenp, size_t ol)
 		struct sockaddr_in6 sin6;
 		struct nd_pfxrouter *pfr;
 		struct in6_prefix pfx;
-		char addr[INET6_ADDRSTRLEN];
 
 		if (oldp && p + sizeof(struct in6_prefix) <= pe) {
 			memset(&pfx, 0, sizeof(pfx));
 			ps = p;
 
 			pfx.prefix = pr->ndpr_prefix;
-			if (in6_recoverscope(&pfx.prefix,
-			    &pfx.prefix.sin6_addr, pr->ndpr_ifp) != 0)
-				log(LOG_ERR,
-				    "scope error in prefix list (%s)\n",
-				    inet_ntop(AF_INET6, &pfx.prefix.sin6_addr,
-					addr, sizeof(addr)));
+			in6_recoverscope(&pfx.prefix,
+			    &pfx.prefix.sin6_addr);
 			pfx.raflags = pr->ndpr_raf;
 			pfx.prefixlen = pr->ndpr_plen;
 			pfx.vltime = pr->ndpr_vltime;
@@ -1944,8 +1932,7 @@ fill_prlist(void *oldp, size_t *oldlenp, size_t ol)
 				bzero(&sin6, sizeof(sin6));
 				sin6.sin6_family = AF_INET6;
 				sin6.sin6_len = sizeof(struct sockaddr_in6);
-				in6_recoverscope(&sin6, &pfr->router->rtaddr,
-				    pfr->router->ifp);
+				in6_recoverscope(&sin6, &pfr->router->rtaddr);
 				advrtrs++;
 				memcpy(p, &sin6, sizeof(sin6));
 				p += sizeof(sin6);

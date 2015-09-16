@@ -1,4 +1,4 @@
-/*	$OpenBSD: rd.c,v 1.9 2014/12/18 21:06:24 deraadt Exp $	*/
+/*	$OpenBSD: rd.c,v 1.11 2015/09/11 20:25:32 dlg Exp $	*/
 
 /*
  * Copyright (c) 2011 Matthew Dempsky <matthew@dempsky.org>

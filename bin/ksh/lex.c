@@ -1,4 +1,4 @@
-/*	$OpenBSD: lex.c,v 1.49 2013/12/17 16:37:06 deraadt Exp $	*/
+/*	$OpenBSD: lex.c,v 1.52 2015/09/15 18:15:05 tedu Exp $	*/
 
 /*
  * lexical analysis and source input
@@ -700,7 +700,7 @@ Done:
 	if ((c == '<' || c == '>') && state == SBASE &&
 	    ((c2 = Xlength(ws, wp)) == 0 ||
 	    (c2 == 2 && dp[0] == CHAR && digit(dp[1])))) {
-		struct ioword *iop = (struct ioword *) alloc(sizeof(*iop), ATEMP);
+		struct ioword *iop = alloc(sizeof(*iop), ATEMP);
 
 		if (c2 == 2)
 			iop->unit = dp[1] - '0';
@@ -728,9 +728,9 @@ Done:
 				ungetsc(c2);
 		}
 
-		iop->name = (char *) 0;
-		iop->delim = (char *) 0;
-		iop->heredoc = (char *) 0;
+		iop->name = NULL;
+		iop->delim = NULL;
+		iop->heredoc = NULL;
 		Xfree(ws, wp);	/* free word */
 		yylval.iop = iop;
 		return REDIR;
@@ -921,7 +921,7 @@ pushs(int type, Area *areap)
 {
 	Source *s;
 
-	s = (Source *) alloc(sizeof(Source), areap);
+	s = alloc(sizeof(Source), areap);
 	s->type = type;
 	s->str = null;
 	s->start = NULL;
@@ -971,10 +971,10 @@ getsc__(void)
 
 		case SWORDSEP:
 			if (*s->u.strv == NULL) {
-				s->start = s->str = newline;
+				s->start = s->str = "\n";
 				s->type = SEOF;
 			} else {
-				s->start = s->str = space;
+				s->start = s->str = " ";
 				s->type = SWORDS;
 			}
 			break;

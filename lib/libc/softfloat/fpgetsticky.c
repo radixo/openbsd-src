@@ -1,4 +1,4 @@
-/*	$OpenBSD: fpgetsticky.c,v 1.2 2008/06/26 05:42:05 ray Exp $	*/
+/*	$OpenBSD: fpgetsticky.c,v 1.4 2015/09/10 18:13:46 guenther Exp $	*/
 /* $NetBSD: fpgetsticky.c,v 1.2 2002/01/13 21:45:53 thorpej Exp $ */
 
 /*-
@@ -30,14 +30,12 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "namespace.h"
-
 #include <ieeefp.h>
 #ifdef SOFTFLOAT_FOR_GCC
 #include "softfloat-for-gcc.h"
 #endif
 #include "milieu.h"
-#include "softfloat.h"
+#include <softfloat.h>
 
 #ifdef __weak_alias
 __weak_alias(_fpgetsticky,fpgetsticky);

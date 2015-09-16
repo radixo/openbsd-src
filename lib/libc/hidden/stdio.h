@@ -1,4 +1,4 @@
-/*	$OpenBSD$	*/
+/*	$OpenBSD: stdio.h,v 1.3 2015/09/10 18:13:46 guenther Exp $	*/
 /*
  * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
  *
@@ -14,18 +14,24 @@
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
-/*	$OpenBSD: stdio.h,v 1.46 2014/03/16 18:38:30 guenther Exp $	*/
-/*	$NetBSD: stdio.h,v 1.18 1996/04/25 18:29:21 jtc Exp $	*/
 
 #ifndef	_LIBC_STDIO_H_
 #define	_LIBC_STDIO_H_
 
+/* we want the const-correct declarations inside libc */
+#define __SYS_ERRLIST
+
 #include_next <stdio.h>
-#include "namespace.h"
 
 __BEGIN_HIDDEN_DECLS
 char	*_mktemp(char *);
 __END_HIDDEN_DECLS
+
+extern const int sys_nerr;
+extern const char *const sys_errlist[];
+
+extern PROTO_NORMAL(sys_nerr);
+extern PROTO_NORMAL(sys_errlist);
 
 PROTO_NORMAL(__srget);
 PROTO_NORMAL(__swbuf);
@@ -81,8 +87,8 @@ PROTO_NORMAL(putchar_unlocked);
 PROTO_NORMAL(puts);
 PROTO_NORMAL(putw);
 PROTO_NORMAL(remove);
-/*PROTO_NORMAL(rename);*/
-/*PROTO_NORMAL(renameat);*/
+PROTO_NORMAL(rename);
+PROTO_NORMAL(renameat);
 PROTO_NORMAL(rewind);
 PROTO_NORMAL(scanf);
 PROTO_NORMAL(setbuf);

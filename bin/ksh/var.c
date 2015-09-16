@@ -1,8 +1,7 @@
-/*	$OpenBSD: var.c,v 1.41 2015/04/17 17:20:41 deraadt Exp $	*/
+/*	$OpenBSD: var.c,v 1.47 2015/09/15 18:15:05 tedu Exp $	*/
 
 #include "sh.h"
 #include <time.h>
-#include "ksh_limval.h"
 #include <sys/stat.h>
 #include <ctype.h>
 
@@ -36,7 +35,7 @@ newblock(void)
 	struct block *l;
 	static char *const empty[] = {null};
 
-	l = (struct block *) alloc(sizeof(struct block), ATEMP);
+	l = alloc(sizeof(struct block), ATEMP);
 	l->flags = 0;
 	ainit(&l->area); /* todo: could use e->area (l->area => l->areap) */
 	if (!e->loc) {
@@ -106,7 +105,7 @@ initvar(void)
 		{ "SECONDS",		V_SECONDS },
 		{ "TMOUT",		V_TMOUT },
 		{ "LINENO",		V_LINENO },
-		{ (char *) 0,	0 }
+		{ NULL,	0 }
 	};
 	int i;
 	struct tbl *tp;
@@ -513,7 +512,7 @@ formatstr(struct tbl *vp, const char *s)
 	} else
 		nlen = olen;
 
-	p = (char *) alloc(nlen + 1, ATEMP);
+	p = alloc(nlen + 1, ATEMP);
 	if (vp->flag & (RJUST|LJUST)) {
 		int slen;
 
@@ -569,7 +568,7 @@ export(struct tbl *vp, const char *val)
 	int vallen = strlen(val) + 1;
 
 	vp->flag |= ALLOC;
-	xp = (char*)alloc(namelen + 1 + vallen, vp->areap);
+	xp = alloc(namelen + 1 + vallen, vp->areap);
 	memcpy(vp->val.s = xp, vp->name, namelen);
 	xp += namelen;
 	*xp++ = '=';
@@ -584,7 +583,7 @@ export(struct tbl *vp, const char *val)
  * LCASEV, UCASEV_AL), and optionally set its value if an assignment.
  */
 struct tbl *
-typeset(const char *var, Tflag set, Tflag clr, int field, int base)
+typeset(const char *var, int set, int clr, int field, int base)
 {
 	struct tbl *vp;
 	struct tbl *vpbase, *t;
@@ -665,11 +664,11 @@ typeset(const char *var, Tflag set, Tflag clr, int field, int base)
 			if (fake_assign) {
 				if (t->flag & INTEGER) {
 					s = str_val(t);
-					free_me = (char *) 0;
+					free_me = NULL;
 				} else {
 					s = t->val.s + t->type;
 					free_me = (t->flag & ALLOC) ? t->val.s :
-					    (char *) 0;
+					    NULL;
 				}
 				t->flag &= ~ALLOC;
 			}
@@ -829,7 +828,7 @@ is_wdvarassign(const char *s)
 char **
 makenv(void)
 {
-	struct block *l = e->loc;
+	struct block *l;
 	XPtrV env;
 	struct tbl *vp, **vpp;
 	int i;
@@ -967,7 +966,7 @@ setspec(struct tbl *vp)
 	case V_TMPDIR:
 		if (tmpdir) {
 			afree(tmpdir, APERM);
-			tmpdir = (char *) 0;
+			tmpdir = NULL;
 		}
 		/* Use tmpdir iff it is an absolute path, is writable and
 		 * searchable and is a directory...
@@ -1066,14 +1065,14 @@ unsetspec(struct tbl *vp)
 		/* should not become unspecial */
 		if (tmpdir) {
 			afree(tmpdir, APERM);
-			tmpdir = (char *) 0;
+			tmpdir = NULL;
 		}
 		break;
 	case V_MAIL:
-		mbset((char *) 0);
+		mbset(NULL);
 		break;
 	case V_MAILPATH:
-		mpset((char *) 0);
+		mpset(NULL);
 		break;
 	case V_LINENO:
 	case V_MAILCHECK:	/* at&t ksh leaves previous value in place */
@@ -1124,7 +1123,7 @@ arraysearch(struct tbl *vp, int val)
 		else
 			new = curr;
 	} else
-		new = (struct tbl *)alloc(sizeof(struct tbl) + namelen,
+		new = alloc(sizeof(struct tbl) + namelen,
 		    vp->areap);
 	strlcpy(new->name, vp->name, namelen);
 	new->flag = vp->flag & ~(ALLOC|DEFINED|ISSET|SPECIAL);

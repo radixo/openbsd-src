@@ -1,4 +1,4 @@
-/*	$OpenBSD: vi.c,v 1.28 2013/12/18 16:45:46 deraadt Exp $	*/
+/*	$OpenBSD: vi.c,v 1.31 2015/09/15 18:15:05 tedu Exp $	*/
 
 /*
  *	vi command editing
@@ -1067,7 +1067,7 @@ vi_cmd(int argcnt, const char *cmd)
 				argcnt++;
 				p++;
 			}
-			if (putbuf(space, 1, 0) != 0)
+			if (putbuf(" ", 1, 0) != 0)
 				argcnt = -1;
 			else if (putbuf(sp, argcnt, 0) != 0)
 				argcnt = -1;
@@ -1377,7 +1377,7 @@ save_edstate(struct edstate *old)
 {
 	struct edstate *new;
 
-	new = (struct edstate *)alloc(sizeof(struct edstate), APERM);
+	new = alloc(sizeof(struct edstate), APERM);
 	new->cbuf = alloc(old->cbufsize, APERM);
 	memcpy(new->cbuf, old->cbuf, old->linelen);
 	new->cbufsize = old->cbufsize;
@@ -1930,7 +1930,7 @@ expand_word(int command)
 			rval = -1;
 			break;
 		}
-		if (++i < nwords && putbuf(space, 1, 0) != 0) {
+		if (++i < nwords && putbuf(" ", 1, 0) != 0) {
 			rval = -1;
 			break;
 		}
@@ -2001,12 +2001,12 @@ complete_word(int command, int count)
 		 */
 		if (is_command) {
 			match = words[count] +
-			    x_basename(words[count], (char *) 0);
+			    x_basename(words[count], NULL);
 			/* If more than one possible match, use full path */
 			for (i = 0; i < nwords; i++)
 				if (i != count &&
 				    strcmp(words[i] + x_basename(words[i],
-				    (char *) 0), match) == 0) {
+				    NULL), match) == 0) {
 					match = words[count];
 					break;
 				}
@@ -2038,7 +2038,7 @@ complete_word(int command, int count)
 
 		/* If not a directory, add a space to the end... */
 		if (match_len > 0 && match[match_len - 1] != '/')
-			rval = putbuf(space, 1, 0);
+			rval = putbuf(" ", 1, 0);
 	}
 	x_free_words(nwords, words);
 

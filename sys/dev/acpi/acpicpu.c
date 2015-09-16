@@ -1,4 +1,4 @@
-/* $OpenBSD: acpicpu.c,v 1.67 2015/08/04 15:21:59 deraadt Exp $ */
+/* $OpenBSD: acpicpu.c,v 1.69 2015/09/11 22:44:30 guenther Exp $ */
 /*
  * Copyright (c) 2005 Marco Peereboom <marco@openbsd.org>
  * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
@@ -394,8 +394,12 @@ acpicpu_add_cstatepkg(struct aml_value *val, void *arg)
 		if (grd->grd_gas.register_bit_width == 0) {
 			method = CST_METH_HALT;
 			addr = 0;
-		} else if (grd->grd_gas.register_bit_width == 1) {
-			/* vendor == Intel */
+		} else if (grd->grd_gas.register_bit_width == 1 ||
+		           grd->grd_gas.register_bit_width == 8) {
+			/*
+			 * vendor 1 == Intel
+			 * vendor 8 == "AML author used the bitwidth"
+			 */
 			switch (grd->grd_gas.register_bit_offset) {
 			case 0x1:
 				method = CST_METH_IO_HALT;
@@ -506,19 +510,14 @@ acpicpu_getcst(struct acpicpu_softc *sc)
 		return (1);
 
 	/*
-	 * Scan the list for states that are neither lower power nor
-	 * lower latency than the next state; mark them to be skipped.
-	 * Also skip states >=C2 if the CPU's LAPIC timer stops in deep
+	 * Skip states >= C2 if the CPU's LAPIC timer stops in deep
 	 * states (i.e., it doesn't have the 'ARAT' bit set).
 	 * Also keep track if all the states we'll use use mwait.
 	 */
 	use_nonmwait = 0;
 	while ((next_cx = SLIST_NEXT(cx, link)) != NULL) {
-		if ((next_cx->power != -1 &&
-		    cx->power >= next_cx->power &&
-		    cx->latency >= next_cx->latency) ||
-		    (cx->state > 1 &&
-		    (sc->sc_ci->ci_feature_tpmflags & TPM_ARAT) == 0))
+		if (cx->state > 1 &&
+		    (sc->sc_ci->ci_feature_tpmflags & TPM_ARAT) == 0)
 			cx->flags |= CST_FLAG_SKIP;
 		else if (cx->method != CST_METH_MWAIT)
 			use_nonmwait = 1;

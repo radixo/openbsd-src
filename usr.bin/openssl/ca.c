@@ -1,4 +1,4 @@
-/* $OpenBSD: ca.c,v 1.8 2015/07/22 15:52:32 jsing Exp $ */
+/* $OpenBSD: ca.c,v 1.13 2015/09/11 18:07:06 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -88,15 +88,10 @@
 #define STRING_MASK		"string_mask"
 #define UTF8_IN			"utf8"
 
-#define ENV_DIR			"dir"
-#define ENV_CERTS		"certs"
-#define ENV_CRL_DIR		"crl_dir"
-#define ENV_CA_DB		"CA_DB"
 #define ENV_NEW_CERTS_DIR	"new_certs_dir"
 #define ENV_CERTIFICATE 	"certificate"
 #define ENV_SERIAL		"serial"
 #define ENV_CRLNUMBER		"crlnumber"
-#define ENV_CRL			"crl"
 #define ENV_PRIVATE_KEY		"private_key"
 #define ENV_DEFAULT_DAYS 	"default_days"
 #define ENV_DEFAULT_STARTDATE 	"default_startdate"
@@ -140,7 +135,7 @@ static const char *ca_usage[] = {
 	" -md arg         - md to use, one of md2, md5, sha or sha1\n",
 	" -policy arg     - The CA 'policy' to support\n",
 	" -keyfile arg    - private key file\n",
-	" -keyform arg    - private key file format (PEM or ENGINE)\n",
+	" -keyform arg    - private key file format (PEM)\n",
 	" -key arg        - key to decode the private key if it is encrypted\n",
 	" -cert file      - The CA certificate\n",
 	" -selfsign       - sign a certificate with the key associated with it\n",
@@ -161,9 +156,6 @@ static const char *ca_usage[] = {
 	" -extensions ..  - Extension section (override value in config file)\n",
 	" -extfile file   - Configuration file with X509v3 extentions to add\n",
 	" -crlexts ..     - CRL extension section (override value in config file)\n",
-#ifndef OPENSSL_NO_ENGINE
-	" -engine e       - use engine e, possibly a hardware device.\n",
-#endif
 	" -status serial  - Shows certificate status given the serial number\n",
 	" -updatedb       - Updates db for expired certificates\n",
 	NULL
@@ -183,7 +175,7 @@ static int certify_cert(X509 ** xret, char *infile, EVP_PKEY * pkey,
     unsigned long chtype, int multirdn, int email_dn, char *startdate,
     char *enddate, long days, int batch, char *ext_sect, CONF * conf,
     int verbose, unsigned long certopt, unsigned long nameopt, int default_op,
-    int ext_copy, ENGINE * e);
+    int ext_copy);
 static int certify_spkac(X509 ** xret, char *infile, EVP_PKEY * pkey,
     X509 * x509, const EVP_MD * dgst, STACK_OF(OPENSSL_STRING) * sigopts,
     STACK_OF(CONF_VALUE) * policy, CA_DB * db, BIGNUM * serial, char *subj,
@@ -218,7 +210,6 @@ static int msie_hack = 0;
 int
 ca_main(int argc, char **argv)
 {
-	ENGINE *e = NULL;
 	char *key = NULL, *passargin = NULL;
 	int create_ser = 0;
 	int free_key = 0;
@@ -291,9 +282,6 @@ ca_main(int argc, char **argv)
 	STACK_OF(OPENSSL_STRING) * sigopts = NULL;
 #define BUFLEN 256
 	char buf[3][BUFLEN];
-#ifndef OPENSSL_NO_ENGINE
-	char *engine = NULL;
-#endif
 	char *tofree = NULL;
 	const char *errstr = NULL;
 	DB_ATTR db_attr;
@@ -483,13 +471,6 @@ ca_main(int argc, char **argv)
 			rev_arg = *(++argv);
 			rev_type = REV_CA_COMPROMISE;
 		}
-#ifndef OPENSSL_NO_ENGINE
-		else if (strcmp(*argv, "-engine") == 0) {
-			if (--argc < 1)
-				goto bad;
-			engine = *(++argv);
-		}
-#endif
 		else {
 bad:
 			if (errstr)
@@ -516,8 +497,6 @@ bad:
 	tofree = NULL;
 	if (configfile == NULL)
 		configfile = getenv("OPENSSL_CONF");
-	if (configfile == NULL)
-		configfile = getenv("SSLEAY_CONF");
 	if (configfile == NULL) {
 		if ((tofree = make_config_name()) == NULL) {
 			BIO_printf(bio_err, "error making config file name\n");
@@ -540,10 +519,6 @@ bad:
 	}
 	free(tofree);
 	tofree = NULL;
-
-#ifndef OPENSSL_NO_ENGINE
-	e = setup_engine(bio_err, engine, 0);
-#endif
 
 	/* Lets get the config section we are using */
 	if (section == NULL) {
@@ -644,9 +619,9 @@ bad:
 			goto err;
 		}
 	}
-	pkey = load_key(bio_err, keyfile, keyform, 0, key, e, "CA private key");
+	pkey = load_key(bio_err, keyfile, keyform, 0, key, "CA private key");
 	if (key)
-		OPENSSL_cleanse(key, strlen(key));
+		explicit_bzero(key, strlen(key));
 	if (pkey == NULL) {
 		/* load_key() has already printed an appropriate message */
 		goto err;
@@ -660,7 +635,7 @@ bad:
 			lookup_fail(section, ENV_CERTIFICATE);
 			goto err;
 		}
-		x509 = load_cert(bio_err, certfile, FORMAT_PEM, NULL, e,
+		x509 = load_cert(bio_err, certfile, FORMAT_PEM, NULL,
 		    "CA certificate");
 		if (x509 == NULL)
 			goto err;
@@ -1033,7 +1008,7 @@ bad:
 			    sigopts, attribs, db, serial, subj, chtype,
 			    multirdn, email_dn, startdate, enddate, days, batch,
 			    extensions, conf, verbose, certopt, nameopt,
-			    default_op, ext_copy, e);
+			    default_op, ext_copy);
 			if (j < 0)
 				goto err;
 			if (j > 0) {
@@ -1319,7 +1294,7 @@ bad:
 		} else {
 			X509 *revcert;
 			revcert = load_cert(bio_err, infile, FORMAT_PEM,
-			    NULL, e, infile);
+			    NULL, infile);
 			if (revcert == NULL)
 				goto err;
 			j = do_revoke(revcert, db, rev_type, rev_arg);
@@ -1451,14 +1426,14 @@ certify_cert(X509 ** xret, char *infile, EVP_PKEY * pkey, X509 * x509,
     unsigned long chtype, int multirdn, int email_dn, char *startdate,
     char *enddate, long days, int batch, char *ext_sect, CONF * lconf,
     int verbose, unsigned long certopt, unsigned long nameopt, int default_op,
-    int ext_copy, ENGINE * e)
+    int ext_copy)
 {
 	X509 *req = NULL;
 	X509_REQ *rreq = NULL;
 	EVP_PKEY *pktmp = NULL;
 	int ok = -1, i;
 
-	if ((req = load_cert(bio_err, infile, FORMAT_PEM, NULL, e,
+	if ((req = load_cert(bio_err, infile, FORMAT_PEM, NULL,
 	    infile)) == NULL)
 		goto err;
 	if (verbose)
@@ -1802,7 +1777,8 @@ again2:
 	if (!X509_set_version(ret, 2))
 		goto err;
 #endif
-
+	if (ci->serialNumber == NULL)
+		goto err;
 	if (BN_to_ASN1_INTEGER(serial, ci->serialNumber) == NULL)
 		goto err;
 	if (selfsign) {
@@ -1952,6 +1928,11 @@ again2:
 
 	tm = X509_get_notAfter(ret);
 	row[DB_exp_date] = malloc(tm->length + 1);
+	if (row[DB_exp_date] == NULL) {
+		BIO_printf(bio_err, "Memory allocation failure\n");
+		goto err;
+	}
+
 	memcpy(row[DB_exp_date], tm->data, tm->length);
 	row[DB_exp_date][tm->length] = '\0';
 
@@ -1961,8 +1942,8 @@ again2:
 	row[DB_file] = malloc(8);
 	row[DB_name] = X509_NAME_oneline(X509_get_subject_name(ret), NULL, 0);
 
-	if ((row[DB_type] == NULL) || (row[DB_exp_date] == NULL) ||
-	    (row[DB_file] == NULL) || (row[DB_name] == NULL)) {
+	if ((row[DB_type] == NULL) || (row[DB_file] == NULL) ||
+	    (row[DB_name] == NULL)) {
 		BIO_printf(bio_err, "Memory allocation failure\n");
 		goto err;
 	}
@@ -2200,6 +2181,10 @@ do_revoke(X509 * x509, CA_DB * db, int type, char *value)
 
 		tm = X509_get_notAfter(x509);
 		row[DB_exp_date] = malloc(tm->length + 1);
+		if (row[DB_exp_date] == NULL) {
+			BIO_printf(bio_err, "Memory allocation failure\n");
+			goto err;
+		}
 		memcpy(row[DB_exp_date], tm->data, tm->length);
 		row[DB_exp_date][tm->length] = '\0';
 
@@ -2210,8 +2195,7 @@ do_revoke(X509 * x509, CA_DB * db, int type, char *value)
 
 		/* row[DB_name] done already */
 
-		if ((row[DB_type] == NULL) || (row[DB_exp_date] == NULL) ||
-		    (row[DB_file] == NULL)) {
+		if ((row[DB_type] == NULL) || (row[DB_file] == NULL)) {
 			BIO_printf(bio_err, "Memory allocation failure\n");
 			goto err;
 		}

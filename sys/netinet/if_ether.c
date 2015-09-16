@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.161 2015/08/19 10:50:14 mpi Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.168 2015/09/13 17:53:44 mpi Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -95,11 +95,14 @@ void arptfree(struct llinfo_arp *);
 void arptimer(void *);
 struct rtentry *arplookup(u_int32_t, int, int, u_int);
 void in_arpinput(struct mbuf *);
+void revarpinput(struct mbuf *);
+void in_revarpinput(struct mbuf *);
 
 LIST_HEAD(, llinfo_arp) llinfo_arp;
 struct	pool arp_pool;		/* pool for llinfo_arp structures */
 /* XXX hate magic numbers */
 struct	niqueue arpintrq = NIQUEUE_INITIALIZER(50, NETISR_ARP);
+struct	niqueue rarpintrq = NIQUEUE_INITIALIZER(50, NETISR_ARP);
 int	arp_inuse, arp_allocated;
 int	arp_maxtries = 5;
 int	arpinit_done;
@@ -109,7 +112,6 @@ int	la_hold_total;
 /* revarp state */
 struct in_addr revarp_myip, revarp_srvip;
 int revarp_finished;
-int revarp_in_progress;
 struct ifnet *revarp_ifp;
 #endif /* NFSCLIENT */
 
@@ -243,13 +245,6 @@ arp_rtrequest(int req, struct rtentry *rt)
 		if (ifa) {
 			rt->rt_expire = 0;
 			/*
-			 * XXX Since lo0 is in the default rdomain we
-			 * should not (ab)use it for any route related
-			 * to an interface of a different rdomain.
-			 */
-			rt->rt_ifp = lo0ifp;
-
-			/*
 			 * make sure to set rt->rt_ifa to the interface
 			 * address we are using, otherwise we will have trouble
 			 * with source address selection.
@@ -314,7 +309,7 @@ arprequest(struct ifnet *ifp, u_int32_t *sip, u_int32_t *tip, u_int8_t *enaddr)
 	sa.sa_family = pseudo_AF_HDRCMPLT;
 	sa.sa_len = sizeof(sa);
 	m->m_flags |= M_BCAST;
-	(*ifp->if_output)(ifp, m, &sa, (struct rtentry *)0);
+	ifp->if_output(ifp, m, &sa, NULL);
 }
 
 /*
@@ -372,10 +367,11 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 			    "local address\n", __func__, inet_ntop(AF_INET,
 				&satosin(dst)->sin_addr, addr, sizeof(addr)));
 	} else {
+		la = NULL;
 		if ((rt = arplookup(satosin(dst)->sin_addr.s_addr, 1, 0,
 		    ifp->if_rdomain)) != NULL)
 			la = ((struct llinfo_arp *)rt->rt_llinfo);
-		else
+		if (la == NULL)
 			log(LOG_DEBUG, "%s: %s: can't allocate llinfo\n",
 			    __func__,
 			    inet_ntop(AF_INET, &satosin(dst)->sin_addr,
@@ -506,6 +502,9 @@ arpintr(void)
 		}
 		m_freem(m);
 	}
+
+	while ((m = niq_dequeue(&rarpintrq)) != NULL)
+		revarpinput(m);
 }
 
 /*
@@ -545,8 +544,10 @@ in_arpinput(struct mbuf *m)
 	unsigned int len;
 
 	ifp = if_get(m->m_pkthdr.ph_ifidx);
-	if (ifp == NULL)
-		goto out;
+	if (ifp == NULL) {
+		m_freem(m);
+		return;
+	}
 	ac = (struct arpcom *)ifp;
 
 	ea = mtod(m, struct ether_arp *);
@@ -600,7 +601,7 @@ in_arpinput(struct mbuf *m)
 		}
 	}
 
-	/* Third try: not one of our addresses, just find an usable ia */
+	/* Third try: not one of our addresses, just find a usable ia */
 	if (ifa == NULL) {
 		TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
 			if (ifa->ifa_addr->sa_family == AF_INET)
@@ -709,7 +710,7 @@ in_arpinput(struct mbuf *m)
 			mh = ml_dequeue(&la->la_ml);
 			la_hold_total--;
 
-			(*ifp->if_output)(ifp, mh, rt_key(rt), rt);
+			ifp->if_output(ifp, mh, rt_key(rt), rt);
 
 			if (ml_len(&la->la_ml) == len) {
 				/* mbuf is back in queue. Discard. */
@@ -724,6 +725,7 @@ in_arpinput(struct mbuf *m)
 reply:
 	if (op != ARPOP_REQUEST) {
 out:
+		if_put(ifp);
 		m_freem(m);
 		return;
 	}
@@ -758,7 +760,8 @@ out:
 	eh->ether_type = htons(ETHERTYPE_ARP);
 	sa.sa_family = pseudo_AF_HDRCMPLT;
 	sa.sa_len = sizeof(sa);
-	(*ifp->if_output)(ifp, m, &sa, NULL);
+	ifp->if_output(ifp, m, &sa, NULL);
+	if_put(ifp);
 	return;
 }
 
@@ -826,29 +829,25 @@ arplookup(u_int32_t addr, int create, int proxy, u_int tableid)
  * Check whether we do proxy ARP for this address and we point to ourselves.
  */
 int
-arpproxy(struct in_addr in, u_int rdomain)
+arpproxy(struct in_addr in, unsigned int rtableid)
 {
+	struct sockaddr_dl *sdl;
 	struct rtentry *rt;
-	struct llinfo_arp *la;
 	struct ifnet *ifp;
 	int found = 0;
 
-	rt = arplookup(in.s_addr, 0, SIN_PROXY, rdomain);
+	rt = arplookup(in.s_addr, 0, SIN_PROXY, rtableid);
 	if (rt == NULL)
 		return (0);
-	la = ((struct llinfo_arp *)rt->rt_llinfo);
 
-	TAILQ_FOREACH(ifp, &ifnet, if_list) {
-		if (ifp->if_rdomain != rdomain)
-			continue;
+	/* Check that arp information are correct. */
+	sdl = (struct sockaddr_dl *)rt->rt_gateway;
+	if (sdl->sdl_alen != ETHER_ADDR_LEN)
+		return (0);
 
-		if (!memcmp(LLADDR((struct sockaddr_dl *)la->la_rt->rt_gateway),
-		    LLADDR(ifp->if_sadl),
-		    ETHER_ADDR_LEN)) {
-			found = 1;
-			break;
-		}
-	}
+	ifp = rt->rt_ifp;
+	if (!memcmp(LLADDR(sdl), LLADDR(ifp->if_sadl), sdl->sdl_alen))
+		found = 1;
 
 	return (found);
 }
@@ -905,9 +904,6 @@ out:
 void
 in_revarpinput(struct mbuf *m)
 {
-#ifdef NFSCLIENT
-	struct ifnet *ifp;
-#endif /* NFSCLIENT */
 	struct ether_arp *ar;
 	int op;
 
@@ -925,14 +921,13 @@ in_revarpinput(struct mbuf *m)
 		goto out;
 	}
 #ifdef NFSCLIENT
-	if (!revarp_in_progress)
+	if (revarp_ifp == NULL)
 		goto out;
-	ifp = if_get(m->m_pkthdr.ph_ifidx);
-	if (ifp != revarp_ifp) /* !same interface */
+	if (revarp_ifp->if_index != m->m_pkthdr.ph_ifidx) /* !same interface */
 		goto out;
 	if (revarp_finished)
 		goto wake;
-	if (memcmp(ar->arp_tha, ((struct arpcom *)ifp)->ac_enaddr,
+	if (memcmp(ar->arp_tha, ((struct arpcom *)revarp_ifp)->ac_enaddr,
 	    sizeof(ar->arp_tha)))
 		goto out;
 	memcpy(&revarp_srvip, ar->arp_spa, sizeof(revarp_srvip));
@@ -980,7 +975,7 @@ revarprequest(struct ifnet *ifp)
 	sa.sa_family = pseudo_AF_HDRCMPLT;
 	sa.sa_len = sizeof(sa);
 	m->m_flags |= M_BCAST;
-	ifp->if_output(ifp, m, &sa, (struct rtentry *)0);
+	ifp->if_output(ifp, m, &sa, NULL);
 }
 
 #ifdef NFSCLIENT
@@ -998,15 +993,15 @@ revarpwhoarewe(struct ifnet *ifp, struct in_addr *serv_in,
 	if (revarp_finished)
 		return EIO;
 
-	revarp_ifp = ifp;
-	revarp_in_progress = 1;
+	revarp_ifp = if_ref(ifp);
 	while (count--) {
 		revarprequest(ifp);
 		result = tsleep((caddr_t)&revarp_myip, PSOCK, "revarp", hz/2);
 		if (result != EWOULDBLOCK)
 			break;
 	}
-	revarp_in_progress = 0;
+	if_put(revarp_ifp);
+	revarp_ifp = NULL;
 	if (!revarp_finished)
 		return ENETUNREACH;
 

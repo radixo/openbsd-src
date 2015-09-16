@@ -1,4 +1,4 @@
-/*	$OpenBSD: wsfont.c,v 1.39 2015/01/11 13:00:05 deraadt Exp $ */
+/*	$OpenBSD: wsfont.c,v 1.41 2015/09/08 11:13:22 deraadt Exp $ */
 /*	$NetBSD: wsfont.c,v 1.17 2001/02/07 13:59:24 ad Exp $	*/
 
 /*-
@@ -94,17 +94,18 @@
 
 /*
  * Make sure we always have at least one font.
- * Some platforms (currently luna88k, sgi, sparc and sparc64) always provide
- * a 8x16 font and a larger 12x22 font.
- * Other platforms also provide both, but the 12x22 font is omitted if
- * option SMALL_KERNEL.
+ * Unless otherwise configured, all platforms provide both a 8x16 font and a
+ * larger 12x22 font.
+ * Some platforms will however only provide the 8x16 font if option
+ * SMALL_KERNEL.
  */
 #ifndef HAVE_FONT
 #define HAVE_FONT 1
 
 #define	FONT_BOLD8x16_ISO1
-#if defined(__luna88k__) || defined(__sgi__) || defined(__sparc__) || \
-    defined(__sparc64__) || !defined(SMALL_KERNEL)
+#if defined(__alpha__) || defined(__luna88k__) || defined(__macppc__) || \
+    defined(__sgi__) || defined(__sparc__) || defined(__sparc64__) || \
+    !defined(SMALL_KERNEL)
 #define	FONT_GALLANT12x22
 #endif
 
@@ -169,6 +170,10 @@ static struct font builtin_fonts[] = {
 };
 
 #if !defined(SMALL_KERNEL) || defined(__alpha__)
+#define INCLUDE_FONT_BIT_ENDIANNESS_SWAP_CODE
+#endif
+
+#ifdef INCLUDE_FONT_BIT_ENDIANNESS_SWAP_CODE
 
 /* Reverse the bit order in a byte */
 static const u_char reverse[256] = {
@@ -210,7 +215,7 @@ static const u_char reverse[256] = {
 
 static struct font *wsfont_find0(int);
 
-#if !defined(SMALL_KERNEL) || defined(__alpha__)
+#ifdef INCLUDE_FONT_BIT_ENDIANNESS_SWAP_CODE
 
 /*
  * Reverse the bit order of a font
@@ -338,8 +343,9 @@ wsfont_rotate_internal(struct wsdisplay_font *font)
 		 * If we seem to have rotated this font already, drop the
 		 * new one...
 		 */
-		free(newbits, M_DEVBUF, 0);
-		free(newfont, M_DEVBUF, 0);
+		free(newbits, M_DEVBUF,
+		    font->numchars * newstride * font->fontwidth);
+		free(newfont, M_DEVBUF, sizeof *font);
 		newfont = NULL;
 	}
 
@@ -533,7 +539,7 @@ wsfont_lock(int cookie, struct wsdisplay_font **ptr, int bitorder,
 
 	if ((ent = wsfont_find0(cookie)) != NULL) {
 		if (bitorder && bitorder != ent->font->bitorder) {
-#if !defined(SMALL_KERNEL) || defined(__alpha__)
+#ifdef INCLUDE_FONT_BIT_ENDIANNESS_SWAP_CODE
 			if (ent->lockcount) {
 				splx(s);
 				return (-1);

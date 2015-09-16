@@ -1,4 +1,4 @@
-/*	$OpenBSD: subr_autoconf.c,v 1.86 2015/02/09 13:38:50 dlg Exp $	*/
+/*	$OpenBSD: subr_autoconf.c,v 1.88 2015/09/11 19:14:51 dlg Exp $	*/
 /*	$NetBSD: subr_autoconf.c,v 1.21 1996/04/04 06:06:18 cgd Exp $	*/
 
 /*

@@ -1,10 +1,10 @@
-/*	$OpenBSD: if.c,v 1.362 2015/08/30 10:39:16 mpi Exp $	*/
+/*	$OpenBSD: if.c,v 1.379 2015/09/13 17:53:44 mpi Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
  * Copyright (C) 1995, 1996, 1997, and 1998 WIDE Project.
  * All rights reserved.
- * 
+ *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
  * are met:
@@ -16,7 +16,7 @@
  * 3. Neither the name of the project nor the names of its contributors
  *    may be used to endorse or promote products derived from this software
  *    without specific prior written permission.
- * 
+ *
  * THIS SOFTWARE IS PROVIDED BY THE PROJECT AND CONTRIBUTORS ``AS IS'' AND
  * ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
  * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
@@ -80,6 +80,7 @@
 #include <sys/domain.h>
 #include <sys/sysctl.h>
 #include <sys/task.h>
+#include <sys/atomic.h>
 
 #include <dev/rndvar.h>
 
@@ -141,6 +142,7 @@ struct if_clone	*if_clone_lookup(const char *, int *);
 
 int	if_group_egress_build(void);
 
+void	if_watchdog_task(void *);
 void	if_link_state_change_task(void *);
 
 void	if_input_process(void *);
@@ -148,6 +150,57 @@ void	if_input_process(void *);
 #ifdef DDB
 void	ifa_print_all(void);
 #endif
+
+/*
+ * interface index map
+ *
+ * the kernel maintains a mapping of interface indexes to struct ifnet
+ * pointers.
+ *
+ * the map is an array of struct ifnet pointers prefixed by an if_map
+ * structure. the if_map structure stores the length of its array.
+ *
+ * as interfaces are attached to the system, the map is grown on demand
+ * up to USHRT_MAX entries.
+ *
+ * interface index 0 is reserved and represents no interface. this
+ * supports the use of the interface index as the scope for IPv6 link
+ * local addresses, where scope 0 means no scope has been specified.
+ * it also supports the use of interface index as the unique identifier
+ * for network interfaces in SNMP applications as per RFC2863. therefore
+ * if_get(0) returns NULL.
+ */
+
+void if_ifp_dtor(void *, void *);
+void if_map_dtor(void *, void *);
+
+/*
+ * struct if_map
+ *
+ * bounded array of ifnet srp pointers used to fetch references of live
+ * interfaces with if_get().
+ */
+
+struct if_map {
+	unsigned long		 limit;
+	/* followed by limit ifnet srp pointers */
+};
+
+/*
+ * struct if_idxmap
+ *
+ * infrastructure to manage updates and accesses to the current if_map.
+ */
+
+struct if_idxmap {
+	unsigned int		 serial;
+	unsigned int		 count;
+	struct srp		 map;
+};
+
+void	if_idxmap_init(unsigned int);
+void	if_idxmap_insert(struct ifnet *);
+void	if_idxmap_remove(struct ifnet *);
 
 TAILQ_HEAD(, ifg_group) ifg_head = TAILQ_HEAD_INITIALIZER(ifg_head);
 LIST_HEAD(, if_clone) if_cloners = LIST_HEAD_INITIALIZER(if_cloners);
@@ -169,6 +222,12 @@ struct taskq *softnettq;
 void
 ifinit()
 {
+	/*
+	 * most machines boot with 4 or 5 interfaces, so size the initial map
+	 * to accomodate this
+	 */
+	if_idxmap_init(8);
+
 	timeout_set(&net_tick_to, net_tick, &net_tick_to);
 
 	softnettq = taskq_create("softnet", 1, IPL_NET,
@@ -179,12 +238,158 @@ ifinit()
 	net_tick(&net_tick_to);
 }
 
-static unsigned int if_index = 0;
-static unsigned int if_indexlim = 0;
-struct ifnet **ifindex2ifnet = NULL;
+static struct if_idxmap if_idxmap = {
+	0,
+	0,
+	SRP_INITIALIZER()
+};
+
+struct srp_gc if_ifp_gc = SRP_GC_INITIALIZER(if_ifp_dtor, NULL);
+struct srp_gc if_map_gc = SRP_GC_INITIALIZER(if_map_dtor, NULL);
+
 struct ifnet_head ifnet = TAILQ_HEAD_INITIALIZER(ifnet);
 struct ifnet_head iftxlist = TAILQ_HEAD_INITIALIZER(iftxlist);
 struct ifnet *lo0ifp;
+
+void
+if_idxmap_init(unsigned int limit)
+{
+	struct if_map *if_map;
+	struct srp *map;
+	unsigned int i;
+
+	if_idxmap.serial = 1; /* skip ifidx 0 so it can return NULL */
+
+	if_map = malloc(sizeof(*if_map) + limit * sizeof(*map),
+	    M_IFADDR, M_WAITOK);
+
+	if_map->limit = limit;
+	map = (struct srp *)(if_map + 1);
+	for (i = 0; i < limit; i++)
+		srp_init(&map[i]);
+
+	/* this is called early so there's nothing to race with */
+	srp_update_locked(&if_map_gc, &if_idxmap.map, if_map);
+}
+
+void
+if_idxmap_insert(struct ifnet *ifp)
+{
+	struct if_map *if_map;
+	struct srp *map;
+	unsigned int index, i;
+
+	/*
+	 * give the ifp an initial refcnt of 1 to ensure it will not
+	 * be freed until if_idxmap_remove returns.
+	 */
+	ifp->if_refcnt = 1;
+
+	/* the kernel lock guarantees serialised modifications to if_idxmap */
+	KERNEL_ASSERT_LOCKED();
+
+	if (++if_idxmap.count > USHRT_MAX)
+		panic("too many interfaces");
+
+	if_map = srp_get_locked(&if_idxmap.map);
+	map = (struct srp *)(if_map + 1);
+
+	index = if_idxmap.serial++ & USHRT_MAX;
+
+	if (index >= if_map->limit) {
+		struct if_map *nif_map;
+		struct srp *nmap;
+		unsigned int nlimit;
+		struct ifnet *nifp;
+
+		nlimit = if_map->limit * 2;
+		nif_map = malloc(sizeof(*nif_map) + nlimit * sizeof(*nmap),
+		    M_IFADDR, M_WAITOK);
+		nmap = (struct srp *)(nif_map + 1);
+
+		nif_map->limit = nlimit;
+		for (i = 0; i < if_map->limit; i++) {
+			srp_init(&nmap[i]);
+			nifp = srp_get_locked(&map[i]);
+			if (nifp != NULL) {
+				srp_update_locked(&if_ifp_gc, &nmap[i],
+				    if_ref(nifp));
+			}
+		}
+
+		while (i < nlimit) {
+			srp_init(&nmap[i]);
+			i++;
+		}
+
+		srp_update_locked(&if_map_gc, &if_idxmap.map, nif_map);
+		if_map = nif_map;
+		map = nmap;
+	}
+
+	/* pick the next free index */
+	for (i = 0; i < USHRT_MAX; i++) {
+		if (index != 0 && srp_get_locked(&map[index]) == NULL)
+			break;
+
+		index = if_idxmap.serial++ & USHRT_MAX;
+	}
+
+	/* commit */
+	ifp->if_index = index;
+	srp_update_locked(&if_ifp_gc, &map[index], if_ref(ifp));
+}
+
+void
+if_idxmap_remove(struct ifnet *ifp)
+{
+	struct if_map *if_map;
+	struct srp *map;
+	unsigned int index, r;
+
+	index = ifp->if_index;
+
+	/* the kernel lock guarantees serialised modifications to if_idxmap */
+	KERNEL_ASSERT_LOCKED();
+
+	if_map = srp_get_locked(&if_idxmap.map);
+	KASSERT(index < if_map->limit);
+
+	map = (struct srp *)(if_map + 1);
+	KASSERT(ifp == (struct ifnet *)srp_get_locked(&map[index]));
+
+	srp_update_locked(&if_ifp_gc, &map[index], NULL);
+	if_idxmap.count--;
+	/* end of if_idxmap modifications */
+
+	/* release the initial ifp refcnt */
+	r = atomic_dec_int_nv(&ifp->if_refcnt);
+	if (r != 0)
+		printf("%s: refcnt %u\n", ifp->if_xname, r);
+}
+
+void
+if_ifp_dtor(void *null, void *ifp)
+{
+	if_put(ifp);
+}
+
+void
+if_map_dtor(void *null, void *m)
+{
+	struct if_map *if_map = m;
+	struct srp *map = (struct srp *)(if_map + 1);
+	unsigned int i;
+
+	/*
+	 * dont need the kernel lock to use update_locked since this is
+	 * the last reference to this map. there's nothing to race against.
+	 */
+	for (i = 0; i < if_map->limit; i++)
+		srp_update_locked(&if_ifp_gc, &map[i], NULL);
+
+	free(if_map, M_IFADDR, sizeof(*if_map) + if_map->limit * sizeof(*map));
+}
 
 /*
  * Attach an interface to the
@@ -193,74 +398,9 @@ struct ifnet *lo0ifp;
 void
 if_attachsetup(struct ifnet *ifp)
 {
-	int wrapped = 0;
-
-	/*
-	 * Always increment the index to avoid races.
-	 */
-	if_index++;
-
-	/*
-	 * If we hit USHRT_MAX, we skip back to 1 since there are a
-	 * number of places where the value of ifp->if_index or
-	 * if_index itself is compared to or stored in an unsigned
-	 * short.  By jumping back, we won't botch those assignments
-	 * or comparisons.
-	 */
-	if (if_index == USHRT_MAX) {
-		if_index = 1;
-		wrapped++;
-	}
-
-	while (if_index < if_indexlim && ifindex2ifnet[if_index] != NULL) {
-		if_index++;
-
-		if (if_index == USHRT_MAX) {
-			/*
-			 * If we have to jump back to 1 twice without
-			 * finding an empty slot then there are too many
-			 * interfaces.
-			 */
-			if (wrapped)
-				panic("too many interfaces");
-
-			if_index = 1;
-			wrapped++;
-		}
-	}
-	ifp->if_index = if_index;
-
-	/*
-	 * We have some arrays that should be indexed by if_index.
-	 * since if_index will grow dynamically, they should grow too.
-	 *	struct ifnet **ifindex2ifnet
-	 */
-	if (ifindex2ifnet == NULL || if_index >= if_indexlim) {
-		size_t m, n, oldlim;
-		caddr_t q;
-
-		oldlim = if_indexlim;
-		if (if_indexlim == 0)
-			if_indexlim = 8;
-		while (if_index >= if_indexlim)
-			if_indexlim <<= 1;
-
-		/* grow ifindex2ifnet */
-		m = oldlim * sizeof(struct ifnet *);
-		n = if_indexlim * sizeof(struct ifnet *);
-		q = (caddr_t)malloc(n, M_IFADDR, M_WAITOK|M_ZERO);
-		if (ifindex2ifnet) {
-			bcopy((caddr_t)ifindex2ifnet, q, m);
-			free((caddr_t)ifindex2ifnet, M_IFADDR, 0);
-		}
-		ifindex2ifnet = (struct ifnet **)q;
-	}
-
 	TAILQ_INIT(&ifp->if_groups);
 
 	if_addgroup(ifp, IFG_ALL);
-
-	ifindex2ifnet[if_index] = ifp;
 
 	if (ifp->if_snd.ifq_maxlen == 0)
 		IFQ_SET_MAXLEN(&ifp->if_snd, IFQ_MAXLEN);
@@ -270,10 +410,14 @@ if_attachsetup(struct ifnet *ifp)
 	pfi_attach_ifnet(ifp);
 #endif
 
+	task_set(ifp->if_watchdogtask, if_watchdog_task, ifp);
 	timeout_set(ifp->if_slowtimo, if_slowtimo, ifp);
 	if_slowtimo(ifp);
 
 	task_set(ifp->if_linkstatetask, if_link_state_change_task, ifp);
+
+	if_idxmap_insert(ifp);
+	KASSERT(if_get(0) == NULL);
 
 	/* Announce the interface. */
 	rt_ifannouncemsg(ifp, IFAN_ARRIVAL);
@@ -383,10 +527,12 @@ if_attach_common(struct ifnet *ifp)
 
 	ifp->if_slowtimo = malloc(sizeof(*ifp->if_slowtimo), M_TEMP,
 	    M_WAITOK|M_ZERO);
+	ifp->if_watchdogtask = malloc(sizeof(*ifp->if_watchdogtask),
+	    M_TEMP, M_WAITOK|M_ZERO);
 	ifp->if_linkstatetask = malloc(sizeof(*ifp->if_linkstatetask),
 	    M_TEMP, M_WAITOK|M_ZERO);
 
-	SLIST_INIT(&ifp->if_inputs);
+	SRPL_INIT(&ifp->if_inputs);
 }
 
 void
@@ -483,6 +629,145 @@ if_input(struct ifnet *ifp, struct mbuf_list *ml)
 	task_add(softnettq, &if_input_task);
 }
 
+int
+if_input_local(struct ifnet *ifp, struct mbuf *m, sa_family_t af)
+{
+	struct niqueue *ifq = NULL;
+
+#if NBPFILTER > 0
+	/*
+	 * Only send packets to bpf if they are destinated to local
+	 * addresses.
+	 *
+	 * if_input_local() is also called for SIMPLEX interfaces to
+	 * duplicate packets for local use.  But don't dup them to bpf.
+	 */
+	if (ifp->if_flags & IFF_LOOPBACK) {
+		caddr_t if_bpf = ifp->if_bpf;
+
+		if (if_bpf)
+			bpf_mtap_af(if_bpf, af, m, BPF_DIRECTION_OUT);
+	}
+#endif
+	m->m_pkthdr.ph_ifidx = ifp->if_index;
+
+	ifp->if_opackets++;
+	ifp->if_obytes += m->m_pkthdr.len;
+
+	switch (af) {
+	case AF_INET:
+		ifq = &ipintrq;
+		break;
+#ifdef INET6
+	case AF_INET6:
+		ifq = &ip6intrq;
+		break;
+#endif /* INET6 */
+#ifdef MPLS
+	case AF_MPLS:
+		ifp->if_ipackets++;
+		ifp->if_ibytes += m->m_pkthdr.len;
+		mpls_input(ifp, m);
+		return (0);
+#endif /* MPLS */
+	default:
+		printf("%s: can't handle af%d\n", ifp->if_xname, af);
+		m_freem(m);
+		return (EAFNOSUPPORT);
+	}
+
+	if (niq_enqueue(ifq, m) != 0)
+		return (ENOBUFS);
+
+	ifp->if_ipackets++;
+	ifp->if_ibytes += m->m_pkthdr.len;
+
+	return (0);
+}
+
+struct ifih {
+	struct srpl_entry	  ifih_next;
+	int			(*ifih_input)(struct ifnet *, struct mbuf *,
+				      void *);
+	void			 *ifih_cookie;
+	int			  ifih_refcnt;
+	struct refcnt		  ifih_srpcnt;
+};
+
+void	if_ih_ref(void *, void *);
+void	if_ih_unref(void *, void *);
+
+struct srpl_rc ifih_rc = SRPL_RC_INITIALIZER(if_ih_ref, if_ih_unref, NULL);
+
+void
+if_ih_insert(struct ifnet *ifp, int (*input)(struct ifnet *, struct mbuf *,
+    void *), void *cookie)
+{
+	struct ifih *ifih;
+
+	/* the kernel lock guarantees serialised modifications to if_inputs */
+	KERNEL_ASSERT_LOCKED();
+
+	SRPL_FOREACH_LOCKED(ifih, &ifp->if_inputs, ifih_next) {
+		if (ifih->ifih_input == input && ifih->ifih_cookie == cookie) {
+			ifih->ifih_refcnt++;
+			break;
+		}
+	}
+
+	if (ifih == NULL) {
+		ifih = malloc(sizeof(*ifih), M_DEVBUF, M_WAITOK);
+
+		ifih->ifih_input = input;
+		ifih->ifih_cookie = cookie;
+		ifih->ifih_refcnt = 1;
+		refcnt_init(&ifih->ifih_srpcnt);
+		SRPL_INSERT_HEAD_LOCKED(&ifih_rc, &ifp->if_inputs,
+		    ifih, ifih_next);
+	}
+}
+
+void
+if_ih_ref(void *null, void *i)
+{
+	struct ifih *ifih = i;
+
+	refcnt_take(&ifih->ifih_srpcnt);
+}
+
+void
+if_ih_unref(void *null, void *i)
+{
+	struct ifih *ifih = i;
+
+	refcnt_rele_wake(&ifih->ifih_srpcnt);
+}
+
+void
+if_ih_remove(struct ifnet *ifp, int (*input)(struct ifnet *, struct mbuf *,
+    void *), void *cookie)
+{
+	struct ifih *ifih;
+
+	/* the kernel lock guarantees serialised modifications to if_inputs */
+	KERNEL_ASSERT_LOCKED();
+
+	SRPL_FOREACH_LOCKED(ifih, &ifp->if_inputs, ifih_next) {
+		if (ifih->ifih_input == input && ifih->ifih_cookie == cookie)
+			break;
+	}
+
+	KASSERT(ifih != NULL);
+
+	if (--ifih->ifih_refcnt == 0) {
+		SRPL_REMOVE_LOCKED(&ifih_rc, &ifp->if_inputs, ifih,
+		    ifih, ifih_next);
+
+		refcnt_finalize(&ifih->ifih_srpcnt, "ifihrm");
+		free(ifih, M_DEVBUF, sizeof(*ifih));
+	}
+}
+
 void
 if_input_process(void *xmq)
 {
@@ -491,6 +776,7 @@ if_input_process(void *xmq)
 	struct mbuf *m;
 	struct ifnet *ifp;
 	struct ifih *ifih;
+	struct srpl_iter i;
 	int s;
 
 	mq_delist(mq, &ml);
@@ -513,8 +799,10 @@ if_input_process(void *xmq)
 #if NBRIDGE > 0
 		if (ifp->if_bridgeport && (m->m_flags & M_PROTO1) == 0) {
 			m = bridge_input(ifp, m);
-			if (m == NULL)
+			if (m == NULL) {
+				if_put(ifp);
 				continue;
+			}
 		}
 		m->m_flags &= ~M_PROTO1;	/* Loop prevention */
 #endif
@@ -523,12 +811,16 @@ if_input_process(void *xmq)
 		 * Pass this mbuf to all input handlers of its
 		 * interface until it is consumed.
 		 */
-		SLIST_FOREACH(ifih, &ifp->if_inputs, ifih_next) {
-			if ((*ifih->ifih_input)(ifp, m))
+		SRPL_FOREACH(ifih, &ifp->if_inputs, &i, ifih_next) {
+			if ((*ifih->ifih_input)(ifp, m, ifih->ifih_cookie))
 				break;
 		}
+		SRPL_LEAVE(&i, ifih);
+
 		if (ifih == NULL)
 			m_freem(m);
+
+		if_put(ifp);
 	}
 	splx(s);
 	KERNEL_UNLOCK();
@@ -599,8 +891,9 @@ if_detach(struct ifnet *ifp)
 	ifp->if_ioctl = if_detached_ioctl;
 	ifp->if_watchdog = NULL;
 
-	/* Remove the watchdog timeout */
+	/* Remove the watchdog timeout & task */
 	timeout_del(ifp->if_slowtimo);
+	task_del(systq, ifp->if_watchdogtask);
 
 	/* Remove the link state task */
 	task_del(systq, ifp->if_linkstatetask);
@@ -610,7 +903,7 @@ if_detach(struct ifnet *ifp)
 #endif
 	rt_if_remove(ifp);
 	rti_delete(ifp);
-#if NETHER > 0 && defined(NFSCLIENT) 
+#if NETHER > 0 && defined(NFSCLIENT)
 	if (ifp == revarp_ifp)
 		revarp_ifp = NULL;
 #endif
@@ -652,6 +945,7 @@ if_detach(struct ifnet *ifp)
 	free(ifp->if_detachhooks, M_TEMP, 0);
 
 	free(ifp->if_slowtimo, M_TEMP, sizeof(*ifp->if_slowtimo));
+	free(ifp->if_watchdogtask, M_TEMP, sizeof(*ifp->if_watchdogtask));
 	free(ifp->if_linkstatetask, M_TEMP, sizeof(*ifp->if_linkstatetask));
 
 	for (i = 0; (dp = domains[i]) != NULL; i++) {
@@ -663,7 +957,7 @@ if_detach(struct ifnet *ifp)
 	/* Announce that the interface is gone. */
 	rt_ifannouncemsg(ifp, IFAN_DEPARTURE);
 
-	ifindex2ifnet[ifp->if_index] = NULL;
+	if_idxmap_remove(ifp);
 	splx(s);
 }
 
@@ -1047,7 +1341,6 @@ p2p_rtrequest(int req, struct rtentry *rt)
 		if (lo0ifa == NULL)
 			break;
 
-		rt->rt_ifp = lo0ifp;
 		rt->rt_flags &= ~RTF_LLINFO;
 
 		/*
@@ -1199,9 +1492,21 @@ if_slowtimo(void *arg)
 
 	if (ifp->if_watchdog) {
 		if (ifp->if_timer > 0 && --ifp->if_timer == 0)
-			(*ifp->if_watchdog)(ifp);
+			task_add(systq, ifp->if_watchdogtask);
 		timeout_add(ifp->if_slowtimo, hz / IFNET_SLOWHZ);
 	}
+	splx(s);
+}
+
+void
+if_watchdog_task(void *arg)
+{
+	struct ifnet *ifp = arg;
+	int s;
+
+	s = splnet();
+	if (ifp->if_watchdog)
+		(*ifp->if_watchdog)(ifp);
 	splx(s);
 }
 
@@ -1226,12 +1531,41 @@ ifunit(const char *name)
 struct ifnet *
 if_get(unsigned int index)
 {
+	struct if_map *if_map;
+	struct srp *map;
 	struct ifnet *ifp = NULL;
 
-	if (index < if_indexlim)
-		ifp = ifindex2ifnet[index];
+	if_map = srp_enter(&if_idxmap.map);
+	if (index < if_map->limit) {
+		map = (struct srp *)(if_map + 1);
+
+		ifp = srp_follow(&if_idxmap.map, if_map, &map[index]);
+		if (ifp != NULL) {
+			KASSERT(ifp->if_index == index);
+			if_ref(ifp);
+		}
+		srp_leave(&map[index], ifp);
+	} else
+		srp_leave(&if_idxmap.map, if_map);
 
 	return (ifp);
+}
+
+struct ifnet *
+if_ref(struct ifnet *ifp)
+{
+	atomic_inc_int(&ifp->if_refcnt);
+
+	return (ifp);
+}
+
+void
+if_put(struct ifnet *ifp)
+{
+	if (ifp == NULL)
+		return;
+
+	atomic_dec_int(&ifp->if_refcnt);
 }
 
 /*
@@ -1391,7 +1725,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 		    !ISSET(ifp->if_xflags, IFXF_MPLS)) {
 			s = splnet();
 			ifp->if_xflags |= IFXF_MPLS;
-			ifp->if_ll_output = ifp->if_output; 
+			ifp->if_ll_output = ifp->if_output;
 			ifp->if_output = mpls_output;
 			splx(s);
 		}
@@ -1399,7 +1733,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 		    !ISSET(ifr->ifr_flags, IFXF_MPLS)) {
 			s = splnet();
 			ifp->if_xflags &= ~IFXF_MPLS;
-			ifp->if_output = ifp->if_ll_output; 
+			ifp->if_output = ifp->if_ll_output;
 			ifp->if_ll_output = NULL;
 			splx(s);
 		}
@@ -2054,7 +2388,7 @@ if_group_egress_build(void)
 #ifdef INET6
 	struct sockaddr_in6	 sa_in6;
 #endif
-	struct rtentry		*rt;
+	struct rtentry		*rt0, *rt;
 
 	TAILQ_FOREACH(ifg, &ifg_head, ifg_next)
 		if (!strcmp(ifg->ifg_group, IFG_EGRESS))
@@ -2067,8 +2401,9 @@ if_group_egress_build(void)
 	bzero(&sa_in, sizeof(sa_in));
 	sa_in.sin_len = sizeof(sa_in);
 	sa_in.sin_family = AF_INET;
-	rt = rtable_lookup(0, sintosa(&sa_in), sintosa(&sa_in));
-	if (rt != NULL) {
+	rt0 = rtable_lookup(0, sintosa(&sa_in), sintosa(&sa_in));
+	if (rt0 != NULL) {
+		rt = rt0;
 		do {
 			if (rt->rt_ifp)
 				if_addgroup(rt->rt_ifp, IFG_EGRESS);
@@ -2079,11 +2414,13 @@ if_group_egress_build(void)
 #endif
 		} while (rt != NULL);
 	}
+	rtfree(rt0);
 
 #ifdef INET6
 	bcopy(&sa6_any, &sa_in6, sizeof(sa_in6));
-	rt = rtable_lookup(0, sin6tosa(&sa_in6), sin6tosa(&sa_in6));
-	if (rt != NULL) {
+	rt0 = rtable_lookup(0, sin6tosa(&sa_in6), sin6tosa(&sa_in6));
+	if (rt0 != NULL) {
+		rt = rt0;
 		do {
 			if (rt->rt_ifp)
 				if_addgroup(rt->rt_ifp, IFG_EGRESS);
@@ -2094,7 +2431,8 @@ if_group_egress_build(void)
 #endif
 		} while (rt != NULL);
 	}
-#endif
+	rtfree(rt0);
+#endif /* INET6 */
 
 	return (0);
 }

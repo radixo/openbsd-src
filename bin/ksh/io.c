@@ -1,4 +1,4 @@
-/*	$OpenBSD: io.c,v 1.24 2014/08/10 02:44:26 guenther Exp $	*/
+/*	$OpenBSD: io.c,v 1.27 2015/09/15 18:15:05 tedu Exp $	*/
 
 /*
  * shell buffered IO and formatted output
@@ -75,7 +75,7 @@ bi_errorf(const char *fmt, ...)
 	 */
 	if ((builtin_flag & SPEC_BI) ||
 	    (Flag(FPOSIX) && (builtin_flag & KEEPASN))) {
-		builtin_argv0 = (char *) 0;
+		builtin_argv0 = NULL;
 		unwind(LERROR);
 	}
 }
@@ -296,7 +296,7 @@ check_fd(char *name, int mode, const char **emsgp)
 
 	if (isdigit((unsigned char)name[0]) && !name[1]) {
 		fd = name[0] - '0';
-		if ((fl = fcntl(fd = name[0] - '0', F_GETFL, 0)) < 0) {
+		if ((fl = fcntl(fd, F_GETFL, 0)) < 0) {
 			if (emsgp)
 				*emsgp = "bad file descriptor";
 			return -1;
@@ -422,7 +422,7 @@ maketemp(Area *ap, Temp_type type, struct temp **tlist)
 	dir = tmpdir ? tmpdir : "/tmp";
 	/* The 20 + 20 is a paranoid worst case for pid/inc */
 	len = strlen(dir) + 3 + 20 + 20 + 1;
-	tp = (struct temp *) alloc(sizeof(struct temp) + len, ap);
+	tp = alloc(sizeof(struct temp) + len, ap);
 	tp->name = path = (char *) &tp[1];
 	tp->shf = (struct shf *) 0;
 	tp->type = type;

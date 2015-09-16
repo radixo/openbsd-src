@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.102 2015/07/19 02:52:35 deraadt Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.104 2015/09/07 15:38:45 guenther Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -139,7 +139,6 @@ static void mappidtoemul(pid_t, struct emulation *);
 static struct emulation * findemul(pid_t);
 static int fread_tail(void *, size_t, size_t);
 static void dumpheader(struct ktr_header *);
-static void ktrcsw(struct ktr_csw *);
 static void ktremul(char *, size_t);
 static void ktrgenio(struct ktr_genio *, size_t);
 static void ktrnamei(const char *, size_t);
@@ -292,9 +291,6 @@ main(int argc, char *argv[])
 		case KTR_PSIG:
 			ktrpsig((struct ktr_psig *)m);
 			break;
-		case KTR_CSW:
-			ktrcsw((struct ktr_csw *)m);
-			break;
 		case KTR_EMUL:
 			ktremul(m, ktrlen);
 			mappidtoemul(ktr_header.ktr_pid, current);
@@ -378,9 +374,6 @@ dumpheader(struct ktr_header *kth)
 		break;
 	case KTR_PSIG:
 		type = "PSIG";
-		break;
-	case KTR_CSW:
-		type = "CSW";
 		break;
 	case KTR_EMUL:
 		type = "EMUL";
@@ -837,7 +830,7 @@ static const formatter scargs[][8] = {
     [SYS_lseek]		= { Pfd, PAD, Poff_t, Whencename },
     [SYS_truncate]	= { Ppath, PAD, Poff_t },
     [SYS_ftruncate]	= { Pfd, PAD, Poff_t },
-    /* [SYS___sysctl]	= { }, Magic */
+    /* [SYS_sysctl]	= { }, Magic */
     [SYS_mlock]		= { Pptr, Pbigsize },
     [SYS_munlock]	= { Pptr, Pbigsize },
     [SYS_getpgid]	= { Ppid_t },
@@ -917,7 +910,7 @@ ktrsyscall(struct ktr_syscall *ktr, size_t ktrlen)
 	if (current != &emulations[0])
 		goto nonnative;
 
-	if (ktr->ktr_code == SYS___sysctl) {
+	if (ktr->ktr_code == SYS_sysctl) {
 		const char *s;
 		int n, i, *top;
 
@@ -1370,13 +1363,6 @@ ktrpsig(struct ktr_psig *psig)
 		break;
 	}
 	printf("\n");
-}
-
-static void
-ktrcsw(struct ktr_csw *cs)
-{
-	(void)printf("%s %s\n", cs->out ? "stop" : "resume",
-	    cs->user ? "user" : "kernel");
 }
 
 static void

@@ -1,4 +1,4 @@
-/*	$OpenBSD$ */
+/*	$OpenBSD: system.c,v 1.9 2015/09/13 08:31:48 guenther Exp $ */
 /*
  * Copyright (c) 1988 The Regents of the University of California.
  * All rights reserved.
@@ -66,9 +66,10 @@ system(const char *command)
 
 	intsave = signal(SIGINT, SIG_IGN);
 	quitsave = signal(SIGQUIT, SIG_IGN);
-	pid = waitpid(pid, (int *)&pstat, 0);
+	pid = waitpid(pid, &pstat, 0);
 	sigprocmask(SIG_SETMASK, &omask, NULL);
 	(void)signal(SIGINT, intsave);
 	(void)signal(SIGQUIT, quitsave);
 	return (pid == -1 ? -1 : pstat);
 }
+DEF_STRONG(system);
