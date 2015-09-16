@@ -1,4 +1,4 @@
-/*	$OpenBSD: auth_subr.c,v 1.42 2015/08/31 02:53:57 guenther Exp $	*/
+/*	$OpenBSD: auth_subr.c,v 1.44 2015/09/12 15:20:14 guenther Exp $	*/
 
 /*
  * Copyright (c) 2000-2002,2004 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -151,6 +151,10 @@ void	auth_setstate(auth_session_t *as, int s){ as->state = s; }
 void	auth_set_va_list(auth_session_t *as, va_list ap) { va_copy(as->ap, ap); }
 int	auth_getstate(auth_session_t *as)	{ return (as->state); }
 struct passwd *auth_getpwd(auth_session_t *as)	{ return (as->pwd); }
+DEF_WEAK(auth_setstate);
+DEF_WEAK(auth_set_va_list);
+DEF_WEAK(auth_getstate);
+DEF_WEAK(auth_getpwd);
 
 /*
  * Open a new BSD Authentication session with the default service
@@ -168,6 +172,7 @@ auth_open(void)
 
 	return (as);
 }
+DEF_WEAK(auth_open);
 
 /*
  * Clean the specified BSD Authentication session.
@@ -214,6 +219,7 @@ auth_clean(auth_session_t *as)
 		as->fd = -1;
 	}
 }
+DEF_WEAK(auth_clean);
 
 /*
  * Close the specified BSD Authentication session.
@@ -278,18 +284,15 @@ auth_close(auth_session_t *as)
 	 */
 	if (as->service && as->service != defservice)
 		free(as->service);
-	if (as->challenge)
-		free(as->challenge);
-	if (as->class)
-		free(as->class);
-	if (as->style)
-		free(as->style);
-	if (as->name)
-		free(as->name);
+	free(as->challenge);
+	free(as->class);
+	free(as->style);
+	free(as->name);
 
 	free(as);
 	return (s);
 }
+DEF_WEAK(auth_close);
 
 /*
  * Request a challenge for the session.
@@ -323,6 +326,7 @@ auth_challenge(auth_session_t *as)
 	as->index = 0;	/* toss our data */
 	return (as->challenge);
 }
+DEF_WEAK(auth_challenge);
 
 /*
  * Set/unset the requested environment variables.
@@ -379,6 +383,7 @@ auth_setenv(auth_session_t *as)
 			;
 	}
 }
+DEF_WEAK(auth_setenv);
 
 /*
  * Clear out any requested environment variables.
@@ -403,6 +408,7 @@ auth_clrenv(auth_session_t *as)
 			;
 	}
 }
+DEF_WEAK(auth_clrenv);
 
 char *
 auth_getitem(auth_session_t *as, auth_item_t item)
@@ -427,6 +433,7 @@ auth_getitem(auth_session_t *as, auth_item_t item)
 	}
 	return (NULL);
 }
+DEF_WEAK(auth_getitem);
 
 int
 auth_setitem(auth_session_t *as, auth_item_t item, char *value)
@@ -455,8 +462,7 @@ auth_setitem(auth_session_t *as, auth_item_t item, char *value)
 			return (0);
 		if (value != NULL && (value = strdup(value)) == NULL)
 			return (-1);
-		if (as->challenge)
-			free(as->challenge);
+		free(as->challenge);
 		as->challenge = value;
 		return (0);
 
@@ -465,8 +471,7 @@ auth_setitem(auth_session_t *as, auth_item_t item, char *value)
 			return (0);
 		if (value != NULL && (value = strdup(value)) == NULL)
 			return (-1);
-		if (as->class)
-			free(as->class);
+		free(as->class);
 		as->class = value;
 		return (0);
 
@@ -475,8 +480,7 @@ auth_setitem(auth_session_t *as, auth_item_t item, char *value)
 			return (0);
 		if (value != NULL && (value = strdup(value)) == NULL)
 			return (-1);
-		if (as->name)
-			free(as->name);
+		free(as->name);
 		as->name = value;
 		return (0);
 
@@ -498,8 +502,7 @@ auth_setitem(auth_session_t *as, auth_item_t item, char *value)
 		if (value == NULL || strchr(value, '/') != NULL ||
 		    (value = strdup(value)) == NULL)
 			return (-1);
-		if (as->style)
-			free(as->style);
+		free(as->style);
 		as->style = value;
 		return (0);
 
@@ -515,6 +518,7 @@ auth_setitem(auth_session_t *as, auth_item_t item, char *value)
 		return (-1);
 	}
 }
+DEF_WEAK(auth_setitem);
 
 int
 auth_setoption(auth_session_t *as, char *n, char *v)
@@ -538,6 +542,7 @@ auth_setoption(auth_session_t *as, char *n, char *v)
 	as->optlist = opt;
 	return(0);
 }
+DEF_WEAK(auth_setoption);
 
 void
 auth_clroptions(auth_session_t *as)
@@ -549,6 +554,7 @@ auth_clroptions(auth_session_t *as)
 		free(opt);
 	}
 }
+DEF_WEAK(auth_clroptions);
 
 void
 auth_clroption(auth_session_t *as, char *option)
@@ -578,6 +584,7 @@ auth_clroption(auth_session_t *as, char *option)
 		opt = oopt;
 	}
 }
+DEF_WEAK(auth_clroption);
 
 int
 auth_setdata(auth_session_t *as, void *ptr, size_t len)
@@ -604,6 +611,7 @@ auth_setdata(auth_session_t *as, void *ptr, size_t len)
 	}
 	return (0);
 }
+DEF_WEAK(auth_setdata);
 
 int
 auth_setpwd(auth_session_t *as, struct passwd *pwd)
@@ -644,6 +652,7 @@ auth_setpwd(auth_session_t *as, struct passwd *pwd)
 	as->pwd = pwd;
 	return (0);
 }
+DEF_WEAK(auth_setpwd);
 
 char *
 auth_getvalue(auth_session_t *as, char *what)
@@ -720,6 +729,7 @@ next:
 	}
 	return (NULL);
 }
+DEF_WEAK(auth_getvalue);
 
 quad_t
 auth_check_expire(auth_session_t *as)
@@ -746,6 +756,7 @@ auth_check_expire(auth_session_t *as)
 	}
 	return (0);
 }
+DEF_WEAK(auth_check_expire);
 
 quad_t
 auth_check_change(auth_session_t *as)
@@ -772,6 +783,7 @@ auth_check_change(auth_session_t *as)
 	}
 	return (0);
 }
+DEF_WEAK(auth_check_change);
 
 /*
  * The down and dirty call to the login script
@@ -980,6 +992,7 @@ fail:
 	}
 	return (okay);
 }
+DEF_WEAK(auth_call);
 
 static void
 _recv_fd(auth_session_t *as, int fd)

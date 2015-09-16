@@ -1,4 +1,4 @@
-/*	$OpenBSD: dhclient.c,v 1.361 2015/05/18 14:59:42 krw Exp $	*/
+/*	$OpenBSD: dhclient.c,v 1.363 2015/09/05 07:41:16 krw Exp $	*/
 
 /*
  * Copyright 2004 Henning Brauer <henning@openbsd.org>
@@ -914,7 +914,7 @@ bind_lease(void)
 	/* Deleting the addresses also clears out arp entries. */
 	delete_addresses();
 	flush_routes();
- 
+
 	opt = &options[DHO_INTERFACE_MTU];
 	if (opt->len == sizeof(u_int16_t)) {
 		u_int16_t mtu;
@@ -1923,13 +1923,13 @@ res_hnok(const char *name)
 int
 res_hnok_list(const char *names)
 {
-	char *hn, *inputstring;
+	char *dupnames, *hn, *inputstring;
 	int count;
 
 	if (strlen(names) >= 1024)
 		return (0);
 
-	inputstring = strdup(names);
+	dupnames = inputstring = strdup(names);
 	if (inputstring == NULL)
 		error("Cannot copy domain name list");
 
@@ -1944,7 +1944,7 @@ res_hnok_list(const char *names)
 			break;
 	}
 
-	free(inputstring);
+	free(dupnames);
 
 	return (count > 0 && count < 7 && hn == NULL);
 }

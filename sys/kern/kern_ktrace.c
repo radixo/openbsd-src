@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_ktrace.c,v 1.75 2015/08/01 20:12:34 guenther Exp $	*/
+/*	$OpenBSD: kern_ktrace.c,v 1.77 2015/09/07 15:38:45 guenther Exp $	*/
 /*	$NetBSD: kern_ktrace.c,v 1.23 1996/02/09 18:59:36 christos Exp $	*/
 
 /*
@@ -159,7 +159,7 @@ ktrsyscall(struct proc *p, register_t code, size_t argsize, register_t args[])
 	u_int nargs = 0;
 	int i;
 
-	if (code == SYS___sysctl && (p->p_p->ps_emul->e_flags & EMUL_NATIVE)) {
+	if (code == SYS_sysctl && (p->p_p->ps_emul->e_flags & EMUL_NATIVE)) {
 		/*
 		 * The native sysctl encoding stores the mib[]
 		 * array because it is interesting.
@@ -309,21 +309,6 @@ ktrpsig(struct proc *p, int sig, sig_t action, int mask, int code,
 	kp.si = *si;
 
 	ktrwrite(p, &kth, &kp, sizeof(kp));
-	atomic_clearbits_int(&p->p_flag, P_INKTR);
-}
-
-void
-ktrcsw(struct proc *p, int out, int user)
-{
-	struct ktr_header kth;
-	struct ktr_csw kc;
-
-	atomic_setbits_int(&p->p_flag, P_INKTR);
-	ktrinitheader(&kth, p, KTR_CSW);
-	kc.out = out;
-	kc.user = user;
-
-	ktrwrite(p, &kth, &kc, sizeof(kc));
 	atomic_clearbits_int(&p->p_flag, P_INKTR);
 }
 

@@ -1,17 +1,7 @@
-/*	$OpenBSD: namespace.h,v 1.2 1996/08/19 08:28:08 tholo Exp $	*/
+/*	$OpenBSD: namespace.h,v 1.6 2015/09/10 18:13:46 guenther Exp $	*/
 
 #ifndef _LIBC_NAMESPACE_H_
 #define _LIBC_NAMESPACE_H_
-
-/* These will be replaced with symbol renaming ala PROTO_NORMAL */
-#define catclose	_catclose
-#define catgets		_catgets
-#define catopen		_catopen
-#define strtoq		_strtoq
-#define strtouq		_strtouq
-#define sys_errlist	_sys_errlist
-#define sys_nerr	_sys_nerr
-#define sys_siglist	_sys_siglist
 
 /*
  * Copyright (c) 2015 Philip Guenther <guenther@openbsd.org>
@@ -134,7 +124,15 @@
  *	only be needed for syscalls that have C instead of asm stubs.
  *	Matches with PROTO_NORMAL(), PROTO_CANCEL(), or PROTO_WRAP()
  *	ex: DEF_SYS(pread)
+ *
+ *   MAKE_CLONE(dst, src)	Symbols that are exact clones of other symbols
+ *	This declares _libc_dst as being the same type as dst, and makes
+ *	_libc_dst a strong, hidden alias for _libc_src.  You still need to
+ *	DEF_STRONG(dst) or DEF_WEAK(dst) to alias dst itself
+ *	ex: MAKE_CLONE(SHA224Pad, SHA256Pad)
  */
+
+#include <sys/cdefs.h>	/* for __dso_hidden and __{weak,strong}_alias */
 
 #define	HIDDEN(x)		_libc_##x
 #define	CANCEL(x)		_libc_##x##_cancel
@@ -153,6 +151,23 @@
 #define	DEF_CANCEL(x)		__weak_alias(x, CANCEL(x))
 #define	DEF_WRAP(x)		__weak_alias(x, WRAP(x))
 #define	DEF_SYS(x)		__strong_alias(_thread_sys_##x, HIDDEN(x))
+
+#define	MAKE_CLONE(dst, src)	__dso_hidden typeof(dst) HIDDEN(dst) \
+				__attribute__((alias (HIDDEN_STRING(src))))
+
+
+/*
+ * gcc will generate calls to the functions below.
+ * Declare and redirect them here so we always go
+ * directly to our hidden aliases.
+ */
+#include <sys/_types.h>
+void	*memcpy(void *__restrict, const void *__restrict, __size_t);
+void	*memset(void *, int, __size_t);
+void	__stack_smash_handler(const char [], int __attribute__((__unused__)));
+PROTO_NORMAL(memcpy);
+PROTO_NORMAL(memset);
+PROTO_NORMAL(__stack_smash_handler);
 
 #endif  /* _LIBC_NAMESPACE_H_ */
 

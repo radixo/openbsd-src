@@ -1,4 +1,4 @@
-/*	$OpenBSD: shf.c,v 1.15 2006/04/02 00:48:33 deraadt Exp $	*/
+/*	$OpenBSD: shf.c,v 1.19 2015/09/15 18:15:05 tedu Exp $	*/
 
 /*
  *  Shell file I/O routines
@@ -6,7 +6,6 @@
 
 #include "sh.h"
 #include <sys/stat.h>
-#include "ksh_limval.h"
 
 
 /* flags to shf_emptybuf() */
@@ -470,7 +469,7 @@ shf_getse(char *buf, int bsize, struct shf *shf)
 		internal_errorf(1, "shf_getse: flags %x", shf->flags);
 
 	if (bsize <= 0)
-		return (char *) 0;
+		return NULL;
 
 	--bsize;	/* save room for null */
 	do {
@@ -698,39 +697,15 @@ shf_smprintf(const char *fmt, ...)
 	struct shf shf;
 	va_list args;
 
-	shf_sopen((char *) 0, 0, SHF_WR|SHF_DYNAMIC, &shf);
+	shf_sopen(NULL, 0, SHF_WR|SHF_DYNAMIC, &shf);
 	va_start(args, fmt);
 	shf_vfprintf(&shf, fmt, args);
 	va_end(args);
 	return shf_sclose(&shf); /* null terminates */
 }
 
-#undef FP			/* if you want floating point stuff */
-
 #define BUF_SIZE	128
-#define FPBUF_SIZE	(DMAXEXP+16)/* this must be >
-				 *	MAX(DMAXEXP, log10(pow(2, DSIGNIF)))
-				 *    + ceil(log10(DMAXEXP)) + 8 (I think).
-				 * Since this is hard to express as a
-				 * constant, just use a large buffer.
-				 */
-
-/*
- *	What kinda of machine we on?  Hopefully the C compiler will optimize
- *  this out...
- *
- *	For shorts, we want sign extend for %d but not for %[oxu] - on 16 bit
- *  machines it don't matter.  Assumes C compiler has converted shorts to
- *  ints before pushing them.
- */
-#define POP_INT(f, s, a) \
-	(((f) & FL_LLONG) ? va_arg((a), unsigned long long) :		\
-	    ((f) & FL_LONG) ? va_arg((a), unsigned long) :		\
-	    (sizeof(int) < sizeof(long) ? ((s) ?			\
-	    (long) va_arg((a), int) : va_arg((a), unsigned)) :		\
-	    va_arg((a), unsigned)))
-
-#define ABIGNUM		32000	/* big numer that will fit in a short */
+#define ABIGNUM		32000	/* big number that will fit in a short */
 #define LOG2_10		3.321928094887362347870319429	/* log base 2 of 10 */
 
 #define	FL_HASH		0x001	/* `#' seen */
@@ -746,18 +721,6 @@ shf_smprintf(const char *fmt, ...)
 #define FL_NUMBER	0x400	/* a number was formated %[douxefg] */
 
 
-#ifdef FP
-#include <math.h>
-
-static double
-my_ceil(double d)
-{
-	double		i;
-
-	return d - modf(d, &i) + (d < 0 ? -1 : 1);
-}
-#endif /* FP */
-
 int
 shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
 {
@@ -771,17 +734,6 @@ shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
 	char		numbuf[(BITS(long long) + 2) / 3 + 1];
 	/* this stuff for dealing with the buffer */
 	int		nwritten = 0;
-#ifdef FP
-	/* should be in <math.h>
-	 *  extern double frexp();
-	 */
-	extern char *ecvt();
-
-	double		fpnum;
-	int		expo, decpt;
-	char		style;
-	char		fpbuf[FPBUF_SIZE];
-#endif /* FP */
 
 	if (!fmt)
 		return 0;
@@ -879,9 +831,8 @@ shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
 
 		switch (c) {
 		case 'p': /* pointer */
-			flags &= ~(FL_LLONG | FL_LONG | FL_SHORT);
-			if (sizeof(char *) > sizeof(int))
-				flags |= FL_LONG; /* hope it fits.. */
+			flags &= ~(FL_LLONG | FL_SHORT);
+			flags |= FL_LONG;
 			/* aaahhh... */
 		case 'd':
 		case 'i':
@@ -890,7 +841,19 @@ shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
 		case 'x':
 			flags |= FL_NUMBER;
 			s = &numbuf[sizeof(numbuf)];
-			llnum = POP_INT(flags, c == 'd', args);
+			if (flags & FL_LLONG)
+				llnum = va_arg(args, unsigned long long);
+			else if (flags & FL_LONG) {
+				if (c == 'd' || c == 'i')
+					llnum = va_arg(args, long);
+				else
+					llnum = va_arg(args, unsigned long);
+			} else {
+				if (c == 'd' || c == 'i')
+					llnum = va_arg(args, int);
+				else
+					llnum = va_arg(args, unsigned int);
+			}
 			switch (c) {
 			case 'd':
 			case 'i':
@@ -952,134 +915,6 @@ shf_vfprintf(struct shf *shf, const char *fmt, va_list args)
 					precision = len; /* no loss */
 			}
 			break;
-
-#ifdef FP
-		case 'e':
-		case 'g':
-		case 'f':
-		    {
-			char *p;
-
-			/*
-			 *	This could probably be done better,
-			 *  but it seems to work.  Note that gcvt()
-			 *  is not used, as you cannot tell it to
-			 *  not strip the zeros.
-			 */
-			flags |= FL_NUMBER;
-			if (!(flags & FL_DOT))
-				precision = 6;	/* default */
-			/*
-			 *	Assumes doubles are pushed on
-			 *  the stack.  If this is not so, then
-			 *  FL_LLONG/FL_LONG/FL_SHORT should be checked.
-			 */
-			fpnum = va_arg(args, double);
-			s = fpbuf;
-			style = c;
-			/*
-			 *  This is the same as
-			 *	expo = ceil(log10(fpnum))
-			 *  but doesn't need -lm.  This is an
-			 *  approximation as expo is rounded up.
-			 */
-			(void) frexp(fpnum, &expo);
-			expo = my_ceil(expo / LOG2_10);
-
-			if (expo < 0)
-				expo = 0;
-
-			p = ecvt(fpnum, precision + 1 + expo,
-				 &decpt, &tmp);
-			if (c == 'g') {
-				if (decpt < -4 || decpt > precision)
-					style = 'e';
-				else
-					style = 'f';
-				if (decpt > 0 && (precision -= decpt) < 0)
-					precision = 0;
-			}
-			if (tmp)
-				*s++ = '-';
-			else if (flags & FL_PLUS)
-				*s++ = '+';
-			else if (flags & FL_BLANK)
-				*s++ = ' ';
-
-			if (style == 'e')
-				*s++ = *p++;
-			else {
-				if (decpt > 0) {
-					/* Overflow check - should
-					 * never have this problem.
-					 */
-					if (decpt > &fpbuf[sizeof(fpbuf)] - s - 8)
-						decpt = &fpbuf[sizeof(fpbuf)] - s - 8;
-					(void) memcpy(s, p, decpt);
-					s += decpt;
-					p += decpt;
-				} else
-					*s++ = '0';
-			}
-
-			/* print the fraction? */
-			if (precision > 0) {
-				*s++ = '.';
-				/* Overflow check - should
-				 * never have this problem.
-				 */
-				if (precision > &fpbuf[sizeof(fpbuf)] - s - 7)
-					precision = &fpbuf[sizeof(fpbuf)] - s - 7;
-				for (tmp = decpt;  tmp++ < 0 &&
-					    precision > 0 ; precision--)
-					*s++ = '0';
-				tmp = strlen(p);
-				if (precision > tmp)
-					precision = tmp;
-				/* Overflow check - should
-				 * never have this problem.
-				 */
-				if (precision > &fpbuf[sizeof(fpbuf)] - s - 7)
-					precision = &fpbuf[sizeof(fpbuf)] - s - 7;
-				(void) memcpy(s, p, precision);
-				s += precision;
-				/*
-				 *	`g' format strips trailing
-				 *  zeros after the decimal.
-				 */
-				if (c == 'g' && !(flags & FL_HASH)) {
-					while (*--s == '0')
-						;
-					if (*s != '.')
-						s++;
-				}
-			} else if (flags & FL_HASH)
-				*s++ = '.';
-
-			if (style == 'e') {
-				*s++ = (flags & FL_UPPER) ? 'E' : 'e';
-				if (--decpt >= 0)
-					*s++ = '+';
-				else {
-					*s++ = '-';
-					decpt = -decpt;
-				}
-				p = &numbuf[sizeof(numbuf)];
-				for (tmp = 0; tmp < 2 || decpt ; tmp++) {
-					*--p = '0' + decpt % 10;
-					decpt /= 10;
-				}
-				tmp = &numbuf[sizeof(numbuf)] - p;
-				(void) memcpy(s, p, tmp);
-				s += tmp;
-			}
-
-			len = s - fpbuf;
-			s = fpbuf;
-			precision = len;
-			break;
-		    }
-#endif /* FP */
 
 		case 's':
 			if (!(s = va_arg(args, char *)))

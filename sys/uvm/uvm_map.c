@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_map.c,v 1.195 2015/08/27 21:58:15 kettenis Exp $	*/
+/*	$OpenBSD: uvm_map.c,v 1.198 2015/09/09 23:33:37 kettenis Exp $	*/
 /*	$NetBSD: uvm_map.c,v 1.86 2000/11/27 08:40:03 chs Exp $	*/
 
 /*
@@ -317,6 +317,8 @@ vaddr_t uvm_maxkaddr;
 	do {								\
 		if (((_map)->flags & VM_MAP_INTRSAFE) == 0)		\
 			rw_assert_wrlock(&(_map)->lock);		\
+		else							\
+			MUTEX_ASSERT_LOCKED(&(_map)->mtx);		\
 	} while (0)
 
 /*
@@ -2392,6 +2394,7 @@ uvm_map_setup(struct vm_map *map, vaddr_t min, vaddr_t max, int flags)
 	map->flags = flags;
 	map->timestamp = 0;
 	rw_init(&map->lock, "vmmaplk");
+	mtx_init(&map->mtx, IPL_VM);
 	mtx_init(&map->flags_lock, IPL_VM);
 
 	/* Configure the allocators. */
@@ -2408,11 +2411,14 @@ uvm_map_setup(struct vm_map *map, vaddr_t min, vaddr_t max, int flags)
 	if ((map->flags & VM_MAP_INTRSAFE) == 0) {
 		if (rw_enter(&map->lock, RW_NOSLEEP|RW_WRITE) != 0)
 			panic("uvm_map_setup: rw_enter failed on new map");
-	}
+	} else
+		mtx_enter(&map->mtx);
 	uvm_map_setup_entries(map);
 	uvm_tree_sanity(map, __FILE__, __LINE__);
 	if ((map->flags & VM_MAP_INTRSAFE) == 0)
 		rw_exit(&map->lock);
+	else
+		mtx_leave(&map->mtx);
 }
 
 /*
@@ -2819,13 +2825,8 @@ uvm_map_printit(struct vm_map *map, boolean_t full,
 	(*pr)("\tsz=%u, ref=%d, version=%u, flags=0x%x\n",
 	    map->size, map->ref_count, map->timestamp,
 	    map->flags);
-#ifdef pmap_resident_count
 	(*pr)("\tpmap=%p(resident=%d)\n", map->pmap, 
 	    pmap_resident_count(map->pmap));
-#else
-	/* XXXCDC: this should be required ... */
-	(*pr)("\tpmap=%p(resident=<<NOT SUPPORTED!!!>>)\n", map->pmap);
-#endif
 
 	/* struct vmspace handling. */
 	if (map->flags & VM_MAP_ISVMSPACE) {
@@ -4954,7 +4955,7 @@ vm_map_lock_try_ln(struct vm_map *map, char *file, int line)
 	boolean_t rv;
 
 	if (map->flags & VM_MAP_INTRSAFE) {
-		rv = TRUE;
+		rv = mtx_enter_try(&map->mtx);
 	} else {
 		mtx_enter(&map->flags_lock);
 		if (map->flags & VM_MAP_BUSY) {
@@ -5005,6 +5006,8 @@ tryagain:
 			goto tryagain;
 		}
 		mtx_leave(&map->flags_lock);
+	} else {
+		mtx_enter(&map->mtx);
 	}
 
 	map->timestamp++;
@@ -5018,6 +5021,8 @@ vm_map_lock_read_ln(struct vm_map *map, char *file, int line)
 {
 	if ((map->flags & VM_MAP_INTRSAFE) == 0)
 		rw_enter_read(&map->lock);
+	else
+		mtx_enter(&map->mtx);
 	LPRINTF(("map   lock: %p (at %s %d)\n", map, file, line));
 	uvm_tree_sanity(map, file, line);
 	uvm_tree_size_chk(map, file, line);
@@ -5031,6 +5036,8 @@ vm_map_unlock_ln(struct vm_map *map, char *file, int line)
 	LPRINTF(("map unlock: %p (at %s %d)\n", map, file, line));
 	if ((map->flags & VM_MAP_INTRSAFE) == 0)
 		rw_exit(&map->lock);
+	else
+		mtx_leave(&map->mtx);
 }
 
 void
@@ -5041,6 +5048,8 @@ vm_map_unlock_read_ln(struct vm_map *map, char *file, int line)
 	LPRINTF(("map unlock: %p (at %s %d)\n", map, file, line));
 	if ((map->flags & VM_MAP_INTRSAFE) == 0)
 		rw_exit_read(&map->lock);
+	else
+		mtx_leave(&map->mtx);
 }
 
 void
@@ -5050,6 +5059,7 @@ vm_map_downgrade_ln(struct vm_map *map, char *file, int line)
 	uvm_tree_size_chk(map, file, line);
 	LPRINTF(("map unlock: %p (at %s %d)\n", map, file, line));
 	LPRINTF(("map   lock: %p (at %s %d)\n", map, file, line));
+	KASSERT((map->flags & VM_MAP_INTRSAFE) == 0);
 	if ((map->flags & VM_MAP_INTRSAFE) == 0)
 		rw_enter(&map->lock, RW_DOWNGRADE);
 }
@@ -5060,6 +5070,7 @@ vm_map_upgrade_ln(struct vm_map *map, char *file, int line)
 	/* XXX: RO */ uvm_tree_sanity(map, file, line);
 	/* XXX: RO */ uvm_tree_size_chk(map, file, line);
 	LPRINTF(("map unlock: %p (at %s %d)\n", map, file, line));
+	KASSERT((map->flags & VM_MAP_INTRSAFE) == 0);
 	if ((map->flags & VM_MAP_INTRSAFE) == 0) {
 		rw_exit_read(&map->lock);
 		rw_enter_write(&map->lock);
@@ -5071,6 +5082,7 @@ vm_map_upgrade_ln(struct vm_map *map, char *file, int line)
 void
 vm_map_busy_ln(struct vm_map *map, char *file, int line)
 {
+	KASSERT((map->flags & VM_MAP_INTRSAFE) == 0);
 	mtx_enter(&map->flags_lock);
 	map->flags |= VM_MAP_BUSY;
 	mtx_leave(&map->flags_lock);
@@ -5081,6 +5093,7 @@ vm_map_unbusy_ln(struct vm_map *map, char *file, int line)
 {
 	int oflags;
 
+	KASSERT((map->flags & VM_MAP_INTRSAFE) == 0);
 	mtx_enter(&map->flags_lock);
 	oflags = map->flags;
 	map->flags &= ~(VM_MAP_BUSY|VM_MAP_WANTLOCK);

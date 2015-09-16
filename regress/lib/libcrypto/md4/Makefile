@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.2 2014/06/01 11:11:46 miod Exp $
+#	$OpenBSD$
 
 PROG=	md4test
 LDADD=	-lcrypto

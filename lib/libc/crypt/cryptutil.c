@@ -1,4 +1,4 @@
-/* $OpenBSD: cryptutil.c,v 1.9 2015/02/24 19:19:32 tedu Exp $ */
+/* $OpenBSD: cryptutil.c,v 1.11 2015/09/12 14:56:50 guenther Exp $ */
 /*
  * Copyright (c) 2014 Ted Unangst <tedu@openbsd.org>
  *
@@ -20,8 +20,6 @@
 #include <pwd.h>
 #include <login_cap.h>
 #include <errno.h>
-
-int bcrypt_autorounds(void);
 
 int
 crypt_checkpass(const char *pass, const char *goodhash)
@@ -50,6 +48,7 @@ fail:
 	errno = EACCES;
 	return -1;
 }
+DEF_WEAK(crypt_checkpass);
 
 int
 crypt_newhash(const char *pass, const char *pref, char *hash, size_t hashlen)
@@ -69,12 +68,12 @@ crypt_newhash(const char *pass, const char *pref, char *hash, size_t hashlen)
 		const char *choice = choices[i];
 		size_t len = strlen(choice);
 		if (strcmp(pref, choice) == 0) {
-			rounds = bcrypt_autorounds();
+			rounds = _bcrypt_autorounds();
 			break;
 		} else if (strncmp(pref, choice, len) == 0 &&
 		    pref[len] == ',') {
 			if (strcmp(pref + len + 1, "a") == 0) {
-				rounds = bcrypt_autorounds();
+				rounds = _bcrypt_autorounds();
 			} else {
 				rounds = strtonum(pref + len + 1, 4, 31, &errstr);
 				if (errstr) {
@@ -95,3 +94,4 @@ crypt_newhash(const char *pass, const char *pref, char *hash, size_t hashlen)
 err:
 	return rv;
 }
+DEF_WEAK(crypt_newhash);

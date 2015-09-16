@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ethersubr.c,v 1.220 2015/07/20 21:16:39 rzalamena Exp $	*/
+/*	$OpenBSD: if_ethersubr.c,v 1.224 2015/09/12 13:34:12 mpi Exp $	*/
 /*	$NetBSD: if_ethersubr.c,v 1.19 1996/05/07 02:40:30 thorpej Exp $	*/
 
 /*
@@ -262,7 +262,7 @@ ether_output(struct ifnet *ifp, struct mbuf *m, struct sockaddr *dst,
 
 	/* XXX Should we feed-back an unencrypted IPsec packet ? */
 	if (mcopy)
-		(void) looutput(ifp, mcopy, dst, rt);
+		if_input_local(ifp, mcopy, dst->sa_family);
 
 	M_PREPEND(m, sizeof(struct ether_header), M_DONTWAIT);
 	if (m == NULL)
@@ -284,7 +284,7 @@ bad:
  * the ether header, which is provided separately.
  */
 int
-ether_input(struct ifnet *ifp, struct mbuf *m)
+ether_input(struct ifnet *ifp, struct mbuf *m, void *cookie)
 {
 	struct ether_header *eh;
 	struct niqueue *inq;
@@ -296,6 +296,7 @@ ether_input(struct ifnet *ifp, struct mbuf *m)
 	struct ether_header *eh_tmp;
 #endif
 
+	ac = (struct arpcom *)ifp;
 	eh = mtod(m, struct ether_header *);
 	m_adj(m, ETHER_HDR_LEN);
 
@@ -305,7 +306,7 @@ ether_input(struct ifnet *ifp, struct mbuf *m)
 		 * if it came from us.
 		 */
 		if ((ifp->if_flags & IFF_SIMPLEX) == 0) {
-			if (memcmp(LLADDR(ifp->if_sadl), eh->ether_shost,
+			if (memcmp(ac->ac_enaddr, eh->ether_shost,
 			    ETHER_ADDR_LEN) == 0) {
 				m_freem(m);
 				return (1);
@@ -319,10 +320,6 @@ ether_input(struct ifnet *ifp, struct mbuf *m)
 			m->m_flags |= M_MCAST;
 		ifp->if_imcasts++;
 	}
-
-	etype = ntohs(eh->ether_type);
-
-	ac = (struct arpcom *)ifp;
 
 	/*
 	 * If packet has been filtered by the bpf listener, drop it now
@@ -346,6 +343,8 @@ ether_input(struct ifnet *ifp, struct mbuf *m)
 		}
 	}
 
+	etype = ntohs(eh->ether_type);
+
 decapsulate:
 	switch (etype) {
 	case ETHERTYPE_IP:
@@ -361,7 +360,7 @@ decapsulate:
 	case ETHERTYPE_REVARP:
 		if (ifp->if_flags & IFF_NOARP)
 			goto dropanyway;
-		revarpinput(m);	/* XXX queue? */
+		inq = &rarpintrq;
 		return (1);
 
 #ifdef INET6
@@ -492,7 +491,6 @@ void
 ether_ifattach(struct ifnet *ifp)
 {
 	struct arpcom *ac = (struct arpcom *)ifp;
-	struct ifih *ether_ifih;
 
 	/*
 	 * Any interface which provides a MAC address which is obviously
@@ -507,9 +505,7 @@ ether_ifattach(struct ifnet *ifp)
 	ifp->if_mtu = ETHERMTU;
 	ifp->if_output = ether_output;
 
-	ether_ifih = malloc(sizeof(*ether_ifih), M_DEVBUF, M_WAITOK);
-	ether_ifih->ifih_input = ether_input;
-	SLIST_INSERT_HEAD(&ifp->if_inputs, ether_ifih, ifih_next);
+	if_ih_insert(ifp, ether_input, NULL);
 
 	if (ifp->if_hardmtu == 0)
 		ifp->if_hardmtu = ETHERMTU;
@@ -526,18 +522,14 @@ void
 ether_ifdetach(struct ifnet *ifp)
 {
 	struct arpcom *ac = (struct arpcom *)ifp;
-	struct ifih *ether_ifih;
 	struct ether_multi *enm;
 
 	/* Undo pseudo-driver changes. */
 	if_deactivate(ifp);
 
-	ether_ifih = SLIST_FIRST(&ifp->if_inputs);
-	SLIST_REMOVE_HEAD(&ifp->if_inputs, ifih_next);
+	if_ih_remove(ifp, ether_input, NULL);
 
-	KASSERT(SLIST_EMPTY(&ifp->if_inputs));
-
-	free(ether_ifih, M_DEVBUF, sizeof(*ether_ifih));
+	KASSERT(SRPL_EMPTY_LOCKED(&ifp->if_inputs));
 
 	for (enm = LIST_FIRST(&ac->ac_multiaddrs);
 	    enm != NULL;

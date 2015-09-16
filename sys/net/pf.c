@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf.c,v 1.936 2015/08/19 21:22:41 sashan Exp $ */
+/*	$OpenBSD: pf.c,v 1.943 2015/09/12 20:26:06 mpi Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -1915,8 +1915,10 @@ pf_translate_af(struct pf_pdesc *pd)
 	m_adj(pd->m, pd->off);
 
 	/* prepend a new one */
-	if ((M_PREPEND(pd->m, hlen, M_DONTWAIT)) == NULL)
+	if ((M_PREPEND(pd->m, hlen, M_DONTWAIT)) == NULL) {
+		pd->m = NULL;
 		return (-1);
+	}
 
 	switch (pd->naf) {
 	case AF_INET:
@@ -2420,7 +2422,7 @@ pf_send_tcp(const struct pf_rule *r, sa_family_t af,
 		break;
 #ifdef INET6
 	case AF_INET6:
-		ip6_output(m, NULL, NULL, 0, NULL, NULL, NULL);
+		ip6_output(m, NULL, NULL, 0, NULL, NULL);
 		break;
 #endif /* INET6 */
 	}
@@ -2606,6 +2608,8 @@ pf_match_rcvif(struct mbuf *m, struct pf_rule *r)
 		kif = (struct pfi_kif *)ifp->if_carpdev->if_pf_kif;
 	else
 		kif = (struct pfi_kif *)ifp->if_pf_kif;
+
+	if_put(ifp);
 
 	if (kif == NULL) {
 		DPFPRINTF(LOG_ERR,
@@ -5416,8 +5420,7 @@ pf_routable(struct pf_addr *addr, sa_family_t af, struct pfi_kif *kif,
 	} else
 		ret = 0;
 out:
-	if (rt0 != NULL)
-		rtfree(rt0);
+	rtfree(rt0);
 	return (ret);
 }
 
@@ -5572,7 +5575,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 			ipstat.ips_outswcsum++;
 			ip->ip_sum = in_cksum(m0, ip->ip_hl << 2);
 		}
-		error = (*ifp->if_output)(ifp, m0, sintosa(dst), NULL);
+		error = ifp->if_output(ifp, m0, sintosa(dst), NULL);
 		goto done;
 	}
 
@@ -5601,8 +5604,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 		m1 = m0->m_nextpkt;
 		m0->m_nextpkt = 0;
 		if (error == 0)
-			error = (*ifp->if_output)(ifp, m0, sintosa(dst),
-			    NULL);
+			error = ifp->if_output(ifp, m0, sintosa(dst), NULL);
 		else
 			m_freem(m0);
 	}
@@ -5613,8 +5615,7 @@ pf_route(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 done:
 	if (r->rt != PF_DUPTO)
 		*m = NULL;
-	if (rt != NULL)
-		rtfree(rt);
+	rtfree(rt);
 	return;
 
 bad:
@@ -5669,7 +5670,7 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 
 	if (!r->rt) {
 		m0->m_pkthdr.pf.flags |= PF_TAG_GENERATED;
-		ip6_output(m0, NULL, NULL, 0, NULL, NULL, NULL);
+		ip6_output(m0, NULL, NULL, 0, NULL, NULL);
 		return;
 	}
 
@@ -5720,7 +5721,6 @@ pf_route6(struct mbuf **m, struct pf_rule *r, int dir, struct ifnet *oifp,
 	} else if ((u_long)m0->m_pkthdr.len <= ifp->if_mtu) {
 		nd6_output(ifp, m0, dst, NULL);
 	} else {
-		in6_ifstat_inc(ifp, ifs6_in_toobig);
 		icmp6_error(m0, ICMP6_PACKET_TOO_BIG, 0, ifp->if_mtu);
 	}
 

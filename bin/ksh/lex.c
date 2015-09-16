@@ -1,4 +1,4 @@
-/*	$OpenBSD: lex.c,v 1.49 2013/12/17 16:37:06 deraadt Exp $	*/
+/*	$OpenBSD: lex.c,v 1.51 2015/09/10 22:48:58 nicm Exp $	*/
 
 /*
  * lexical analysis and source input
@@ -728,9 +728,9 @@ Done:
 				ungetsc(c2);
 		}
 
-		iop->name = (char *) 0;
-		iop->delim = (char *) 0;
-		iop->heredoc = (char *) 0;
+		iop->name = NULL;
+		iop->delim = NULL;
+		iop->heredoc = NULL;
 		Xfree(ws, wp);	/* free word */
 		yylval.iop = iop;
 		return REDIR;
@@ -971,10 +971,10 @@ getsc__(void)
 
 		case SWORDSEP:
 			if (*s->u.strv == NULL) {
-				s->start = s->str = newline;
+				s->start = s->str = "\n";
 				s->type = SEOF;
 			} else {
-				s->start = s->str = space;
+				s->start = s->str = " ";
 				s->type = SWORDS;
 			}
 			break;

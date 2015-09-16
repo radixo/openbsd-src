@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ix.h,v 1.26 2014/11/10 15:58:32 mikeb Exp $	*/
+/*	$OpenBSD: if_ix.h,v 1.28 2015/09/11 12:09:10 claudio Exp $	*/
 
 /******************************************************************************
 
@@ -246,7 +246,7 @@ struct ix_softc {
 	uint32_t		shadow_vfta[IXGBE_VFTA_SIZE];
 
 	/* Info about the interface */
-	uint			optics;
+	uint64_t		optics;
 	uint32_t		fc; /* local flow ctrl setting */
 	int			advertise;  /* link speeds */
 	uint16_t		max_frame_size;
@@ -277,6 +277,7 @@ struct ix_softc {
 	 * Receive rings:
 	 *	Allocated at run time, an array of rings.
 	 */
+	struct mutex		rx_mtx;
 	struct rx_ring		*rx_rings;
 	uint64_t		que_mask;
 	int			num_rx_desc;

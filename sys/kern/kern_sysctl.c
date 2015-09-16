@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_sysctl.c,v 1.289 2015/08/28 04:38:47 guenther Exp $	*/
+/*	$OpenBSD: kern_sysctl.c,v 1.293 2015/09/11 15:29:47 deraadt Exp $	*/
 /*	$NetBSD: kern_sysctl.c,v 1.17 1996/05/20 17:49:05 mrg Exp $	*/
 
 /*-
@@ -69,6 +69,7 @@
 #include <sys/socket.h>
 #include <sys/domain.h>
 #include <sys/protosw.h>
+#include <sys/tame.h>
 #include <sys/timetc.h>
 #include <sys/evcount.h>
 #include <sys/un.h>
@@ -145,9 +146,9 @@ struct rwlock sysctl_lock = RWLOCK_INITIALIZER("sysctllk");
 struct rwlock sysctl_disklock = RWLOCK_INITIALIZER("sysctldlk");
 
 int
-sys___sysctl(struct proc *p, void *v, register_t *retval)
+sys_sysctl(struct proc *p, void *v, register_t *retval)
 {
-	struct sys___sysctl_args /* {
+	struct sys_sysctl_args /* {
 		syscallarg(const int *) name;
 		syscallarg(u_int) namelen;
 		syscallarg(void *) old;
@@ -174,7 +175,7 @@ sys___sysctl(struct proc *p, void *v, register_t *retval)
 		return (error);
 
 	if (tame_sysctl_check(p, SCARG(uap, namelen), name, SCARG(uap, new)))
-		return (tame_fail(p, EPERM, _TM_SELF));
+		return (tame_fail(p, EPERM, TAME_SELF));
 
 	switch (name[0]) {
 	case CTL_KERN:
@@ -2151,7 +2152,7 @@ sysctl_sysvipc(int *name, u_int namelen, void *where, size_t *sizep)
 #ifdef SYSVSHM
 	struct shm_sysctl_info *shmsi;
 #endif
-	size_t infosize, dssize, tsize, buflen;
+	size_t infosize, dssize, tsize, buflen, bufsiz;
 	int i, nds, error, ret;
 	void *buf;
 
@@ -2201,7 +2202,8 @@ sysctl_sysvipc(int *name, u_int namelen, void *where, size_t *sizep)
 		*sizep = 0;
 		return (ENOMEM);
 	}
-	buf = malloc(min(tsize, buflen), M_TEMP, M_WAITOK|M_ZERO);
+	bufsiz = min(tsize, buflen);
+	buf = malloc(bufsiz, M_TEMP, M_WAITOK|M_ZERO);
 
 	switch (*name) {
 #ifdef SYSVSEM
@@ -2252,7 +2254,7 @@ sysctl_sysvipc(int *name, u_int namelen, void *where, size_t *sizep)
 	}
 	*sizep -= buflen;
 	error = copyout(buf, where, *sizep);
-	free(buf, M_TEMP, 0);
+	free(buf, M_TEMP, bufsiz);
 	/* If copyout succeeded, use return code set earlier. */
 	return (error ? error : ret);
 }

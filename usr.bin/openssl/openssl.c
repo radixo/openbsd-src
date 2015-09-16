@@ -1,4 +1,4 @@
-/* $OpenBSD: openssl.c,v 1.4 2015/08/19 18:25:31 deraadt Exp $ */
+/* $OpenBSD: openssl.c,v 1.11 2015/09/13 23:36:21 doug Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -126,10 +126,6 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
-#ifndef OPENSSL_NO_ENGINE
-#include <openssl/engine.h>
-#endif
-
 #include "progs.h"
 #include "s_apps.h"
 
@@ -162,9 +158,6 @@ FUNCTION functions[] = {
 	{ FUNC_TYPE_GENERAL, "crl", crl_main },
 	{ FUNC_TYPE_GENERAL, "dgst", dgst_main },
 	{ FUNC_TYPE_GENERAL, "enc", enc_main },
-#ifndef OPENSSL_NO_ENGINE
-	{ FUNC_TYPE_GENERAL, "engine", engine_main },
-#endif
 	{ FUNC_TYPE_GENERAL, "errstr", errstr_main },
 	{ FUNC_TYPE_GENERAL, "genpkey", genpkey_main },
 	{ FUNC_TYPE_GENERAL, "nseq", nseq_main },
@@ -328,13 +321,6 @@ FUNCTION functions[] = {
 	{ FUNC_TYPE_CIPHER, "rc4", enc_main },
 	{ FUNC_TYPE_CIPHER, "rc4-40", enc_main },
 #endif
-#ifndef OPENSSL_NO_RC5
-	{ FUNC_TYPE_CIPHER, "rc5", enc_main },
-	{ FUNC_TYPE_CIPHER, "rc5-cbc", enc_main },
-	{ FUNC_TYPE_CIPHER, "rc5-ecb", enc_main },
-	{ FUNC_TYPE_CIPHER, "rc5-cfb", enc_main },
-	{ FUNC_TYPE_CIPHER, "rc5-ofb", enc_main },
-#endif
 #ifdef ZLIB
 	{ FUNC_TYPE_CIPHER, "zlib", enc_main },
 #endif
@@ -415,30 +401,20 @@ openssl_startup(void)
 {
 	signal(SIGPIPE, SIG_IGN);
 
-	CRYPTO_malloc_init();
 	OpenSSL_add_all_algorithms();
 	SSL_library_init();
 	SSL_load_error_strings();
 
-#ifndef OPENSSL_NO_ENGINE
-	ENGINE_load_builtin_engines();
-#endif
-
-	setup_ui_method();
+	setup_ui();
 }
 
 static void
 openssl_shutdown(void)
 {
 	CONF_modules_unload(1);
-	destroy_ui_method();
+	destroy_ui();
 	OBJ_cleanup();
 	EVP_cleanup();
-
-#ifndef OPENSSL_NO_ENGINE
-	ENGINE_cleanup();
-#endif
-
 	CRYPTO_cleanup_all_ex_data();
 	ERR_remove_thread_state(NULL);
 	ERR_free_strings();
@@ -479,8 +455,6 @@ main(int argc, char **argv)
 
 	/* Lets load up our environment a little */
 	p = getenv("OPENSSL_CONF");
-	if (p == NULL)
-		p = getenv("SSLEAY_CONF");
 	if (p == NULL) {
 		p = to_free = make_config_name();
 		if (p == NULL) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: pmap.c,v 1.93 2015/06/30 08:40:55 mlarkin Exp $	*/
+/*	$OpenBSD: pmap.c,v 1.95 2015/09/03 18:47:36 kettenis Exp $	*/
 /*	$NetBSD: pmap.c,v 1.3 2003/05/08 18:13:13 thorpej Exp $	*/
 
 /*
@@ -682,7 +682,7 @@ pmap_bootstrap(paddr_t first_avail, paddr_t max_pa)
 	pool_init(&pmap_pmap_pool, sizeof(struct pmap), 0, 0, PR_WAITOK,
 	    "pmappl", NULL);
 	pool_init(&pmap_pv_pool, sizeof(struct pv_entry), 0, 0, 0, "pvpl",
-	    &pool_allocator_nointr);
+	    &pool_allocator_single);
 	pool_sethiwat(&pmap_pv_pool, 32 * 1024);
 	pool_setipl(&pmap_pv_pool, IPL_VM);
 
@@ -1564,6 +1564,7 @@ void
 pmap_page_remove(struct vm_page *pg)
 {
 	struct pv_entry *pve;
+	struct pmap *pm;
 	pt_entry_t *ptes, opte;
 	pd_entry_t **pdes;
 #ifdef DIAGNOSTIC
@@ -1578,13 +1579,35 @@ pmap_page_remove(struct vm_page *pg)
 
 	mtx_enter(&pg->mdpage.pv_mtx);
 	while ((pve = pg->mdpage.pv_list) != NULL) {
-		pg->mdpage.pv_list = pve->pv_next;
 		pmap_reference(pve->pv_pmap);
+		pm = pve->pv_pmap;
 		mtx_leave(&pg->mdpage.pv_mtx);
 
 		/* XXX use direct map? */
-		pmap_map_ptes(pve->pv_pmap, &ptes, &pdes, &scr3);
+		pmap_map_ptes(pm, &ptes, &pdes, &scr3);	/* locks pmap */
 		shootself = (scr3 == 0);
+
+		/*
+		 * We dropped the pvlist lock before grabbing the pmap
+		 * lock to avoid lock ordering problems.  This means
+		 * we have to check the pvlist again since somebody
+		 * else might have modified it.  All we care about is
+		 * that the pvlist entry matches the pmap we just
+		 * locked.  If it doesn't, unlock the pmap and try
+		 * again.
+		 */
+		mtx_enter(&pg->mdpage.pv_mtx);
+		if ((pve = pg->mdpage.pv_list) == NULL ||
+		    pve->pv_pmap != pm) {
+			mtx_leave(&pg->mdpage.pv_mtx);
+			pmap_unmap_ptes(pm, scr3);	/* unlocks pmap */
+			pmap_destroy(pm);
+			mtx_enter(&pg->mdpage.pv_mtx);
+			continue;
+		}
+
+		pg->mdpage.pv_list = pve->pv_next;
+		mtx_leave(&pg->mdpage.pv_mtx);
 
 #ifdef DIAGNOSTIC
 		if (pve->pv_ptp && pmap_pdes_valid(pve->pv_va, pdes, &pde) &&
@@ -1619,7 +1642,7 @@ pmap_page_remove(struct vm_page *pg)
 				    pve->pv_va, ptes, pdes, &empty_ptps);
 			}
 		}
-		pmap_unmap_ptes(pve->pv_pmap, scr3);
+		pmap_unmap_ptes(pve->pv_pmap, scr3);	/* unlocks pmap */
 		pmap_destroy(pve->pv_pmap);
 		pool_put(&pmap_pv_pool, pve);
 		mtx_enter(&pg->mdpage.pv_mtx);

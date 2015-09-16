@@ -1,4 +1,4 @@
-/*	$OpenBSD: getpwent.c,v 1.53 2015/01/16 16:48:51 deraadt Exp $ */
+/*	$OpenBSD: getpwent.c,v 1.55 2015/09/13 15:33:48 guenther Exp $ */
 /*
  * Copyright (c) 2008 Theo de Raadt
  * Copyright (c) 1988, 1993
@@ -294,8 +294,7 @@ again:
 				__ypcurrent = NULL;
 				if (r != 0) {
 					__ypmode = YPMODE_NONE;
-					if (data)
-						free(data);
+					free(data);
 					goto again;
 				}
 				__ypcurrent = key;
@@ -307,8 +306,7 @@ again:
 				if (r != 0 ||
 				    __ypcurrentlen > sizeof(__ypline)) {
 					__ypmode = YPMODE_NONE;
-					if (data)
-						free(data);
+					free(data);
 					goto again;
 				}
 			}
@@ -333,8 +331,7 @@ again:
 				 * if the netgroup is invalid, keep looking
 				 * as there may be valid users later on.
 				 */
-				if (data)
-					free(data);
+				free(data);
 				goto again;
 			}
 			bcopy(data, __ypline, datalen);
@@ -349,8 +346,7 @@ again:
 				name = NULL;
 				if (r != 0 ||
 				    __ypcurrentlen > sizeof(__ypline)) {
-					if (data)
-						free(data);
+					free(data);
 					goto again;
 				}
 				bcopy(data, __ypline, datalen);
@@ -506,8 +502,7 @@ __has_ypmaster(void)
 		return (checked);
 	}
 	free(result);
-	if (key)
-		free(key);
+	free(key);
 
 	saved_uid = uid;
 	saved_euid = euid;
@@ -566,8 +561,7 @@ __yppwlookup(int lookup, char *name, uid_t uid, struct passwd *pw,
 				    name, strlen(name),
 				    &ypcurrent, &ypcurrentlen);
 				if (r != 0 || ypcurrentlen > buflen) {
-					if (ypcurrent)
-						free(ypcurrent);
+					free(ypcurrent);
 					ypcurrent = NULL;
 					continue;
 				}
@@ -593,8 +587,7 @@ pwnam_netgrp:
 					} else
 						goto pwnam_netgrp;
 					if (r != 0 || ypcurrentlen > buflen) {
-						if (ypcurrent)
-							free(ypcurrent);
+						free(ypcurrent);
 						ypcurrent = NULL;
 						/*
 						 * just because this
@@ -615,8 +608,7 @@ pwnam_netgrp:
 				    user, strlen(user),
 				    &ypcurrent, &ypcurrentlen);
 				if (r != 0 || ypcurrentlen > buflen) {
-					if (ypcurrent)
-						free(ypcurrent);
+					free(ypcurrent);
 					ypcurrent = NULL;
 					continue;
 				}
@@ -661,8 +653,7 @@ pwnam_netgrp:
 done:
 	__ypexclude_free(&ypexhead);
 	__ypproto = NULL;
-	if (ypcurrent)
-		free(ypcurrent);
+	free(ypcurrent);
 	ypcurrent = NULL;
 	if (map)
 		free(name);
@@ -753,6 +744,7 @@ fail:
 	_THREAD_PRIVATE_MUTEX_UNLOCK(pw);
 	return (my_errno);
 }
+DEF_WEAK(getpwnam_r);
 
 struct passwd *
 getpwnam(const char *name)
@@ -768,6 +760,7 @@ getpwnam(const char *name)
 	}
 	return (pw);
 }
+DEF_WEAK(getpwnam);
 
 int
 getpwuid_r(uid_t uid, struct passwd *pw, char *buf, size_t buflen,
@@ -812,6 +805,7 @@ fail:
 	_THREAD_PRIVATE_MUTEX_UNLOCK(pw);
 	return (my_errno);
 }
+DEF_WEAK(getpwuid_r);
 
 struct passwd *
 getpwuid(uid_t uid)
@@ -827,6 +821,7 @@ getpwuid(uid_t uid)
 	}
 	return (pw);
 }
+DEF_WEAK(getpwuid);
 
 int
 setpassent(int stayopen)
@@ -836,8 +831,7 @@ setpassent(int stayopen)
 	_pw_stayopen = stayopen;
 #ifdef YP
 	__ypmode = YPMODE_NONE;
-	if (__ypcurrent)
-		free(__ypcurrent);
+	free(__ypcurrent);
 	__ypcurrent = NULL;
 	__ypexclude_free(&__ypexhead);
 	__ypproto = NULL;
@@ -845,6 +839,7 @@ setpassent(int stayopen)
 	_THREAD_PRIVATE_MUTEX_UNLOCK(pw);
 	return (1);
 }
+DEF_WEAK(setpassent);
 
 void
 setpwent(void)
@@ -866,8 +861,7 @@ endpwent(void)
 	}
 #ifdef YP
 	__ypmode = YPMODE_NONE;
-	if (__ypcurrent)
-		free(__ypcurrent);
+	free(__ypcurrent);
 	__ypcurrent = NULL;
 	__ypexclude_free(&__ypexhead);
 	__ypproto = NULL;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mpls_input.c,v 1.46 2015/07/20 22:16:41 rzalamena Exp $	*/
+/*	$OpenBSD: mpls_input.c,v 1.48 2015/09/12 20:26:07 mpi Exp $	*/
 
 /*
  * Copyright (c) 2008 Claudio Jeker <claudio@openbsd.org>
