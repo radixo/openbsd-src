@@ -1,3 +1,11 @@
+/*
+ * In order to guarantee that static and shared archs see the same "public"
+ * symbols, this file should always include all the non-static symbols that
+ * are in the application namespace.  So, if a symbol starts with a letter,
+ * don't delete it from here without either making it static or renaming it
+ * to have a leading underbar.
+ */
+
 /* symbols that no one should be using currently */
 _init
 _fini
@@ -35,7 +43,6 @@ _thread_sys___getcwd
 _thread_sys___semctl
 _thread_sys___set_tcb
 _thread_sys___syscall
-_thread_sys___sysctl
 _thread_sys___threxit
 _thread_sys___thrsigdivert
 _thread_sys___thrsleep
@@ -221,6 +228,7 @@ _thread_sys_symlink
 _thread_sys_symlinkat
 _thread_sys_sync
 _thread_sys_sysarch
+_thread_sys_sysctl
 _thread_sys_tame
 _thread_sys_truncate
 _thread_sys_umask
@@ -454,14 +462,6 @@ dbopen
 delete
 fetch
 firstkey
-mpool_close
-mpool_delete
-mpool_filter
-mpool_get
-mpool_new
-mpool_open
-mpool_put
-mpool_sync
 nextkey
 store
 
@@ -511,23 +511,11 @@ __isnormal
 __isnormalf
 __isnormall
 __nan
-__sigintr
 __signbit
 __signbitf
 __signbitl
-__sys_errlist
-__sys_nerr
-__sys_siglist
 _ctype_
-_getgrent_yp
 _longjmp
-_ng_makekey
-_ng_parse
-_ng_print
-_ng_sl_add
-_ng_sl_find
-_ng_sl_free
-_ng_sl_init
 _setjmp
 _sys_errlist
 _sys_nerr
@@ -831,7 +819,6 @@ arc4random
 arc4random_buf
 arc4random_uniform
 bcrypt
-bcrypt_autorounds
 bcrypt_checkpass
 bcrypt_gensalt
 bcrypt_newhash
@@ -848,7 +835,6 @@ crypt_newhash
 
 /* gdtoa */
 __dtoa
-__dtoa_locks
 __freedtoa
 __gdtoa
 __hdtoa
@@ -944,20 +930,12 @@ _DefaultMonetaryLocale
 _DefaultNumericLocale
 _DefaultRuneLocale
 _DefaultTimeLocale
-_NukeRune
-_Read_RuneMagi
-___runetype_mb
-__install_currentrunelocale_ctype
-__make_ctype_tabs
 __mb_cur_max
 __mb_len_max_runtime
 __mlocale_changed
 __nlocale_changed
-_findrunelocale
-_newrunelocale
 _towctrans_ext
 _wctrans_init
-_xpg4_setrunelocale
 btowc
 iswalnum
 iswalpha
@@ -1009,49 +987,32 @@ wcwidth
 
 /* asr */
 asr_abort
-asr_addr_as_fqdn
-asr_async_free
-asr_async_new
-asr_ctx_unref
-asr_debug
-asr_dname_from_fqdn
-asr_dump_config
-asr_dump_packet
-asr_hostalias
-asr_iter_db
-asr_make_fqdn
-asr_pack_header
-asr_pack_init
-asr_pack_query
-asr_parse_namedb_line
-asr_print_sockaddr
-asr_querystr
-asr_resolver
-asr_resolver_done
 asr_run
 asr_run_sync
-asr_sockaddr_from_str
-asr_statestr
-asr_strdname
-asr_transitionstr
-asr_unpack_header
-asr_unpack_init
-asr_unpack_query
-asr_unpack_rr
-asr_use_resolver
+freerrset
+getaddrinfo
 getaddrinfo_async
+gethostbyaddr
 gethostbyaddr_async
-gethostbyaddr_async_ctx
+gethostbyname
+gethostbyname2
 gethostbyname2_async
 gethostbyname_async
+getnameinfo
 getnameinfo_async
+getnetbyaddr
 getnetbyaddr_async
+getnetbyname
 getnetbyname_async
+getrrsetbyname
 getrrsetbyname_async
+res_init
+res_mkquery
+res_query
 res_query_async
-res_query_async_ctx
+res_querydomain
+res_search
 res_search_async
-res_search_async_ctx
 res_send_async
 
 /* net */
@@ -1077,16 +1038,11 @@ __res_randomid
 __res_send
 __sym_ntos
 _getlong
-_getnetbyaddr
-_getnetbyname
 _getshort
-_net_stayopen
-_protoent_data
 _res
 _res_ext
 _res_opcodes
 _res_resultcodes
-_servent_data
 dn_expand
 endhostent
 endnetent
@@ -1101,17 +1057,9 @@ ether_ntoa
 ether_ntohost
 freeaddrinfo
 freeifaddrs
-freerrset
 gai_strerror
-getaddrinfo
-gethostbyaddr
-gethostbyname2
-gethostbyname
 gethostent
 getifaddrs
-getnameinfo
-getnetbyaddr
-getnetbyname
 getnetent
 getpeereid
 getprotobyname
@@ -1120,7 +1068,6 @@ getprotobynumber
 getprotobynumber_r
 getprotoent
 getprotoent_r
-getrrsetbyname
 getservbyname
 getservbyname_r
 getservbyport
@@ -1170,7 +1117,6 @@ inet_ntop
 inet_pton
 iruserok
 iruserok_sa
-link_addr
 link_ntoa
 ntohl
 ntohs
@@ -1178,11 +1124,6 @@ rcmd
 rcmd_af
 rcmdsh
 recv
-res_init
-res_mkquery
-res_query
-res_querydomain
-res_search
 rresvport
 rresvport_af
 ruserok
@@ -1196,9 +1137,6 @@ setservent_r
 sockatmark
 
 /* nls */
-_catclose
-_catgets
-_catopen
 catclose
 catgets
 catopen
@@ -1242,10 +1180,7 @@ __svc_fdset
 __svc_fdsetsize
 __xdrrec_getrec
 __xdrrec_setnonblock
-__xprt_register
-_authenticate
 _null_auth
-_rpc_dtablesize
 _seterr_reply
 _svcauth_null
 _svcauth_short
@@ -1281,7 +1216,6 @@ pmap_set
 pmap_unset
 registerrpc
 rpc_createerr
-rpcdata
 set_rpc_maxgrouplist
 setrpcent
 svc_fdset
@@ -1573,9 +1507,10 @@ twalk
 unlockpt
 unsetenv
 
-/* string */
+/* exposed due to paranoia over future link-time optimizations */
 __explicit_bzero_hook
-__strsignal
+
+/* string */
 bcmp
 bcopy
 bzero
@@ -1727,35 +1662,7 @@ uuid_is_nil
 uuid_to_string
 
 /* yp */
-__ypexclude_add
-__ypexclude_free
-__ypexclude_is
-_yp_check
-_yp_dobind
-_yp_domain
-_yp_unbind
-_ypbindlist
-_yplib_timeout
-xdr_domainname
-xdr_keydat
-xdr_mapname
-xdr_peername
-xdr_valdat
-xdr_ypbind_binding
-xdr_ypbind_resp
-xdr_ypbind_resptype
-xdr_ypbind_setdom
-xdr_ypmaplist
-xdr_ypreq_key
-xdr_ypreq_nokey
-xdr_ypresp_all
 xdr_ypresp_all_seq
-xdr_ypresp_key_val
-xdr_ypresp_maplist
-xdr_ypresp_master
-xdr_ypresp_order
-xdr_ypresp_val
-xdr_ypstat
 yp_all
 yp_bind
 yp_first
@@ -1765,8 +1672,7 @@ yp_master
 yp_match
 yp_next
 yp_order
-yp_unbind
 yperr_string
 ypprot_err
-ypresp_allfn
-ypresp_data
+_yp_check		/* chpass, passwd, login_chpass */
+yp_unbind		/* passwd */

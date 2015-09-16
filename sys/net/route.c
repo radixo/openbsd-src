@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.228 2015/09/01 12:50:03 mpi Exp $	*/
+/*	$OpenBSD: route.c,v 1.238 2015/09/12 09:22:29 mpi Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -198,11 +198,25 @@ void
 route_init(void)
 {
 	struct domain	*dom;
+	unsigned int	 keylen;
 	int		 i;
 
 	pool_init(&rtentry_pool, sizeof(struct rtentry), 0, 0, 0, "rtentry",
 	    NULL);
-	rtable_init();	/* initialize all zeroes, all ones, mask table */
+
+	/*
+	 * Compute the maximum supported key length in case the routing
+	 * table backend needs it.
+	 */
+	keylen = sizeof(struct sockaddr_in);
+#ifdef INET6
+	keylen = max(keylen, (sizeof(struct sockaddr_in6)));
+#endif
+#ifdef MPLS
+	keylen = max(keylen, (sizeof(struct sockaddr_mpls)));
+#endif
+
+	rtable_init(keylen);
 
 	bzero(af2rtafidx, sizeof(af2rtafidx));
 	rtafidx_max = 1;	/* must have NULL at index 0, so start at 1 */
@@ -322,47 +336,34 @@ rtisvalid(struct rtentry *rt)
 struct rtentry *
 rtalloc(struct sockaddr *dst, int flags, unsigned int tableid)
 {
-	struct rtentry		*rt;
-	struct rtentry		*newrt = NULL;
+	struct rtentry		*rt0, *rt = NULL;
 	struct rt_addrinfo	 info;
-	int			 s, error = 0, msgtype = RTM_MISS;
-
-	s = splsoftnet();
+	int			 s, error = 0;
 
 	bzero(&info, sizeof(info));
 	info.rti_info[RTAX_DST] = dst;
 
+	s = splsoftnet();
 	rt = rtable_match(tableid, dst);
 	if (rt != NULL) {
-		newrt = rt;
 		if ((rt->rt_flags & RTF_CLONING) && ISSET(flags, RT_RESOLVE)) {
+			rt0 = rt;
 			error = rtrequest1(RTM_RESOLVE, &info, RTP_DEFAULT,
-			    &newrt, tableid);
-			if (error) {
-				newrt = rt;
-				rt->rt_refcnt++;
+			    &rt, tableid);
+			if (error)
 				goto miss;
-			}
-			rt = newrt;
-			if (rt->rt_flags & RTF_XRESOLVE) {
-				msgtype = RTM_RESOLVE;
-				goto miss;
-			}
 			/* Inform listeners of the new route */
 			rt_sendmsg(rt, RTM_ADD, tableid);
-		} else
-			rt->rt_refcnt++;
+			rtfree(rt0);
+		}
 	} else {
 		rtstat.rts_unreach++;
 miss:
-		if (ISSET(flags, RT_REPORT)) {
-			bzero((caddr_t)&info, sizeof(info));
-			info.rti_info[RTAX_DST] = dst;
-			rt_missmsg(msgtype, &info, 0, NULL, error, tableid);
-		}
+		if (ISSET(flags, RT_REPORT))
+			rt_missmsg(RTM_MISS, &info, 0, NULL, error, tableid);
 	}
 	splx(s);
-	return (newrt);
+	return (rt);
 }
 
 #ifndef SMALL_KERNEL
@@ -392,6 +393,12 @@ rtalloc_mpath(struct sockaddr *dst, uint32_t *src, unsigned int rtableid)
 	return (rtable_mpath_select(rt, src));
 }
 #endif /* SMALL_KERNEL */
+
+void
+rtref(struct rtentry *rt)
+{
+	rt->rt_refcnt++;
+}
 
 void
 rtfree(struct rtentry *rt)
@@ -668,10 +675,9 @@ ifa_ifwithroute(int flags, struct sockaddr *dst, struct sockaddr *gateway,
 			struct sockaddr_dl *sdl = (struct sockaddr_dl *)gateway;
 			struct ifnet *ifp = if_get(sdl->sdl_index);
 
-			if (ifp == NULL)
-				ifp = ifunit(sdl->sdl_data);
 			if (ifp != NULL)
 				ifa = ifaof_ifpforaddr(dst, ifp);
+			if_put(ifp);
 		} else {
 			ifa = ifa_ifwithnet(gateway, rtableid);
 		}
@@ -712,8 +718,6 @@ rt_getifa(struct rt_addrinfo *info, u_int rtid)
 
 		sdl = (struct sockaddr_dl *)info->rti_info[RTAX_IFP];
 		ifp = if_get(sdl->sdl_index);
-		if (ifp == NULL)
-			ifp = ifunit(sdl->sdl_data);
 	}
 
 #ifdef IPSEC
@@ -750,6 +754,8 @@ rt_getifa(struct rt_addrinfo *info, u_int rtid)
 			info->rti_ifa = ifa_ifwithroute(info->rti_flags,
 			    sa, sa, rtid);
 	}
+
+	if_put(ifp);
 
 	if (info->rti_ifa == NULL)
 		return (ENETUNREACH);
@@ -794,8 +800,10 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 		 * a matching gateway.
 		 */
 		if ((rt->rt_flags & RTF_MPATH) &&
-		    info->rti_info[RTAX_GATEWAY] == NULL)
+		    info->rti_info[RTAX_GATEWAY] == NULL) {
+		    	rtfree(rt);
 			return (ESRCH);
+		}
 #endif
 
 		/*
@@ -804,34 +812,33 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 		 * kernel.
 		 */
 		if ((rt->rt_flags & (RTF_LOCAL|RTF_BROADCAST)) &&
-		    prio != RTP_LOCAL)
+		    prio != RTP_LOCAL) {
+		    	rtfree(rt);
 			return (EINVAL);
+		}
 
 		error = rtable_delete(tableid, info->rti_info[RTAX_DST],
 		    info->rti_info[RTAX_NETMASK], prio, rt);
-		if (error != 0)
+		if (error != 0) {
+		    	rtfree(rt);
 			return (ESRCH);
+		}
 
 		/* clean up any cloned children */
 		if ((rt->rt_flags & RTF_CLONING) != 0)
 			rtflushclone(tableid, rt);
 
-		if (rt->rt_gwroute) {
-			rtfree(rt->rt_gwroute);
-			rt->rt_gwroute = NULL;
-		}
+		rtfree(rt->rt_gwroute);
+		rt->rt_gwroute = NULL;
 
-		if (rt->rt_parent) {
-			rt->rt_parent->rt_refcnt--;
-			rt->rt_parent = NULL;
-		}
+		rtfree(rt->rt_parent);
+		rt->rt_parent = NULL;
 
 		rt->rt_flags &= ~RTF_UP;
 		if ((ifa = rt->rt_ifa) && ifa->ifa_rtrequest)
 			ifa->ifa_rtrequest(RTM_DELETE, rt);
 		rttrash++;
 
-		rt->rt_refcnt++;
 		if (ret_nrt != NULL)
 			*ret_nrt = rt;
 		else
@@ -1309,7 +1316,7 @@ rt_ifa_addlocal(struct ifaddr *ifa)
 	/* If there is no loopback entry, allocate one. */
 	rt = rtalloc(ifa->ifa_addr, 0, ifa->ifa_ifp->if_rdomain);
 	if (rt == NULL || !ISSET(rt->rt_flags, flags))
-		error = rt_ifa_add(ifa, RTF_UP | flags, ifa->ifa_addr);
+		error = rt_ifa_add(ifa, flags, ifa->ifa_addr);
 	if (rt)
 		rtfree(rt);
 
@@ -1723,8 +1730,9 @@ rt_if_linkstate_change(struct rtentry *rt, void *arg, u_int id)
 {
 	struct ifnet *ifp = arg;
 
-	if (rt->rt_ifp != ifp)
-		return (0);
+	if ((rt->rt_ifp != ifp) &&
+	    (rt->rt_ifa == NULL || rt->rt_ifa->ifa_ifp != ifp))
+	    	return (0);
 
 	if (LINK_STATE_IS_UP(ifp->if_link_state) && ifp->if_flags & IFF_UP) {
 		if (!(rt->rt_flags & RTF_UP)) {

@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_synch.c,v 1.120 2015/05/07 18:30:27 mikeb Exp $	*/
+/*	$OpenBSD: kern_synch.c,v 1.122 2015/09/07 15:38:45 guenther Exp $	*/
 /*	$NetBSD: kern_synch.c,v 1.37 1996/04/22 01:38:37 christos Exp $	*/
 
 /*
@@ -48,6 +48,7 @@
 #include <sys/mount.h>
 #include <sys/syscallargs.h>
 #include <sys/pool.h>
+#include <sys/refcnt.h>
 
 #include <machine/spinlock.h>
 
@@ -234,11 +235,6 @@ sleep_setup(struct sleep_state *sls, const volatile void *ident, int prio,
 		panic("tsleep: not SONPROC");
 #endif
 
-#ifdef KTRACE
-	if (KTRPOINT(p, KTR_CSW))
-		ktrcsw(p, 1, 0);
-#endif
-
 	sls->sls_catch = 0;
 	sls->sls_do_sleep = 1;
 	sls->sls_sig = 1;
@@ -279,11 +275,6 @@ sleep_finish(struct sleep_state *sls, int do_sleep)
 	 * we need to clear it before the ktrace.
 	 */
 	atomic_clearbits_int(&p->p_flag, P_SINTR);
-
-#ifdef KTRACE
-	if (KTRPOINT(p, KTR_CSW))
-		ktrcsw(p, 0, 0);
-#endif
 }
 
 void
@@ -599,4 +590,25 @@ sys___thrwakeup(struct proc *p, void *v, register_t *retval)
 	}
 
 	return (0);
+}
+
+void
+refcnt_rele_wake(struct refcnt *r)
+{
+	if (refcnt_rele(r))
+		wakeup_one(r);
+}
+
+void
+refcnt_finalize(struct refcnt *r, const char *wmesg)
+{
+	struct sleep_state sls;
+	u_int refcnt;
+
+	refcnt = atomic_dec_int_nv(&r->refs);
+	while (refcnt) {
+		sleep_setup(&sls, r, PWAIT, wmesg);
+		refcnt = r->refs;
+		sleep_finish(&sls, refcnt);
+	}
 }

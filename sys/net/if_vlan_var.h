@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vlan_var.h,v 1.25 2015/05/19 11:09:24 mpi Exp $	*/
+/*	$OpenBSD: if_vlan_var.h,v 1.29 2015/09/13 09:46:45 dlg Exp $	*/
 
 /*
  * Copyright 1998 Massachusetts Institute of Technology
@@ -62,6 +62,8 @@ struct	vlanreq {
 };
 
 #ifdef _KERNEL
+#include <sys/refcnt.h>
+
 #define mc_enm	mc_u.mcu_enm
 
 struct vlan_mc_entry {
@@ -83,8 +85,9 @@ struct	ifvlan {
 		u_int16_t ifvm_type; /* non-standard ethertype or 0x8100 */
 	}	ifv_mib;
 	LIST_HEAD(__vlan_mchead, vlan_mc_entry)	vlan_mc_listhead;
-	LIST_ENTRY(ifvlan) ifv_list;
+	struct srpl_entry ifv_list;
 	int ifv_flags;
+	struct refcnt ifv_refcnt;
 	void *lh_cookie;
 	void *dh_cookie;
 	struct ifih *ifv_ifih;

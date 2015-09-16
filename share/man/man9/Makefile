@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.239 2015/09/01 03:47:58 dlg Exp $
+#	$OpenBSD: Makefile,v 1.244 2015/09/12 15:02:28 lteo Exp $
 #	$NetBSD: Makefile,v 1.4 1996/01/09 03:23:01 thorpej Exp $
 
 #	Makefile for section 9 (kernel function and variable) manual pages.
@@ -18,7 +18,7 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	ieee80211.9 ieee80211_crypto.9 ieee80211_input.9 ieee80211_ioctl.9 \
 	ieee80211_node.9 ieee80211_output.9 ieee80211_proto.9 \
 	ieee80211_radiotap.9 \
-	if_rxr_init.9 iic.9 intro.9 inittodr.9 \
+	if_rxr_init.9 iic.9 intro.9 inittodr.9 intr_barrier.9 \
 	kern.9 km_alloc.9 knote.9 kthread.9 ktrace.9 \
 	loadfirmware.9 lock.9 log.9 \
 	malloc.9 membar_sync.9 mbuf.9 mbuf_tags.9 md5.9 mi_switch.9 \
@@ -26,10 +26,10 @@ MAN=	aml_evalnode.9 atomic_add_int.9 atomic_cas_uint.9 \
 	namei.9 \
 	panic.9 pci_conf_read.9 pci_intr_map.9 pfind.9 physio.9 pmap.9 \
 	pool.9 powerhook_establish.9 ppsratecheck.9 printf.9 psignal.9 \
-	radio.9 arc4random.9 rasops.9 ratecheck.9 resettodr.9 rssadapt.9 \
-	route.9 rt_ifa_add.9 rt_timer_add.9 rtalloc.9 rtable_add.9 \
+	radio.9 arc4random.9 rasops.9 ratecheck.9 refcnt_init.9 resettodr.9 \
+	rssadapt.9 route.9 rt_ifa_add.9 rt_timer_add.9 rtalloc.9 rtable_add.9 \
 	rtlabel_id2name.9 rtrequest1.9 rwlock.9 SipHash24.9 sensor_attach.9 \
-	spl.9 srp_enter.9 startuphook_establish.9 \
+	spl.9 srp_enter.9 srpl_rc_init.9 startuphook_establish.9 \
 	socreate.9 sosplice.9 style.9 syscall.9 systrace.9 sysctl_int.9 \
 	task_add.9 tc_init.9 time.9 timeout.9 tsleep.9 tvtohz.9 \
 	uiomove.9 uvm.9 usbd_close_pipe.9 usbd_open_pipe.9 usbd_transfer.9 \
@@ -234,7 +234,7 @@ MLINKS+=km_alloc.9 km_free.9
 MLINKS+=knote.9 KNOTE.9
 MLINKS+=kthread.9 kthread_create.9 kthread.9 kthread_exit.9 \
 	kthread.9 kthread_create_deferred.9
-MLINKS+=ktrace.9 ktrcsw.9 ktrace.9 ktremul.9 ktrace.9 ktrgenio.9 \
+MLINKS+=ktrace.9 ktremul.9 ktrace.9 ktrgenio.9 \
 	ktrace.9 ktrnamei.9 ktrace.9 ktrpsig.9 ktrace.9 ktrsyscall.9 \
 	ktrace.9 ktrsysret.9 ktrace.9 KTRPOINT.9
 MLINKS+=lock.9 lockinit.9 lock.9 lockmgr.9 lock.9 lockstatus.9
@@ -318,6 +318,9 @@ MLINKS+=arc4random.9 add_true_randomness.9 \
 	arc4random.9 arc4random_buf.9 \
 	arc4random.9 arc4random_uniform.9
 MLINKS+=rasops.9 rasops_init.9 rasops.9 rasops_reconfig.9
+MLINKS+=refcnt_init.9 refcnt_take.9 refcnt_init.9 refcnt_rele.9 \
+	refcnt_init.9 refcnt_rele_wake.9 refcnt_init.9 refcnt_finalize.9 \
+	refcnt_init.9 REFCNT_INITIALIZER.9
 MLINKS+=rssadapt.9 ieee80211_rssadapt_choose.9 \
 	rssadapt.9 ieee80211_rssadapt_input.9 \
 	rssadapt.9 ieee80211_rssadapt_lower_rate.9 \
@@ -332,7 +335,8 @@ MLINKS+=rt_timer_add.9 rt_timer_queue_create.9 \
 	rt_timer_add.9 rt_timer_queue_change.9 \
 	rt_timer_add.9 rt_timer_queue_destroy.9 \
 	rt_timer_add.9 rt_timer_remove_all.9
-MLINKS+=rtalloc.9 rtalloc_mpath.9 rtalloc.9 rtisvalid.9 rtalloc.9 rtfree.9
+MLINKS+=rtalloc.9 rtalloc_mpath.9 rtalloc.9 rtisvalid.9 rtalloc.9 rtref.9 \
+	rtalloc.9 rtfree.9
 MLINKS+=rtable_add.9 rtable_exists.9 rtable_add.9 rtable_get.9 \
 	rtable_add.9 rtable_l2.9 rtable_add.9 rtable_l2set.9
 MLINKS+=rtlabel_id2name.9 rtlabel_name2id.9 \
@@ -369,6 +373,16 @@ MLINKS+=srp_enter.9 srp_init.9 srp_enter.9 srp_gc_init.9 \
 	srp_enter.9 srp_follow.9 srp_enter.9 srp_leave.9 \
 	srp_enter.9 srp_get_locked.9 srp_enter.9 srp_finalize.9 \
 	srp_enter.9 SRP_INITIALIZER.9 srp_enter.9 SRP_GC_INITIALIZER.9
+MLINKS+=srpl_rc_init.9 SRPL_HEAD_INIT.9 srpl_rc_init.9 SRPL_HEAD_INIT.9 \
+	srpl_rc_init.9 SRPL_ENTRY_INIT.9 srpl_rc_init.9 SRPL_ENTER.9 \
+	srpl_rc_init.9 SRPL_NEXT.9 srpl_rc_init.9 SRPL_FOREACH.9 \
+	srpl_rc_init.9 SRPL_LEAVE.9 srpl_rc_init.9 SRPL_EMPTY_LOCKED.9 \
+	srpl_rc_init.9 SRPL_FIRST_LOCKED.9 srpl_rc_init.9 SRPL_NEXT_LOCKED.9 \
+	srpl_rc_init.9 SRPL_FOREACH_LOCKED.9 \
+	srpl_rc_init.9 SRPL_INSERT_HEAD_LOCKED.9 \
+	srpl_rc_init.9 SRPL_REMOVE_LOCKED.9 \
+	srpl_rc_init.9 SRPL_RC_INITIALIZER.9 \
+
 MLINKS+=sysctl_int.9 sysctl_int_arr.9 sysctl_int.9 sysctl_quad.9 \
 	sysctl_int.9 sysctl_string.9 sysctl_int.9 sysctl_tstring.9 \
 	sysctl_int.9 sysctl_rdint.9 sysctl_int.9 sysctl_rdquad.9 \

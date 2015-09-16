@@ -1,4 +1,4 @@
-/*	$OpenBSD: tree.c,v 1.20 2012/06/27 07:17:19 otto Exp $	*/
+/*	$OpenBSD: tree.c,v 1.22 2015/09/15 18:15:05 tedu Exp $	*/
 
 /*
  * command tree climbing
@@ -457,7 +457,7 @@ tcopy(struct op *t, Area *ap)
 	if (t == NULL)
 		return NULL;
 
-	r = (struct op *) alloc(sizeof(struct op), ap);
+	r = alloc(sizeof(struct op), ap);
 
 	r->type = t->type;
 	r->u.evalflags = t->u.evalflags;
@@ -469,8 +469,7 @@ tcopy(struct op *t, Area *ap)
 	else {
 		for (tw = t->vars; *tw++ != NULL; )
 			;
-		rw = r->vars = (char **)
-			alloc((tw - t->vars + 1) * sizeof(*tw), ap);
+		rw = r->vars = alloc((tw - t->vars + 1) * sizeof(*tw), ap);
 		for (tw = t->vars; *tw != NULL; )
 			*rw++ = wdcopy(*tw++, ap);
 		*rw = NULL;
@@ -481,8 +480,7 @@ tcopy(struct op *t, Area *ap)
 	else {
 		for (tw = t->args; *tw++ != NULL; )
 			;
-		rw = r->args = (char **)
-			alloc((tw - t->args + 1) * sizeof(*tw), ap);
+		rw = r->args = alloc((tw - t->args + 1) * sizeof(*tw), ap);
 		for (tw = t->args; *tw != NULL; )
 			*rw++ = wdcopy(*tw++, ap);
 		*rw = NULL;
@@ -565,7 +563,7 @@ wdstrip(const char *wp)
 	struct shf shf;
 	int c;
 
-	shf_sopen((char *) 0, 32, SHF_WR | SHF_DYNAMIC, &shf);
+	shf_sopen(NULL, 32, SHF_WR | SHF_DYNAMIC, &shf);
 
 	/* problems:
 	 *	`...` -> $(...)
@@ -632,20 +630,20 @@ iocopy(struct ioword **iow, Area *ap)
 
 	for (ior = iow; *ior++ != NULL; )
 		;
-	ior = (struct ioword **) alloc((ior - iow + 1) * sizeof(*ior), ap);
+	ior = alloc((ior - iow + 1) * sizeof(*ior), ap);
 
 	for (i = 0; iow[i] != NULL; i++) {
 		struct ioword *p, *q;
 
 		p = iow[i];
-		q = (struct ioword *) alloc(sizeof(*p), ap);
+		q = alloc(sizeof(*p), ap);
 		ior[i] = q;
 		*q = *p;
-		if (p->name != (char *) 0)
+		if (p->name != NULL)
 			q->name = wdcopy(p->name, ap);
-		if (p->delim != (char *) 0)
+		if (p->delim != NULL)
 			q->delim = wdcopy(p->delim, ap);
-		if (p->heredoc != (char *) 0)
+		if (p->heredoc != NULL)
 			q->heredoc = str_save(p->heredoc, ap);
 	}
 	ior[i] = NULL;

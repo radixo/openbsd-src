@@ -1,4 +1,4 @@
-/*	$OpenBSD: eval.c,v 1.37 2011/10/11 14:32:43 otto Exp $	*/
+/*	$OpenBSD: eval.c,v 1.41 2015/09/15 18:15:05 tedu Exp $	*/
 
 /*
  * Expansion - quoting, separation, substitution, globbing
@@ -292,7 +292,7 @@ expand(char *cp,	/* input word */
 					if (!st->next) {
 						SubType *newst;
 
-						newst = (SubType *) alloc(
+						newst = alloc(
 						    sizeof(SubType), ATEMP);
 						newst->next = (SubType *) 0;
 						newst->prev = st;
@@ -406,7 +406,7 @@ expand(char *cp,	/* input word */
 					 */
 					len = strlen(dp) + 1;
 					setstr(st->var,
-					    debunk((char *) alloc(len, ATEMP),
+					    debunk(alloc(len, ATEMP),
 					    dp, len), KSH_UNWIND_ERROR);
 					x.str = str_val(st->var);
 					type = XSUB;
@@ -861,7 +861,7 @@ comsub(Expand *xp, char *cp)
 
 		if ((io->flag&IOTYPE) != IOREAD)
 			errorf("funny $() command: %s",
-			    snptreef((char *) 0, 32, "%R", io));
+			    snptreef(NULL, 32, "%R", io));
 		shf = shf_open(name = evalstr(io->name, DOTILDE), O_RDONLY, 0,
 			SHF_MAPHI|SHF_CLEXEC);
 		if (shf == NULL)
@@ -1190,7 +1190,7 @@ maybe_expand_tilde(char *p, XString *dsp, char **dpp, int isassign)
 	}
 	*tp = '\0';
 	r = (p[0] == EOS || p[0] == CHAR || p[0] == CSUBST) ?
-	    tilde(Xstring(ts, tp)) : (char *) 0;
+	    tilde(Xstring(ts, tp)) : NULL;
 	Xfree(ts, tp);
 	if (r) {
 		while (*r) {
@@ -1226,7 +1226,7 @@ tilde(char *cp)
 		dp = homedir(cp);
 	/* If HOME, PWD or OLDPWD are not set, don't expand ~ */
 	if (dp == null)
-		dp = (char *) 0;
+		dp = NULL;
 	return dp;
 }
 
@@ -1271,7 +1271,7 @@ alt_expand(XPtrV *wp, char *start, char *exp_start, char *end, int fdo)
 
 	/* find matching close brace, if any */
 	if (p) {
-		comma = (char *) 0;
+		comma = NULL;
 		count = 1;
 		for (p += 2; *p && count; p++) {
 			if (ISMAGIC(*p)) {
@@ -1317,7 +1317,7 @@ alt_expand(XPtrV *wp, char *start, char *exp_start, char *end, int fdo)
 				l1 = brace_start - start;
 				l2 = (p - 1) - field_start;
 				l3 = end - brace_end;
-				new = (char *) alloc(l1 + l2 + l3 + 1, ATEMP);
+				new = alloc(l1 + l2 + l3 + 1, ATEMP);
 				memcpy(new, start, l1);
 				memcpy(new + l1, field_start, l2);
 				memcpy(new + l1 + l2, brace_end, l3);

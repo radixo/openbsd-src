@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vlan.c,v 1.134 2015/07/02 09:40:02 mpi Exp $	*/
+/*	$OpenBSD: if_vlan.c,v 1.141 2015/09/13 09:46:45 dlg Exp $	*/
 
 /*
  * Copyright 1998 Massachusetts Institute of Technology
@@ -57,6 +57,7 @@
 #include <sys/socket.h>
 #include <sys/sockio.h>
 #include <sys/systm.h>
+#include <sys/rwlock.h>
 
 #include <net/if.h>
 #include <net/if_dl.h>
@@ -72,14 +73,14 @@
 #include <net/bpf.h>
 #endif
 
-u_long vlan_tagmask, svlan_tagmask;
+#define TAG_HASH_BITS		5
+#define TAG_HASH_SIZE		(1 << TAG_HASH_BITS) 
+#define TAG_HASH_MASK		(TAG_HASH_SIZE - 1)
+#define TAG_HASH(tag)		(tag & TAG_HASH_MASK)
+struct srpl *vlan_tagh, *svlan_tagh;
+struct rwlock vlan_tagh_lk = RWLOCK_INITIALIZER("vlantag");
 
-#define TAG_HASH_SIZE		32
-#define TAG_HASH(tag)		(tag & vlan_tagmask)
-LIST_HEAD(vlan_taghash, ifvlan)	*vlan_tagh, *svlan_tagh;
-
-
-int	vlan_input(struct ifnet *, struct mbuf *);
+int	vlan_input(struct ifnet *, struct mbuf *, void *);
 void	vlan_start(struct ifnet *ifp);
 int	vlan_ioctl(struct ifnet *ifp, u_long cmd, caddr_t addr);
 int	vlan_unconfig(struct ifnet *ifp, struct ifnet *newp);
@@ -100,22 +101,35 @@ struct if_clone vlan_cloner =
 struct if_clone svlan_cloner =
     IF_CLONE_INITIALIZER("svlan", vlan_clone_create, vlan_clone_destroy);
 
+void vlan_ref(void *, void *);
+void vlan_unref(void *, void *);
+
+struct srpl_rc vlan_tagh_rc = SRPL_RC_INITIALIZER(vlan_ref, vlan_unref, NULL);
+
 /* ARGSUSED */
 void
 vlanattach(int count)
 {
+	u_int i;
+
 	/* Normal VLAN */
-	vlan_tagh = hashinit(TAG_HASH_SIZE, M_DEVBUF, M_NOWAIT,
-	    &vlan_tagmask);
+	vlan_tagh = mallocarray(TAG_HASH_SIZE, sizeof(*vlan_tagh),
+	    M_DEVBUF, M_NOWAIT);
 	if (vlan_tagh == NULL)
 		panic("vlanattach: hashinit");
-	if_clone_attach(&vlan_cloner);
 
 	/* Service-VLAN for QinQ/802.1ad provider bridges */
-	svlan_tagh = hashinit(TAG_HASH_SIZE, M_DEVBUF, M_NOWAIT,
-	    &svlan_tagmask);
+	svlan_tagh = mallocarray(TAG_HASH_SIZE, sizeof(*svlan_tagh),
+	    M_DEVBUF, M_NOWAIT);
 	if (svlan_tagh == NULL)
 		panic("vlanattach: hashinit");
+
+	for (i = 0; i < TAG_HASH_SIZE; i++) {
+		SRPL_INIT(&vlan_tagh[i]);
+		SRPL_INIT(&svlan_tagh[i]);
+	}
+
+	if_clone_attach(&vlan_cloner);
 	if_clone_attach(&svlan_cloner);
 }
 
@@ -125,7 +139,8 @@ vlan_clone_create(struct if_clone *ifc, int unit)
 	struct ifvlan	*ifv;
 	struct ifnet	*ifp;
 
-	if ((ifv = malloc(sizeof(*ifv), M_DEVBUF, M_NOWAIT|M_ZERO)) == NULL)
+	ifv = malloc(sizeof(*ifv), M_DEVBUF, M_NOWAIT|M_ZERO);
+	if (ifv == NULL)
 		return (ENOMEM);
 
 	LIST_INIT(&ifv->vlan_mc_listhead);
@@ -142,6 +157,8 @@ vlan_clone_create(struct if_clone *ifc, int unit)
 	else
 		ifv->ifv_type = ETHERTYPE_VLAN;
 
+	refcnt_init(&ifv->ifv_refcnt);
+
 	ifp->if_start = vlan_start;
 	ifp->if_ioctl = vlan_ioctl;
 	IFQ_SET_MAXLEN(&ifp->if_snd, 1);
@@ -153,6 +170,22 @@ vlan_clone_create(struct if_clone *ifc, int unit)
 	return (0);
 }
 
+void
+vlan_ref(void *null, void *v)
+{
+	struct ifvlan *ifv = v;
+
+	refcnt_take(&ifv->ifv_refcnt);
+}
+
+void
+vlan_unref(void *null, void *v)
+{
+	struct ifvlan *ifv = v;
+
+	refcnt_rele_wake(&ifv->ifv_refcnt);
+}
+
 int
 vlan_clone_destroy(struct ifnet *ifp)
 {
@@ -161,7 +194,9 @@ vlan_clone_destroy(struct ifnet *ifp)
 	vlan_unconfig(ifp, NULL);
 	ether_ifdetach(ifp);
 	if_detach(ifp);
+	refcnt_finalize(&ifv->ifv_refcnt, "vlanrefs");
 	free(ifv, M_DEVBUF, sizeof(*ifv));
+
 	return (0);
 }
 
@@ -170,6 +205,24 @@ vlan_ifdetach(void *ptr)
 {
 	struct ifvlan	*ifv = ptr;
 	vlan_clone_destroy(&ifv->ifv_if);
+}
+
+static inline int
+vlan_mplstunnel(int ifidx)
+{
+#if NMPW > 0
+	struct ifnet *ifp;
+	int rv = 0;
+
+	ifp = if_get(ifidx);
+	if (ifp != NULL) {
+		rv = ifp->if_type == IFT_MPLSTUNNEL;
+		if_put(ifp);
+	}
+	return (rv);
+#else
+	return (0);
+#endif
 }
 
 void
@@ -206,21 +259,18 @@ vlan_start(struct ifnet *ifp)
 		if (prio <= 1)
 			prio = !prio;
 
-#if NMPW > 0
-		struct ifnet *ifpn = if_get(m->m_pkthdr.ph_ifidx);
 		/*
 		 * If this packet came from a pseudowire it means it already
 		 * has all tags it needs, so just output it.
 		 */
-		if (ifpn && ifpn->if_type == IFT_MPLSTUNNEL) {
+		if (vlan_mplstunnel(m->m_pkthdr.ph_ifidx)) {
 			/* NOTHING */
-		} else
-#endif /* NMPW */
+
 		/*
 		 * If the underlying interface cannot do VLAN tag insertion
 		 * itself, create an encapsulation header.
 		 */
-		if ((p->if_capabilities & IFCAP_VLAN_HWTAGGING) &&
+		} else if ((p->if_capabilities & IFCAP_VLAN_HWTAGGING) &&
 		    (ifv->ifv_type == ETHERTYPE_VLAN)) {
 			m->m_pkthdr.ether_vtag = ifv->ifv_tag +
 			    (prio << EVL_PRIO_BITS);
@@ -255,12 +305,13 @@ vlan_start(struct ifnet *ifp)
  * vlan_input() returns 1 if it has consumed the packet, 0 otherwise.
  */
 int
-vlan_input(struct ifnet *ifp, struct mbuf *m)
+vlan_input(struct ifnet *ifp, struct mbuf *m, void *cookie)
 {
 	struct ifvlan			*ifv;
 	struct ether_vlan_header	*evl;
 	struct ether_header		*eh;
-	struct vlan_taghash		*tagh;
+	struct srpl			*tagh, *list;
+	struct srpl_iter		 i;
 	u_int				 tag;
 	struct mbuf_list		 ml = MBUF_LIST_INITIALIZER();
 	u_int16_t			 etype;
@@ -294,7 +345,8 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 	if (m->m_pkthdr.pf.prio <= 1)
 		m->m_pkthdr.pf.prio = !m->m_pkthdr.pf.prio;
 
-	LIST_FOREACH(ifv, &tagh[TAG_HASH(tag)], ifv_list) {
+	list = &tagh[TAG_HASH(tag)];
+	SRPL_FOREACH(ifv, list, &i, ifv_list) {
 		if (ifp == ifv->ifv_p && tag == ifv->ifv_tag &&
 		    etype == ifv->ifv_type)
 			break;
@@ -302,15 +354,12 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 
 	if (ifv == NULL) {
 		ifp->if_noproto++;
-		m_freem(m);
-		return (1);
+		goto drop;
 	}
 
 	if ((ifv->ifv_if.if_flags & (IFF_UP|IFF_RUNNING)) !=
-	    (IFF_UP|IFF_RUNNING)) {
-		m_freem(m);
-		return (1);
-	}
+	    (IFF_UP|IFF_RUNNING))
+		goto drop;
 
 	/*
 	 * Drop promiscuously received packets if we are not in
@@ -320,10 +369,8 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 	    (ifp->if_flags & IFF_PROMISC) &&
 	    (ifv->ifv_if.if_flags & IFF_PROMISC) == 0) {
 		if (bcmp(&ifv->ifv_ac.ac_enaddr, eh->ether_dhost,
-		    ETHER_ADDR_LEN)) {
-			m_freem(m);
-			return (1);
-		}
+		    ETHER_ADDR_LEN))
+			goto drop;
 	}
 
 	/*
@@ -341,6 +388,12 @@ vlan_input(struct ifnet *ifp, struct mbuf *m)
 
 	ml_enqueue(&ml, m);
 	if_input(&ifv->ifv_if, &ml);
+	SRPL_LEAVE(&i, ifv);
+	return (1);
+
+drop:
+	SRPL_LEAVE(&i, ifv);
+	m_freem(m);
 	return (1);
 }
 
@@ -348,25 +401,13 @@ int
 vlan_config(struct ifvlan *ifv, struct ifnet *p, u_int16_t tag)
 {
 	struct sockaddr_dl	*sdl1, *sdl2;
-	struct vlan_taghash	*tagh;
+	struct srpl		*tagh, *list;
 	u_int			 flags;
-	int			 s;
 
 	if (p->if_type != IFT_ETHER)
 		return EPROTONOSUPPORT;
 	if (ifv->ifv_p == p && ifv->ifv_tag == tag) /* noop */
 		return (0);
-
-	/* Can we share an ifih between multiple vlan(4) instances? */
-	ifv->ifv_ifih = SLIST_FIRST(&p->if_inputs);
-	if (ifv->ifv_ifih->ifih_input != vlan_input) {
-		ifv->ifv_ifih = malloc(sizeof(*ifv->ifv_ifih), M_DEVBUF,
-		    M_NOWAIT);
-		if (ifv->ifv_ifih == NULL)
-			return (ENOMEM);
-		ifv->ifv_ifih->ifih_input = vlan_input;
-		ifv->ifv_ifih->ifih_refcnt = 0;
-	}
 
 	/* Remember existing interface flags and reset the interface */
 	flags = ifv->ifv_flags;
@@ -433,15 +474,15 @@ vlan_config(struct ifvlan *ifv, struct ifnet *p, u_int16_t tag)
 
 	vlan_vlandev_state(ifv);
 
-	tagh = ifv->ifv_type == ETHERTYPE_QINQ ? svlan_tagh : vlan_tagh;
-
-	s = splnet();
 	/* Change input handler of the physical interface. */
-	if (++ifv->ifv_ifih->ifih_refcnt == 1)
-		SLIST_INSERT_HEAD(&p->if_inputs, ifv->ifv_ifih, ifih_next);
+	if_ih_insert(p, vlan_input, NULL);
 
-	LIST_INSERT_HEAD(&tagh[TAG_HASH(tag)], ifv, ifv_list);
-	splx(s);
+	tagh = ifv->ifv_type == ETHERTYPE_QINQ ? svlan_tagh : vlan_tagh;
+	list = &tagh[TAG_HASH(tag)];
+
+	rw_enter_write(&vlan_tagh_lk);
+	SRPL_INSERT_HEAD_LOCKED(&vlan_tagh_rc, list, ifv, ifv_list);
+	rw_exit_write(&vlan_tagh_lk);
 
 	return (0);
 }
@@ -451,8 +492,8 @@ vlan_unconfig(struct ifnet *ifp, struct ifnet *newp)
 {
 	struct sockaddr_dl	*sdl;
 	struct ifvlan		*ifv;
+	struct srpl		*tagh, *list;
 	struct ifnet		*p;
-	int			 s;
 
 	ifv = ifp->if_softc;
 	if ((p = ifv->ifv_p) == NULL)
@@ -464,15 +505,15 @@ vlan_unconfig(struct ifnet *ifp, struct ifnet *newp)
 		vlan_set_promisc(ifp);
 	}
 
-	s = splnet();
-	LIST_REMOVE(ifv, ifv_list);
+	tagh = ifv->ifv_type == ETHERTYPE_QINQ ? svlan_tagh : vlan_tagh;
+	list = &tagh[TAG_HASH(ifv->ifv_tag)];
+
+	rw_enter_write(&vlan_tagh_lk);
+	SRPL_REMOVE_LOCKED(&vlan_tagh_rc, list, ifv, ifvlan, ifv_list);
+	rw_exit_write(&vlan_tagh_lk);
 
 	/* Restore previous input handler. */
-	if (--ifv->ifv_ifih->ifih_refcnt == 0) {
-		SLIST_REMOVE(&p->if_inputs, ifv->ifv_ifih, ifih, ifih_next);
-		free(ifv->ifv_ifih, M_DEVBUF, sizeof(*ifv->ifv_ifih));
-	}
-	splx(s);
+	if_ih_remove(p, vlan_input, NULL);
 
 	hook_disestablish(p->if_linkstatehooks, ifv->lh_cookie);
 	hook_disestablish(p->if_detachhooks, ifv->dh_cookie);

@@ -682,13 +682,16 @@ add_m6if(struct mif6ctl *mifcp)
 			reg_mif_num = mifcp->mif6c_mifi;
 		}
 
-		ifp = &multicast_register_if;
+		if_put(ifp);
+		ifp = if_ref(&multicast_register_if);
 
 	} /* if REGISTER */
 	else {
 		/* Make sure the interface supports multicast */
-		if ((ifp->if_flags & IFF_MULTICAST) == 0)
+		if ((ifp->if_flags & IFF_MULTICAST) == 0) {
+			if_put(ifp);
 			return EOPNOTSUPP;
+		}
 
 		s = splsoftnet();
 
@@ -702,8 +705,10 @@ add_m6if(struct mif6ctl *mifcp)
 		error = (*ifp->if_ioctl)(ifp, SIOCADDMULTI, (caddr_t)&ifr);
 
 		splx(s);
-		if (error)
+		if (error) {
+			if_put(ifp);
 			return error;
+		}
 	}
 
 	s = splsoftnet();
@@ -732,6 +737,8 @@ add_m6if(struct mif6ctl *mifcp)
 		    mifcp->mif6c_mifi,
 		    ifp->if_xname);
 #endif
+
+	if_put(ifp);
 
 	return 0;
 }
@@ -1538,7 +1545,7 @@ phyint_send6(struct ip6_hdr *ip6, struct mif6 *mifp, struct mbuf *m)
 		im6o.im6o_hlim = ip6->ip6_hlim;
 		im6o.im6o_loop = 1;
 		error = ip6_output(mb_copy, NULL, &ro, IPV6_FORWARDING, &im6o,
-		    NULL, NULL);
+		    NULL);
 
 #ifdef MRT6DEBUG
 		if (mrt6debug & DEBUG_XMIT)
@@ -1574,8 +1581,8 @@ phyint_send6(struct ip6_hdr *ip6, struct mif6 *mifp, struct mbuf *m)
 		 * We just call if_output instead of nd6_output here, since
 		 * we need no ND for a multicast forwarded packet...right?
 		 */
-		error = (*ifp->if_output)(ifp, mb_copy,
-		    sin6tosa(&ro.ro_dst), NULL);
+		error = ifp->if_output(ifp, mb_copy, sin6tosa(&ro.ro_dst),
+		    NULL);
 #ifdef MRT6DEBUG
 		if (mrt6debug & DEBUG_XMIT)
 			log(LOG_DEBUG, "phyint_send6 on mif %d err %d\n",
@@ -1892,8 +1899,8 @@ pim6_input(struct mbuf **mp, int *offp, int proto)
 		}
 #endif
 
-		looutput(mif6table[reg_mif_num].m6_ifp, m,
-		    sin6tosa(&dst), NULL);
+		if_input_local(mif6table[reg_mif_num].m6_ifp, m,
+		    dst->sin6_family);
 
 		/* prepare the register head to send to the mrouting daemon */
 		m = mcp;

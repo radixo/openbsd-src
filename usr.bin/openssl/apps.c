@@ -1,4 +1,4 @@
-/* $OpenBSD: apps.c,v 1.32 2015/07/20 22:51:11 bcook Exp $ */
+/* $OpenBSD: apps.c,v 1.35 2015/09/11 14:30:23 bcook Exp $ */
 /*
  * Copyright (c) 2014 Joel Sing <jsing@openbsd.org>
  *
@@ -142,13 +142,8 @@
 #include <openssl/pem.h>
 #include <openssl/pkcs12.h>
 #include <openssl/safestack.h>
-#include <openssl/ui.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
-
-#ifndef OPENSSL_NO_ENGINE
-#include <openssl/engine.h>
-#endif
 
 #include <openssl/rsa.h>
 
@@ -158,7 +153,7 @@ typedef struct {
 	unsigned long mask;
 } NAME_EX_TBL;
 
-static UI_METHOD *ui_method = NULL;
+UI_METHOD *ui_method = NULL;
 
 static int set_table_opts(unsigned long *flags, const char *arg,
     const NAME_EX_TBL *in_tbl);
@@ -190,8 +185,6 @@ str2fmt(char *s)
 	    (strcmp(s, "PKCS12") == 0) || (strcmp(s, "pkcs12") == 0) ||
 	    (strcmp(s, "P12") == 0) || (strcmp(s, "p12") == 0))
 		return (FORMAT_PKCS12);
-	else if ((*s == 'E') || (*s == 'e'))
-		return (FORMAT_ENGINE);
 	else if ((*s == 'P') || (*s == 'p')) {
 		if (s[1] == 'V' || s[1] == 'v')
 			return FORMAT_PVK;
@@ -303,82 +296,56 @@ dump_cert_text(BIO *out, X509 *x)
 	return 0;
 }
 
-static int
+int
 ui_open(UI *ui)
 {
 	return UI_method_get_opener(UI_OpenSSL()) (ui);
 }
 
-static int
+int
 ui_read(UI *ui, UI_STRING *uis)
 {
+	const char *password;
+	int string_type;
+
 	if (UI_get_input_flags(uis) & UI_INPUT_FLAG_DEFAULT_PWD &&
 	    UI_get0_user_data(ui)) {
-		switch (UI_get_string_type(uis)) {
-		case UIT_PROMPT:
-		case UIT_VERIFY:
-			{
-				const char *password =
-				    ((PW_CB_DATA *)UI_get0_user_data(ui))->password;
-				if (password && password[0] != '\0') {
-					UI_set_result(ui, uis, password);
-					return 1;
-				}
+		string_type = UI_get_string_type(uis);
+		if (string_type == UIT_PROMPT || string_type == UIT_VERIFY) {
+			password =
+			    ((PW_CB_DATA *)UI_get0_user_data(ui))->password;
+			if (password && password[0] != '\0') {
+				UI_set_result(ui, uis, password);
+				return 1;
 			}
-			break;
-		default:
-			break;
 		}
 	}
 	return UI_method_get_reader(UI_OpenSSL()) (ui, uis);
 }
 
-static int
+int
 ui_write(UI *ui, UI_STRING *uis)
 {
+	const char *password;
+	int string_type;
+
 	if (UI_get_input_flags(uis) & UI_INPUT_FLAG_DEFAULT_PWD &&
 	    UI_get0_user_data(ui)) {
-		switch (UI_get_string_type(uis)) {
-		case UIT_PROMPT:
-		case UIT_VERIFY:
-			{
-				const char *password =
-				    ((PW_CB_DATA *)UI_get0_user_data(ui))->password;
-				if (password && password[0] != '\0')
-					return 1;
-			}
-			break;
-		default:
-			break;
+		string_type = UI_get_string_type(uis);
+		if (string_type == UIT_PROMPT || string_type == UIT_VERIFY) {
+			password =
+			    ((PW_CB_DATA *)UI_get0_user_data(ui))->password;
+			if (password && password[0] != '\0')
+				return 1;
 		}
 	}
 	return UI_method_get_writer(UI_OpenSSL()) (ui, uis);
 }
 
-static int
+int
 ui_close(UI *ui)
 {
 	return UI_method_get_closer(UI_OpenSSL()) (ui);
-}
-
-int
-setup_ui_method(void)
-{
-	ui_method = UI_create_method("OpenSSL application user interface");
-	UI_method_set_opener(ui_method, ui_open);
-	UI_method_set_reader(ui_method, ui_read);
-	UI_method_set_writer(ui_method, ui_write);
-	UI_method_set_closer(ui_method, ui_close);
-	return 0;
-}
-
-void
-destroy_ui_method(void)
-{
-	if (ui_method) {
-		UI_destroy_method(ui_method);
-		ui_method = NULL;
-	}
 }
 
 int
@@ -431,7 +398,7 @@ password_callback(char *buf, int bufsiz, int verify, void *arg)
 			    UI_ctrl(ui, UI_CTRL_IS_REDOABLE, 0, 0, 0));
 
 		if (buff) {
-			OPENSSL_cleanse(buff, (unsigned int) bufsiz);
+			explicit_bzero(buff, (unsigned int) bufsiz);
 			free(buff);
 		}
 		if (ok >= 0)
@@ -439,12 +406,12 @@ password_callback(char *buf, int bufsiz, int verify, void *arg)
 		if (ok == -1) {
 			BIO_printf(bio_err, "User interface error\n");
 			ERR_print_errors(bio_err);
-			OPENSSL_cleanse(buf, (unsigned int) bufsiz);
+			explicit_bzero(buf, (unsigned int) bufsiz);
 			res = 0;
 		}
 		if (ok == -2) {
 			BIO_printf(bio_err, "aborted!\n");
-			OPENSSL_cleanse(buf, (unsigned int) bufsiz);
+			explicit_bzero(buf, (unsigned int) bufsiz);
 			res = 0;
 		}
 		UI_free(ui);
@@ -626,7 +593,7 @@ die:
 }
 
 X509 *
-load_cert(BIO *err, const char *file, int format, const char *pass, ENGINE *e,
+load_cert(BIO *err, const char *file, int format, const char *pass,
     const char *cert_descrip)
 {
 	X509 *x = NULL;
@@ -690,7 +657,7 @@ end:
 
 EVP_PKEY *
 load_key(BIO *err, const char *file, int format, int maybe_stdin,
-    const char *pass, ENGINE *e, const char *key_descrip)
+    const char *pass, const char *key_descrip)
 {
 	BIO *key = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -699,26 +666,10 @@ load_key(BIO *err, const char *file, int format, int maybe_stdin,
 	cb_data.password = pass;
 	cb_data.prompt_info = file;
 
-	if (file == NULL && (!maybe_stdin || format == FORMAT_ENGINE)) {
+	if (file == NULL && (!maybe_stdin)) {
 		BIO_printf(err, "no keyfile specified\n");
 		goto end;
 	}
-#ifndef OPENSSL_NO_ENGINE
-	if (format == FORMAT_ENGINE) {
-		if (!e)
-			BIO_printf(err, "no engine specified\n");
-		else {
-			pkey = ENGINE_load_private_key(e, file,
-			    ui_method, &cb_data);
-			if (!pkey) {
-				BIO_printf(err, "cannot load %s from engine\n",
-				    key_descrip);
-				ERR_print_errors(err);
-			}
-		}
-		goto end;
-	}
-#endif
 	key = BIO_new(BIO_s_file());
 	if (key == NULL) {
 		ERR_print_errors(err);
@@ -769,7 +720,7 @@ end:
 
 EVP_PKEY *
 load_pubkey(BIO *err, const char *file, int format, int maybe_stdin,
-    const char *pass, ENGINE *e, const char *key_descrip)
+    const char *pass, const char *key_descrip)
 {
 	BIO *key = NULL;
 	EVP_PKEY *pkey = NULL;
@@ -778,20 +729,10 @@ load_pubkey(BIO *err, const char *file, int format, int maybe_stdin,
 	cb_data.password = pass;
 	cb_data.prompt_info = file;
 
-	if (file == NULL && (!maybe_stdin || format == FORMAT_ENGINE)) {
+	if (file == NULL && !maybe_stdin) {
 		BIO_printf(err, "no keyfile specified\n");
 		goto end;
 	}
-#ifndef OPENSSL_NO_ENGINE
-	if (format == FORMAT_ENGINE) {
-		if (!e)
-			BIO_printf(bio_err, "no engine specified\n");
-		else
-			pkey = ENGINE_load_public_key(e, file,
-			    ui_method, &cb_data);
-		goto end;
-	}
-#endif
 	key = BIO_new(BIO_s_file());
 	if (key == NULL) {
 		ERR_print_errors(err);
@@ -899,7 +840,7 @@ error:
 
 static int
 load_certs_crls(BIO *err, const char *file, int format, const char *pass,
-    ENGINE *e, const char *desc, STACK_OF(X509) **pcerts,
+    const char *desc, STACK_OF(X509) **pcerts,
     STACK_OF(X509_CRL) **pcrls)
 {
 	int i;
@@ -983,22 +924,22 @@ end:
 
 STACK_OF(X509) *
 load_certs(BIO *err, const char *file, int format, const char *pass,
-    ENGINE *e, const char *desc)
+    const char *desc)
 {
 	STACK_OF(X509) *certs;
 
-	if (!load_certs_crls(err, file, format, pass, e, desc, &certs, NULL))
+	if (!load_certs_crls(err, file, format, pass, desc, &certs, NULL))
 		return NULL;
 	return certs;
 }
 
 STACK_OF(X509_CRL) *
-load_crls(BIO *err, const char *file, int format, const char *pass, ENGINE *e,
+load_crls(BIO *err, const char *file, int format, const char *pass,
     const char *desc)
 {
 	STACK_OF(X509_CRL) *crls;
 
-	if (!load_certs_crls(err, file, format, pass, e, desc, NULL, &crls))
+	if (!load_certs_crls(err, file, format, pass, desc, NULL, &crls))
 		return NULL;
 	return crls;
 }
@@ -1247,55 +1188,6 @@ end:
 	X509_STORE_free(store);
 	return NULL;
 }
-
-#ifndef OPENSSL_NO_ENGINE
-
-ENGINE *
-setup_engine(BIO *err, const char *engine, int debug)
-{
-	ENGINE *e = NULL;
-
-	if (engine) {
-		if (strcmp(engine, "auto") == 0) {
-			BIO_printf(err, "enabling auto ENGINE support\n");
-			ENGINE_register_all_complete();
-			return NULL;
-		}
-		if ((e = ENGINE_by_id(engine)) == NULL) {
-			BIO_printf(err, "invalid engine \"%s\"\n", engine);
-			ERR_print_errors(err);
-			return NULL;
-		}
-		if (debug) {
-			if (ENGINE_ctrl(e, ENGINE_CTRL_SET_LOGSTREAM,
-			    0, err, 0) <= 0) {
-				BIO_printf(err, "Cannot set logstream for "
-				    "engine \"%s\"\n", engine);
-				ERR_print_errors(err);
-				ENGINE_free(e);
-				return NULL;
-			}
-		}
-		if (!ENGINE_ctrl_cmd(e, "SET_USER_INTERFACE", 0, ui_method, 0, 1)) {
-			BIO_printf(err, "can't set user interface\n");
-			ERR_print_errors(err);
-			ENGINE_free(e);
-			return NULL;
-		}
-		if (!ENGINE_set_default(e, ENGINE_METHOD_ALL)) {
-			BIO_printf(err, "can't use that engine\n");
-			ERR_print_errors(err);
-			ENGINE_free(e);
-			return NULL;
-		}
-		BIO_printf(err, "engine \"%s\" set.\n", ENGINE_get_id(e));
-
-		/* Free our "structural" reference. */
-		ENGINE_free(e);
-	}
-	return e;
-}
-#endif
 
 int
 load_config(BIO *err, CONF *cnf)

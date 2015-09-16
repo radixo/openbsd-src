@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_bnx.c,v 1.111 2015/06/24 09:40:54 mpi Exp $	*/
+/*	$OpenBSD: if_bnx.c,v 1.113 2015/09/04 21:43:10 kettenis Exp $	*/
 
 /*-
  * Copyright (c) 2006 Broadcom Corporation
@@ -444,7 +444,7 @@ bnx_read_firmware(struct bnx_softc *sc, int idx)
 		return (error);
 
 	if (size < sizeof(struct bnx_firmware_header)) {
-		free(p, M_DEVBUF, 0);
+		free(p, M_DEVBUF, size);
 		return (EINVAL);
 	}
 
@@ -577,7 +577,7 @@ bnx_read_firmware(struct bnx_softc *sc, int idx)
 	nswaph(bfw->bnx_TXP_FwSbss, hdr->bnx_TXP_FwSbssLen);
 
 	if (q - p != size) {
-		free(p, M_DEVBUF, 0);
+		free(p, M_DEVBUF, size);
 		hdr = NULL;
 		return EINVAL;
 	}
@@ -603,7 +603,7 @@ bnx_read_rv2p(struct bnx_softc *sc, int idx)
 		return (error);
 
 	if (size < sizeof(struct bnx_rv2p_header)) {
-		free(p, M_DEVBUF, 0);
+		free(p, M_DEVBUF, size);
 		return (EINVAL);
 	}
 
@@ -622,7 +622,7 @@ bnx_read_rv2p(struct bnx_softc *sc, int idx)
 	nswaph(rv2p->bnx_rv2p_proc2, hdr->bnx_rv2p_proc2len);
 	
 	if (q - p != size) {
-		free(p, M_DEVBUF, 0);
+		free(p, M_DEVBUF, size);
 		return EINVAL;
 	}
 
@@ -2090,7 +2090,7 @@ bnx_nvram_write(struct bnx_softc *sc, u_int32_t offset, u_int8_t *data_buf,
 
 nvram_write_end:
 	if (align_start || align_end)
-		free(buf, M_DEVBUF, 0);
+		free(buf, M_DEVBUF, len32);
 
 	return (rc);
 }
@@ -4701,7 +4701,7 @@ bnx_init(void *xsc)
 		bnx_tx_pool = malloc(sizeof(*bnx_tx_pool), M_DEVBUF, M_WAITOK);
 		if (bnx_tx_pool != NULL) {
 			pool_init(bnx_tx_pool, sizeof(struct bnx_pkt),
-			    0, 0, 0, "bnxpkts", &pool_allocator_nointr);
+			    0, 0, 0, "bnxpkts", NULL);
 		} else
 			txpl = 0;
 	}

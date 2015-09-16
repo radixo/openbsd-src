@@ -1,6 +1,6 @@
 #!/bin/ksh -
 #
-# $OpenBSD: sysmerge.sh,v 1.201 2015/08/24 11:03:41 ajacoutot Exp $
+# $OpenBSD: sysmerge.sh,v 1.206 2015/09/09 08:10:33 ajacoutot Exp $
 #
 # Copyright (c) 2008-2014 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 1998-2003 Douglas Barton <DougB@FreeBSD.org>
@@ -38,17 +38,6 @@ stripcom() {
 
 sm_error() {
 	(($#)) && echo "!!!! ERROR: $@"
-
-	# restore sum files from backups or remove the newly created ones
-	for _i in ${_WRKDIR}/{etcsum,xetcsum,examplessum,pkgsum}; do
-		_j=$(basename ${_i})
-		if [[ -f ${_i} ]]; then
-			mv ${_i} /var/sysmerge/${_j}
-		elif [[ -f /var/sysmerge/${_j} ]]; then
-			rm /var/sysmerge/${_j}
-		fi
-	done
-
 	rm -rf ${_WRKDIR}
 	exit 1
 }
@@ -68,9 +57,6 @@ sm_extract_sets() {
 	[[ -z ${_e}${_x} ]] && sm_error "cannot find sets to extract"
 
 	for _set in ${_e} ${_x}; do
-		[[ -f /var/sysmerge/${_set}sum ]] && \
-			cp /var/sysmerge/${_set}sum \
-			${_WRKDIR}/${_set}sum
 		tar -xzphf \
 			/var/sysmerge/${_set}.tgz || \
 			sm_error "failed to extract ${_set}.tgz"
@@ -142,9 +128,6 @@ EOF
 sm_cp_pkg_samples() {
 	! ${PKGMODE} && return
 	local _install_args _i _ret=0 _sample
-
-	[[ -f /var/sysmerge/pkgsum ]] && \
-		cp /var/sysmerge/pkgsum ${_WRKDIR}/pkgsum
 
 	# access to full base system hierarchy is implied in packages
 	mtree -qdef /etc/mtree/4.4BSD.dist -U >/dev/null
@@ -254,16 +237,10 @@ sm_init() {
 		      /etc/passwd
 		      /etc/pwd.db
 		      /etc/spwd.db
-		      /var/sysmerge/etcsum
-		      /var/sysmerge/examplessum
-		      /var/sysmerge/xetcsum
 		      /var/db/locate.database
 		      /var/mail/root"
-	# XXX remove after OPENBSD_6_0
-	_ignorefiles="${_ignorefiles}
-		      /usr/share/sysmerge/etcsum
-		      /usr/share/sysmerge/examplessum
-		      /usr/share/sysmerge/xetcsum"
+	# in case X(7) is not installed, xetcsum is not removed by the loop above
+	_ignorefiles="${_ignorefiles} /var/sysmerge/xetcsum"
 	[[ -f /etc/sysmerge.ignore ]] && \
 		_ignorefiles="${_ignorefiles} $(stripcom /etc/sysmerge.ignore)"
 	for _i in ${_ignorefiles}; do
@@ -453,7 +430,7 @@ sm_merge_loop() {
 }
 
 sm_diff_loop() {
-	local i _handle _nonexistent _autoinst
+	local i _handle _nonexistent
 
 	${BATCHMODE} && _handle=todo || _handle=v
 
@@ -472,8 +449,7 @@ sm_diff_loop() {
 				if [[ -z $(diff -q -I'[$]OpenBSD:.*$' ${TARGET} ${COMPFILE}) ]] || \
 					${FORCE_UPG} || ${IS_BIN}; then
 					echo -n "===> Updating ${TARGET}"
-					sm_install && \
-						_autoinst="${_autoinst}${TARGET}\n" || \
+					sm_install || \
 						(echo && sm_warn "problem updating ${TARGET}")
 					return
 				fi
@@ -494,14 +470,12 @@ sm_diff_loop() {
 				${BATCHMODE} || echo "\n===> Missing ${TARGET}\n"
 			elif ${IS_LINK}; then
 				echo "===> Linking ${TARGET}"
-				sm_install && \
-					_autoinst="${_autoinst}${TARGET}\n" || \
+				sm_install || \
 					sm_warn "problem creating ${TARGET} link"
 				return
 			else
 				echo -n "===> Installing ${TARGET}"
-				sm_install && \
-					_autoinst="${_autoinst}${TARGET}\n" || \
+				sm_install || \
 					(echo && sm_warn "problem installing ${TARGET}")
 				return
 			fi
@@ -533,21 +507,17 @@ sm_diff_loop() {
 			echo
 			if ${IS_LINK}; then
 				echo "===> Linking ${TARGET}"
-				sm_install && \
-					MERGED_FILES="${MERGED_FILES}${TARGET}\n" || \
+				sm_install || \
 					sm_warn "problem creating ${TARGET} link"
 			else
 				echo -n "===> Updating ${TARGET}"
-				sm_install && \
-					MERGED_FILES="${MERGED_FILES}${TARGET}\n" || \
+				sm_install || \
 					(echo && sm_warn "problem updating ${TARGET}")
 			fi
 			;;
 		[mM])
 			if ! ${_nonexistent} && ! ${IS_BIN} && ! ${IS_LINK}; then
-				sm_merge_loop && \
-					MERGED_FILES="${MERGED_FILES}${TARGET}\n" || \
-						_handle=todo
+				sm_merge_loop || _handle=todo
 			else
 				echo "invalid choice: ${_handle}\n"
 				_handle=todo
@@ -579,17 +549,16 @@ sm_check_an_eg() {
 	local _egmods _i _managed
 
 	if [[ -f /var/sysmerge/examplessum ]]; then
-		cp /var/sysmerge/examplessum ${_WRKDIR}/examplessum
 		_egmods=$(cd / && \
 			 sha256 -c /var/sysmerge/examplessum 2>/dev/null | \
 			 sed -n 's/^(SHA256) \(.*\): FAILED$/\1/p')
 	fi
 	for _i in ${_egmods}; do
 		_i=${_i##*/}
+		# only check files we care about
 		[[ -f /etc/${_i} ]] && \
 			_managed="${_managed:+${_managed} }${_i}"
 	done
-	# only warn for files we care about
 	[[ -n ${_managed} ]] && sm_warn "example(s) changed for: ${_managed}"
 	mv ./var/sysmerge/examplessum \
 		/var/sysmerge/examplessum

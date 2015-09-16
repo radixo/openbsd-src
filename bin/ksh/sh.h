@@ -1,4 +1,4 @@
-/*	$OpenBSD: sh.h,v 1.32 2013/11/28 10:33:37 sobrado Exp $	*/
+/*	$OpenBSD: sh.h,v 1.36 2015/09/14 09:42:33 nicm Exp $	*/
 
 /*
  * Public Domain Bourne/Korn shell
@@ -28,12 +28,6 @@
 
 #include <paths.h>
 
-/* Find a integer type that is at least 32 bits (or die) - SIZEOF_* defined
- * by autoconf (assumes an 8 bit byte, but I'm not concerned).
- * NOTE: INT32 may end up being more than 32 bits.
- */
-# define INT32	int
-
 /* end of common headers */
 
 /* some useful #defines */
@@ -52,11 +46,10 @@
 #define	sizeofN(type, n) (sizeof(type) * (n))
 #define	BIT(i)	(1<<(i))	/* define bit in flag */
 
-/* Table flag type - needs > 16 and < 32 bits */
-typedef INT32 Tflag;
-
 #define	NUFILE	32		/* Number of user-accessible files */
 #define	FDBASE	10		/* First file usable by Shell */
+
+#define BITS(t)	(CHAR_BIT * sizeof(t))
 
 /* Make MAGIC a char that might be printed to make bugs more obvious, but
  * not a char that is used often.  Also, can't use the high bit as it causes
@@ -218,8 +211,6 @@ enum sh_flag {
 EXTERN	char shell_flags [FNFLAGS];
 
 EXTERN	char	null [] I__("");	/* null value for variable */
-EXTERN	char	space [] I__(" ");
-EXTERN	char	newline [] I__("\n");
 
 enum temp_type {
 	TT_HEREDOC_EXP,	/* expanded heredoc */
@@ -353,7 +344,7 @@ EXTERN Getopt user_opt;		/* parsing state for getopts builtin command */
 
 /* This for co-processes */
 
-typedef INT32 Coproc_id; /* something that won't (realisticly) wrap */
+typedef int Coproc_id; /* something that won't (realistically) wrap */
 struct coproc {
 	int	read;		/* pipe from co-process's stdout */
 	int	readw;		/* other side of read (saved temporarily) */
@@ -371,7 +362,7 @@ extern const char ksh_version[];
 
 /* name of called builtin function (used by error functions) */
 EXTERN char	*builtin_argv0;
-EXTERN Tflag	builtin_flag;	/* flags of called builtin (SPEC_BI, etc.) */
+EXTERN int	builtin_flag;	/* flags of called builtin (SPEC_BI, etc.) */
 
 /* current working directory, and size of memory allocated for same */
 EXTERN char	*current_wd;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: xdr_rec.c,v 1.17 2013/11/26 20:33:08 deraadt Exp $ */
+/*	$OpenBSD: xdr_rec.c,v 1.19 2015/09/11 13:34:41 guenther Exp $ */
 
 /*
  * Copyright (c) 2010, Oracle America, Inc.
@@ -52,6 +52,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <rpc/types.h>
 #include <rpc/xdr.h>
 #include <rpc/auth.h>
@@ -67,6 +68,15 @@ static u_int	xdrrec_getpos(XDR *);
 static bool_t	xdrrec_setpos(XDR *, u_int);
 static int32_t *xdrrec_inline(XDR *, u_int);
 static void	xdrrec_destroy(XDR *);
+
+/*
+ * Not clear if these are used externally
+ */
+bool_t	__xdrrec_setnonblock(XDR *, int);
+PROTO_STD_DEPRECATED(__xdrrec_setnonblock);
+
+bool_t __xdrrec_getrec(XDR *xdrs, enum xprt_stat *statp, bool_t expectdata);
+PROTO_NORMAL(__xdrrec_getrec);
 
 struct ct_data;
 
@@ -205,6 +215,7 @@ xdrrec_create(XDR *xdrs, u_int sendsize, u_int recvsize, caddr_t tcp_handle,
 	rstrm->in_reclen = 0;
 	rstrm->in_received = 0;
 }
+DEF_WEAK(xdrrec_create);
 
 
 /*
@@ -406,8 +417,6 @@ xdrrec_destroy(XDR *xdrs)
 	mem_free(rstrm, sizeof(RECSTREAM));
 }
 
-bool_t __xdrrec_getrec(XDR *xdrs, enum xprt_stat *statp, bool_t expectdata);
-
 /*
  * Exported routines to manage xdr records
  */
@@ -444,6 +453,7 @@ xdrrec_skiprecord(XDR *xdrs)
 	rstrm->last_frag = FALSE;
 	return (TRUE);
 }
+DEF_WEAK(xdrrec_skiprecord);
 
 /*
  * Look ahead fuction.
@@ -466,6 +476,7 @@ xdrrec_eof(XDR *xdrs)
 		return (TRUE);
 	return (FALSE);
 }
+DEF_WEAK(xdrrec_eof);
 
 /*
  * The client must tell the package when an end-of-record has occurred.
@@ -492,6 +503,7 @@ xdrrec_endofrecord(XDR *xdrs, int32_t sendnow)
 	rstrm->out_finger += sizeof(u_int32_t);
 	return (TRUE);
 }
+DEF_WEAK(xdrrec_endofrecord);
 
 /*
  * Fill the stream buffer with a record for a non-blocking connection.
@@ -570,6 +582,7 @@ __xdrrec_getrec(XDR *xdrs, enum xprt_stat *statp, bool_t expectdata)
 	*statp = XPRT_MOREREQS;
 	return (FALSE);
 }
+DEF_WEAK(__xdrrec_getrec);
 
 bool_t
 __xdrrec_setnonblock(XDR *xdrs, int maxrec)

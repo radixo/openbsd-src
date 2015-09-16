@@ -7,8 +7,8 @@
 ./etc/firmware/tigon2
 ./sbin/kbd
 ./sbin/wsconsctl
-./usr/lib/libc.so.81.0
-./usr/lib/libcrypto.so.35.0
+./usr/lib/libc.so.83.0
+./usr/lib/libcrypto.so.36.0
 ./usr/lib/libcurses.so.14.0
 ./usr/lib/libedit.so.5.2
 ./usr/lib/libevent.so.4.1
@@ -37,12 +37,12 @@
 ./usr/lib/librpcsvc.so.2.0
 ./usr/lib/libskey.so.6.0
 ./usr/lib/libsndio.so.6.0
-./usr/lib/libsqlite3.so.30.1
-./usr/lib/libssl.so.36.0
+./usr/lib/libsqlite3.so.31.0
+./usr/lib/libssl.so.37.0
 ./usr/lib/libstdc++.so.57.0
 ./usr/lib/libtermcap.so.14.0
 ./usr/lib/libtermlib.so.14.0
-./usr/lib/libtls.so.7.0
+./usr/lib/libtls.so.9.0
 ./usr/lib/libusbhid.so.7.0
 ./usr/lib/libutil.so.12.1
 ./usr/lib/libz.so.5.0
@@ -1117,7 +1117,6 @@
 ./usr/libdata/perl5/site_perl/sparc-openbsd/miscfs/fuse
 ./usr/libdata/perl5/site_perl/sparc-openbsd/miscfs/fuse/fusefs.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/miscfs/fuse/fusefs_node.ph
-./usr/libdata/perl5/site_perl/sparc-openbsd/mpool.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/msdosfs
 ./usr/libdata/perl5/site_perl/sparc-openbsd/msdosfs/bootsect.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/msdosfs/bpb.ph
@@ -1300,7 +1299,6 @@
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/dsa.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/dso.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/dtls1.ph
-./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/e_os2.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/ec.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/ecdh.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/openssl/ecdsa.ph
@@ -1582,6 +1580,7 @@
 ./usr/libdata/perl5/site_perl/sparc-openbsd/sys/queue.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/sys/radioio.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/sys/reboot.ph
+./usr/libdata/perl5/site_perl/sparc-openbsd/sys/refcnt.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/sys/resource.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/sys/resourcevar.ph
 ./usr/libdata/perl5/site_perl/sparc-openbsd/sys/rwlock.ph

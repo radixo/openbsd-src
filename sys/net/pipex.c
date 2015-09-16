@@ -1,4 +1,4 @@
-/*	$OpenBSD: pipex.c,v 1.73 2015/08/24 14:00:28 bluhm Exp $	*/
+/*	$OpenBSD: pipex.c,v 1.79 2015/09/12 20:26:07 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2009 Internet Initiative Japan Inc.
@@ -125,10 +125,11 @@ void
 pipex_init(void)
 {
 	int		 i;
-	extern int	 max_keylen;		/* for radix.c */
 
 	if (pipex_softintr != NULL)
 		return;
+
+	rn_init(sizeof(struct sockaddr_in6));
 
 	pool_init(&pipex_session_pool, sizeof(struct pipex_session), 0, 0, 0,
 	    "ppxss", NULL);
@@ -138,8 +139,6 @@ pipex_init(void)
 	LIST_INIT(&pipex_session_list);
 	LIST_INIT(&pipex_close_wait_list);
 
-	if (sizeof(struct sockaddr_in) > max_keylen)
-		max_keylen = sizeof(struct sockaddr_in);
 	for (i = 0; i < nitems(pipex_id_hashtable); i++)
 		LIST_INIT(&pipex_id_hashtable[i]);
 	for (i = 0; i < nitems(pipex_peer_addr_hashtable); i++)
@@ -1755,7 +1754,7 @@ pipex_pptp_userland_lookup_session_ipv6(struct mbuf *m0, struct in6_addr dst)
 	memset(&sin6, 0, sizeof(sin6));
 	sin6.sin6_len = sizeof(sin6);
 	sin6.sin6_family = AF_INET6;
-	in6_recoverscope(&sin6, &dst, NULL);
+	in6_recoverscope(&sin6, &dst);
 
 	return pipex_pptp_userland_lookup_session(m0, sin6tosa(&sin6));
 }
@@ -1977,10 +1976,10 @@ pipex_l2tp_output(struct mbuf *m0, struct pipex_session *session)
 		ip6->ip6_nxt = IPPROTO_UDP;
 		ip6->ip6_src = session->local.sin6.sin6_addr;
 		(void)in6_embedscope(&ip6->ip6_dst,
-		    &session->peer.sin6, NULL, NULL);
+		    &session->peer.sin6, NULL);
 		/* ip6->ip6_plen will be filled in ip6_output. */
 
-		if (ip6_output(m0, NULL, NULL, 0, NULL, NULL, NULL) != 0) {
+		if (ip6_output(m0, NULL, NULL, 0, NULL, NULL) != 0) {
 			PIPEX_DBG((session, LOG_DEBUG, "ip6_output failed."));
 			goto drop;
 		}
@@ -2191,7 +2190,7 @@ pipex_l2tp_userland_lookup_session_ipv6(struct mbuf *m0, struct in6_addr dst)
 	memset(&sin6, 0, sizeof(sin6));
 	sin6.sin6_len = sizeof(sin6);
 	sin6.sin6_family = AF_INET6;
-	in6_recoverscope(&sin6, &dst, NULL);
+	in6_recoverscope(&sin6, &dst);
 
 	return pipex_l2tp_userland_lookup_session(m0, sin6tosa(&sin6));
 }

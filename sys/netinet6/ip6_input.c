@@ -1,4 +1,4 @@
-/*	$OpenBSD: ip6_input.c,v 1.143 2015/06/16 11:09:40 mpi Exp $	*/
+/*	$OpenBSD: ip6_input.c,v 1.145 2015/09/10 09:14:59 mpi Exp $	*/
 /*	$KAME: ip6_input.c,v 1.188 2001/03/29 05:34:31 itojun Exp $	*/
 
 /*
@@ -184,7 +184,6 @@ ip6_input(struct mbuf *m)
 	u_int16_t src_scope, dst_scope;
 	u_int32_t plen, rtalert = ~0;
 	int nxt, ours = 0;
-	struct ifnet *deliverifp = NULL;
 #if NPF > 0
 	struct in6_addr odst;
 #endif
@@ -212,13 +211,12 @@ ip6_input(struct mbuf *m)
 			ip6stat.ip6s_m1++;
 	}
 
-	in6_ifstat_inc(ifp, ifs6_in_receive);
 	ip6stat.ip6s_total++;
 
 	if (m->m_len < sizeof(struct ip6_hdr)) {
 		if ((m = m_pullup(m, sizeof(struct ip6_hdr))) == NULL) {
 			ip6stat.ip6s_toosmall++;
-			in6_ifstat_inc(ifp, ifs6_in_hdrerr);
+			if_put(ifp);
 			return;
 		}
 	}
@@ -227,7 +225,6 @@ ip6_input(struct mbuf *m)
 
 	if ((ip6->ip6_vfc & IPV6_VERSION_MASK) != IPV6_VERSION) {
 		ip6stat.ip6s_badvers++;
-		in6_ifstat_inc(ifp, ifs6_in_hdrerr);
 		goto bad;
 	}
 
@@ -248,14 +245,12 @@ ip6_input(struct mbuf *m)
 		 * XXX: "badscope" is not very suitable for a multicast source.
 		 */
 		ip6stat.ip6s_badscope++;
-		in6_ifstat_inc(ifp, ifs6_in_addrerr);
 		goto bad;
 	}
 	if ((IN6_IS_ADDR_LOOPBACK(&ip6->ip6_src) ||
 	    IN6_IS_ADDR_LOOPBACK(&ip6->ip6_dst)) &&
 	    (ifp->if_flags & IFF_LOOPBACK) == 0) {
 		    ip6stat.ip6s_badscope++;
-		    in6_ifstat_inc(ifp, ifs6_in_addrerr);
 		    goto bad;
 	}
 	/* Drop packets if interface ID portion is already filled. */
@@ -274,7 +269,6 @@ ip6_input(struct mbuf *m)
 		 * as the outgoing/incoming interface.
 		 */
 		ip6stat.ip6s_badscope++;
-		in6_ifstat_inc(ifp, ifs6_in_addrerr);
 		goto bad;
 	}
 
@@ -293,7 +287,6 @@ ip6_input(struct mbuf *m)
 	if (IN6_IS_ADDR_V4MAPPED(&ip6->ip6_src) ||
 	    IN6_IS_ADDR_V4MAPPED(&ip6->ip6_dst)) {
 		ip6stat.ip6s_badscope++;
-		in6_ifstat_inc(ifp, ifs6_in_addrerr);
 		goto bad;
 	}
 #if 0
@@ -307,7 +300,6 @@ ip6_input(struct mbuf *m)
 	if (IN6_IS_ADDR_V4COMPAT(&ip6->ip6_src) ||
 	    IN6_IS_ADDR_V4COMPAT(&ip6->ip6_dst)) {
 		ip6stat.ip6s_badscope++;
-		in6_ifstat_inc(ifp, ifs6_in_addrerr);
 		goto bad;
 	}
 #endif
@@ -336,7 +328,7 @@ ip6_input(struct mbuf *m)
 	if (pf_test(AF_INET6, PF_IN, ifp, &m) != PF_PASS)
 		goto bad;
 	if (m == NULL)
-		return;
+		goto bad;
 
 	ip6 = mtod(m, struct ip6_hdr *);
 	srcrt = !IN6_ARE_ADDR_EQUAL(&odst, &ip6->ip6_dst);
@@ -365,23 +357,20 @@ ip6_input(struct mbuf *m)
 	if (!(m->m_pkthdr.pf.flags & PF_TAG_PROCESSED) &&
 	    ip6_check_rh0hdr(m, &off)) {
 		ip6stat.ip6s_badoptions++;
-		in6_ifstat_inc(ifp, ifs6_in_discard);
-		in6_ifstat_inc(ifp, ifs6_in_hdrerr);
 		icmp6_error(m, ICMP6_PARAM_PROB, ICMP6_PARAMPROB_HEADER, off);
 		/* m is already freed */
+		if_put(ifp);
 		return;
 	}
 
 	if (IN6_IS_ADDR_LOOPBACK(&ip6->ip6_src) ||
 	    IN6_IS_ADDR_LOOPBACK(&ip6->ip6_dst)) {
 		ours = 1;
-		deliverifp = ifp;
 		goto hbhcheck;
 	}
 
 	if (m->m_pkthdr.pf.flags & PF_TAG_DIVERTED) {
 		ours = 1;
-		deliverifp = ifp;
 		goto hbhcheck;
 	}
 
@@ -398,7 +387,6 @@ ip6_input(struct mbuf *m)
 		 */
 		m->m_flags |= M_MCAST;
 
-		in6_ifstat_inc(ifp, ifs6_in_mcast);
 		/*
 		 * See if we belong to the destination multicast group on the
 		 * arrival interface.
@@ -415,10 +403,8 @@ ip6_input(struct mbuf *m)
 			ip6stat.ip6s_notmember++;
 			if (!IN6_IS_ADDR_MC_LINKLOCAL(&ip6->ip6_dst))
 				ip6stat.ip6s_cantforward++;
-			in6_ifstat_inc(ifp, ifs6_in_discard);
 			goto bad;
 		}
-		deliverifp = ifp;
 		goto hbhcheck;
 	}
 
@@ -472,7 +458,6 @@ ip6_input(struct mbuf *m)
 		if (!(ia6->ia6_flags & IN6_IFF_NOTREADY)) {
 			/* this address is ready */
 			ours = 1;
-			deliverifp = ia6->ia_ifp;	/* correct? */
 			goto hbhcheck;
 		} else {
 			char src[INET6_ADDRSTRLEN], dst[INET6_ADDRSTRLEN];
@@ -500,7 +485,6 @@ ip6_input(struct mbuf *m)
 	 */
 	if (!ip6_forwarding) {
 		ip6stat.ip6s_cantforward++;
-		in6_ifstat_inc(ifp, ifs6_in_discard);
 		goto bad;
 	}
 
@@ -516,9 +500,7 @@ ip6_input(struct mbuf *m)
 		struct ip6_hbh *hbh;
 
 		if (ip6_hopopts_input(&plen, &rtalert, &m, &off)) {
-#if 0	/*touches NULL pointer*/
-			in6_ifstat_inc(ifp, ifs6_in_discard);
-#endif
+			if_put(ifp);
 			return;	/* m have already been freed */
 		}
 
@@ -537,17 +519,17 @@ ip6_input(struct mbuf *m)
 			 * (non-zero) payload length to the variable plen.
 			 */
 			ip6stat.ip6s_badoptions++;
-			in6_ifstat_inc(ifp, ifs6_in_discard);
-			in6_ifstat_inc(ifp, ifs6_in_hdrerr);
 			icmp6_error(m, ICMP6_PARAM_PROB,
 				    ICMP6_PARAMPROB_HEADER,
 				    (caddr_t)&ip6->ip6_plen - (caddr_t)ip6);
+			if_put(ifp);
 			return;
 		}
 		IP6_EXTHDR_GET(hbh, struct ip6_hbh *, m, sizeof(struct ip6_hdr),
 			sizeof(struct ip6_hbh));
 		if (hbh == NULL) {
 			ip6stat.ip6s_tooshort++;
+			if_put(ifp);
 			return;
 		}
 		nxt = hbh->ip6h_nxt;
@@ -569,7 +551,6 @@ ip6_input(struct mbuf *m)
 	 */
 	if (m->m_pkthdr.len - sizeof(struct ip6_hdr) < plen) {
 		ip6stat.ip6s_tooshort++;
-		in6_ifstat_inc(ifp, ifs6_in_truncated);
 		goto bad;
 	}
 	if (m->m_pkthdr.len > sizeof(struct ip6_hdr) + plen) {
@@ -596,16 +577,14 @@ ip6_input(struct mbuf *m)
 		if (ip6_mforwarding && ip6_mrouter &&
 		    ip6_mforward(ip6, ifp, m)) {
 			ip6stat.ip6s_cantforward++;
-			m_freem(m);
-			return;
+			goto bad;
 		}
 #endif
-		if (!ours) {
-			m_freem(m);
-			return;
-		}
+		if (!ours)
+			goto bad;
 	} else if (!ours) {
 		ip6_forward(m, srcrt);
+		if_put(ifp);
 		return;
 	}
 
@@ -626,7 +605,6 @@ ip6_input(struct mbuf *m)
 	if (IN6_IS_ADDR_V4MAPPED(&ip6->ip6_src) ||
 	    IN6_IS_ADDR_V4MAPPED(&ip6->ip6_dst)) {
 		ip6stat.ip6s_badscope++;
-		in6_ifstat_inc(ifp, ifs6_in_addrerr);
 		goto bad;
 	}
 
@@ -634,7 +612,6 @@ ip6_input(struct mbuf *m)
 	 * Tell launch routine the next header
 	 */
 	ip6stat.ip6s_delivered++;
-	in6_ifstat_inc(deliverifp, ifs6_in_deliver);
 	nest = 0;
 
 	while (nxt != IPPROTO_DONE) {
@@ -649,7 +626,6 @@ ip6_input(struct mbuf *m)
 		 */
 		if (m->m_pkthdr.len < off) {
 			ip6stat.ip6s_tooshort++;
-			in6_ifstat_inc(ifp, ifs6_in_truncated);
 			goto bad;
 		}
 
@@ -667,8 +643,10 @@ ip6_input(struct mbuf *m)
 
 		nxt = (*inet6sw[ip6_protox[nxt]].pr_input)(&m, &off, nxt);
 	}
+	if_put(ifp);
 	return;
  bad:
+	if_put(ifp);
 	m_freem(m);
 }
 

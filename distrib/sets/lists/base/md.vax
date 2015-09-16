@@ -1004,7 +1004,6 @@
 ./usr/libdata/perl5/site_perl/vax-openbsd/miscfs/fuse
 ./usr/libdata/perl5/site_perl/vax-openbsd/miscfs/fuse/fusefs.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/miscfs/fuse/fusefs_node.ph
-./usr/libdata/perl5/site_perl/vax-openbsd/mpool.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/msdosfs
 ./usr/libdata/perl5/site_perl/vax-openbsd/msdosfs/bootsect.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/msdosfs/bpb.ph
@@ -1185,7 +1184,6 @@
 ./usr/libdata/perl5/site_perl/vax-openbsd/openssl/dsa.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/openssl/dso.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/openssl/dtls1.ph
-./usr/libdata/perl5/site_perl/vax-openbsd/openssl/e_os2.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/openssl/ec.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/openssl/ecdh.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/openssl/ecdsa.ph
@@ -1409,6 +1407,7 @@
 ./usr/libdata/perl5/site_perl/vax-openbsd/sys/queue.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/sys/radioio.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/sys/reboot.ph
+./usr/libdata/perl5/site_perl/vax-openbsd/sys/refcnt.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/sys/resource.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/sys/resourcevar.ph
 ./usr/libdata/perl5/site_perl/vax-openbsd/sys/rwlock.ph

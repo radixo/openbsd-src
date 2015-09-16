@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.111 2015/08/31 16:42:33 florian Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.115 2015/09/12 11:52:23 naddy Exp $	*/
 /*	$KAME: ping6.c,v 1.163 2002/10/25 02:19:06 itojun Exp $	*/
 
 /*
@@ -131,7 +131,6 @@ struct payload {
 #define	EXTRA		256	/* for AH and various other headers. weird. */
 #define	DEFDATALEN	ICMP6ECHOTMLEN
 #define MAXDATALEN	MAXPACKETLEN - IP6LEN - ICMP6ECHOLEN
-#define	NROUTES		9		/* number of record route slots */
 
 #define	A(bit)		rcvd_tbl[(bit)>>3]	/* identify byte in array */
 #define	B(bit)		(1 << ((bit) & 0x07))	/* identify bit in byte */
@@ -143,7 +142,6 @@ struct payload {
 #define	F_INTERVAL	0x0002
 #define	F_PINGFILLED	0x0008
 #define	F_QUIET		0x0010
-#define	F_RROUTE	0x0020
 #define	F_SO_DEBUG	0x0040
 #define	F_VERBOSE	0x0100
 #define F_NODEADDR	0x0800
@@ -154,14 +152,11 @@ struct payload {
 #define F_FQDNOLD	0x20000
 #define F_NIGROUP	0x40000
 #define F_SUPTYPES	0x80000
-#define F_NOMINMTU	0x100000
 #define F_AUD_RECV	0x200000
 #define F_AUD_MISS	0x400000
 #define F_NOUSERDATA	(F_NODEADDR | F_FQDN | F_FQDNOLD | F_SUPTYPES)
 u_int options;
 
-#define IN6LEN		sizeof(struct in6_addr)
-#define SA6LEN		sizeof(struct sockaddr_in6)
 #define DUMMY_PORT	10101
 
 /*
@@ -208,7 +203,7 @@ u_short naflags;
 /* for ancillary data(advanced API) */
 struct msghdr smsghdr;
 struct iovec smsgiov;
-char *scmsg = 0;
+char *scmsg;
 
 volatile sig_atomic_t seenalrm;
 volatile sig_atomic_t seenint;
@@ -224,7 +219,7 @@ void	 retransmit(void);
 void	 onint(int);
 size_t	 pingerlen(void);
 int	 pinger(void);
-const char *pr_addr(struct sockaddr *, int);
+const char *pr_addr(struct sockaddr *, socklen_t);
 void	 pr_icmph(struct icmp6_hdr *, u_char *);
 void	 pr_iph(struct ip6_hdr *);
 void	 pr_suptypes(struct icmp6_nodeinfo *, size_t);
@@ -272,10 +267,6 @@ main(int argc, char *argv[])
 	uid = getuid();
 	if (setresuid(uid, uid, uid) == -1)
 		err(1, "setresuid");
-
-	/* just to be sure */
-	memset(&smsghdr, 0, sizeof(smsghdr));
-	memset(&smsgiov, 0, sizeof(smsgiov));
 
 	preload = 0;
 	datap = &outpack[ICMP6ECHOLEN + ICMP6ECHOTMLEN];
@@ -787,7 +778,7 @@ main(int argc, char *argv[])
 			struct cmsghdr hdr;
 			u_char buf[CMSG_SPACE(1024)];
 		}		cmsgbuf;
-		struct iovec	iov[2];
+		struct iovec	iov[1];
 		struct pollfd	pfd;
 		ssize_t		cc;
 		int		timeout;
@@ -952,7 +943,6 @@ int
 pinger(void)
 {
 	struct icmp6_hdr *icp;
-	struct iovec iov[2];
 	int i, cc;
 	struct icmp6_nodeinfo *nip;
 	int seq;
@@ -1053,10 +1043,9 @@ pinger(void)
 
 	smsghdr.msg_name = &dst;
 	smsghdr.msg_namelen = sizeof(dst);
-	memset(&iov, 0, sizeof(iov));
-	iov[0].iov_base = (caddr_t)outpack;
-	iov[0].iov_len = cc;
-	smsghdr.msg_iov = iov;
+	smsgiov.iov_base = (caddr_t)outpack;
+	smsgiov.iov_len = cc;
+	smsghdr.msg_iov = &smsgiov;
 	smsghdr.msg_iovlen = 1;
 
 	i = sendmsg(s, &smsghdr, 0);
@@ -1171,7 +1160,7 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 	int i;
 	int hoplim;
 	struct sockaddr *from;
-	int fromlen;
+	socklen_t fromlen;
 	u_char *cp = NULL, *dp, *end = buf + cc;
 	struct in6_pktinfo *pktinfo = NULL;
 	struct timespec ts, tp;
@@ -1221,6 +1210,11 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 		if (timing) {
 			SIPHASH_CTX ctx;
 			u_int8_t mac[SIPHASH_DIGEST_LENGTH];
+
+			if (cc - sizeof(*cp) < sizeof(payload)) {
+				(void)printf("signature missing!\n");
+				return;
+			}
 
 			memcpy(&payload, icp + 1, sizeof(payload));
 			tv64 = &payload.tv64;
@@ -1306,7 +1300,8 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 				}
 			}
 		}
-	} else if (icp->icmp6_type == ICMP6_NI_REPLY && mynireply(ni)) {
+	} else if (icp->icmp6_type == ICMP6_NI_REPLY &&
+	    cc >= sizeof(*ni) && mynireply(ni)) {
 		seq = ntohs(*(u_int16_t *)ni->icmp6_ni_nonce);
 		++nreceived;
 		if (TST(seq % mx_dup_ck)) {
@@ -1351,7 +1346,8 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 		case NI_QTYPE_FQDN:
 		default:	/* XXX: for backward compatibility */
 			cp = (u_char *)ni + ICMP6_NIRLEN;
-			if (buf[off + ICMP6_NIRLEN] ==
+			if (off + ICMP6_NIRLEN < cc &&
+			    buf[off + ICMP6_NIRLEN] ==
 			    cc - off - ICMP6_NIRLEN - 1)
 				oldfqdn = 1;
 			else
@@ -1438,7 +1434,8 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 					}
 				}
 
-				if (buf[off + ICMP6_NIRLEN] !=
+				if (off + ICMP6_NIRLEN < cc &&
+				    buf[off + ICMP6_NIRLEN] !=
 				    cc - off - ICMP6_NIRLEN - 1 && oldfqdn) {
 					if (comma)
 						printf(",");
@@ -2195,7 +2192,7 @@ pr_iph(struct ip6_hdr *ip6)
  * a hostname.
  */
 const char *
-pr_addr(struct sockaddr *addr, int addrlen)
+pr_addr(struct sockaddr *addr, socklen_t addrlen)
 {
 	static char buf[NI_MAXHOST];
 	int flag = 0;
