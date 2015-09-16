@@ -9,3 +9,4 @@ cscope.*
 
 # Kernel compiled files
 sys/arch/*/compile
+obj
