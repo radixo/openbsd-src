@@ -1866,7 +1866,7 @@ wapbl_inodetrk_init(struct wapbl *wl, u_int size)
 	wl->wl_inohash = hashinit(size, M_TEMP, M_WAITOK, &wl->wl_inohashmask);
 	if (atomic_inc_int_nv(&wapbl_ino_pool_refcount) == 1) {
 		pool_init(&wapbl_ino_pool, sizeof(struct wapbl_ino), 0, 0, 0,
-		    "wapblinopl", &pool_allocator_nointr);
+		    "wapblinopl", &pool_allocator_single);
 	}
 }
 
