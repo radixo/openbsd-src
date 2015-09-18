@@ -401,7 +401,7 @@ struct mount {
 /*
  * Mask of flags that are visible to statfs()
  */
-#define	MNT_VISFLAGMASK	0x0400ffff
+#define	MNT_VISFLAGMASK	0x1400ffff
 
 #define	MNT_BITS \
     "\010\001RDONLY\002SYNCHRONOUS\003NOEXEC\004NOSUID\005NODEV" \

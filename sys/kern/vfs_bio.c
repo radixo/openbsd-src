@@ -56,7 +56,7 @@
 #include <sys/resourcevar.h>
 #include <sys/conf.h>
 #include <sys/kernel.h>
-#include <sys/specdev.h>
+#include <sys/wapbl.h>
 #include <uvm/uvm_extern.h>
 
 int nobuffers;
@@ -556,6 +556,16 @@ bwrite(struct buf *bp)
 		mp = NULL;
 
 	/*
+	 * If using WAPBL, convert it to a delayed write 
+	 */
+	if (mp && mp->mnt_wapbl) {
+		if (bp->b_iodone != mp->mnt_wapbl_op->wo_wapbl_biodone) {
+			bdwrite(bp);
+			return 0;
+		}
+	}
+	
+	/*
 	 * Remember buffer type, to switch on it later.  If the write was
 	 * synchronous, but the file system was mounted with MNT_ASYNC,
 	 * convert it to a delayed write.
@@ -647,6 +657,21 @@ bdwrite(struct buf *bp)
 {
 	int s;
 
+	/* If this is a tape block, write the block now. */
+	if (major(bp->b_dev) < nblkdev &&
+	    bdevsw[major(bp->b_dev)].d_type == D_TAPE) {
+		bawrite(bp);
+		return;
+	}
+
+	if (wapbl_vphaswapbl(bp->b_vp)) {
+		struct mount *mp = wapbl_vptomp(bp->b_vp);
+
+		if (bp->b_iodone != mp->mnt_wapbl_op->wo_wapbl_biodone) {
+			WAPBL_ADD_BUF(mp, bp);
+		}
+	}
+
 	/*
 	 * If the block hasn't been seen before:
 	 *	(1) Mark it as having been seen,
@@ -661,13 +686,6 @@ bdwrite(struct buf *bp)
 		reassignbuf(bp);
 		splx(s);
 		curproc->p_ru.ru_oublock++;		/* XXX */
-	}
-
-	/* If this is a tape block, write the block now. */
-	if (major(bp->b_dev) < nblkdev &&
-	    bdevsw[major(bp->b_dev)].d_type == D_TAPE) {
-		bawrite(bp);
-		return;
 	}
 
 	/* Otherwise, the "write" is done, so mark and release the buffer. */
@@ -748,6 +766,19 @@ brelse(struct buf *bp)
 		SET(bp->b_flags, B_INVAL);
 
 	if (ISSET(bp->b_flags, B_INVAL)) {
+		/*
+		 * If using WAPBL
+		 */
+		if (ISSET(bp->b_flags, B_LOCKED)) {
+			if (wapbl_vphaswapbl(bp->b_vp)) {
+				struct mount *mp = wapbl_vptomp(bp->b_vp);
+
+				KASSERT(bp->b_iodone
+				    != mp->mnt_wapbl_op->wo_wapbl_biodone);
+				WAPBL_REMOVE_BUF(mp, bp);
+			}
+		}
+		
 		/*
 		 * If the buffer is invalid, free it now rather than leaving
 		 * it in a queue and wasting memory.
