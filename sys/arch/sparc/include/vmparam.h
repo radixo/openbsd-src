@@ -1,4 +1,4 @@
-/*	$OpenBSD: vmparam.h,v 1.45 2015/03/30 20:30:22 miod Exp $	*/
+/*	$OpenBSD: vmparam.h,v 1.47 2015/09/18 12:50:27 miod Exp $	*/
 /*	$NetBSD: vmparam.h,v 1.13 1997/07/12 16:20:03 perry Exp $	*/
 
 /*
@@ -52,7 +52,7 @@
  * Virtual memory related constants, all in bytes
  */
 #ifndef MAXTSIZ
-#define	MAXTSIZ		(32*1024*1024)		/* max text size */
+#define	MAXTSIZ		(64*1024*1024)		/* max text size */
 #endif
 #ifndef DFLDSIZ
 #define	DFLDSIZ		(64*1024*1024)		/* initial data size limit */
@@ -90,13 +90,7 @@
 #define	VM_MIN_KERNEL_ADDRESS_SUN4	((vaddr_t)0xf0000000)
 #define	VM_MIN_KERNEL_ADDRESS_SRMMU	((vaddr_t)0xc0000000)
 
-#if defined(SMALL_KERNEL)
-/* limit to small KVA regardless of the cpu type */
-#define	VM_MIN_KERNEL_ADDRESS	VM_MIN_KERNEL_ADDRESS_OLD
-#define VM_MAXUSER_ADDRESS	VM_MIN_KERNEL_ADDRESS
-#define VM_MAX_ADDRESS		VM_MIN_KERNEL_ADDRESS
-#define	USRSTACK		VM_MIN_KERNEL_ADDRESS
-#elif (defined(SUN4) || defined(SUN4C) || defined(SUN4E)) && \
+#if (defined(SUN4) || defined(SUN4C) || defined(SUN4E)) && \
       (defined(SUN4D) || defined(SUN4M))
 /* user/kernel bound will de determined at run time */
 extern vsize_t vm_kernel_space_size;
