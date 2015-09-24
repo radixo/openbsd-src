@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.43 2015/09/15 18:15:05 tedu Exp $	*/
+/*	$OpenBSD: misc.c,v 1.45 2015/09/18 07:28:24 nicm Exp $	*/
 
 /*
  * Miscellaneous functions
@@ -807,7 +807,7 @@ pat_scan(const unsigned char *p, const unsigned char *pe, int match_sep)
 		if ((*p & 0x80) && strchr("*+?@! ", *p & 0x7f))
 			nest++;
 	}
-	return (const unsigned char *) 0;
+	return NULL;
 }
 
 /*
@@ -902,7 +902,7 @@ ksh_getopt(char **argv, Getopt *go, const char *options)
 			    (go->flags & GF_NONAME) ? "" : argv[0],
 			    (go->flags & GF_NONAME) ? "" : ": ", c);
 			if (go->flags & GF_ERROR)
-				bi_errorf(null);
+				bi_errorf(NULL);
 		}
 		return '?';
 	}
@@ -928,7 +928,7 @@ ksh_getopt(char **argv, Getopt *go, const char *options)
 			    (go->flags & GF_NONAME) ? "" : argv[0],
 			    (go->flags & GF_NONAME) ? "" : ": ", c);
 			if (go->flags & GF_ERROR)
-				bi_errorf(null);
+				bi_errorf(NULL);
 			return '?';
 		}
 		go->p = 0;

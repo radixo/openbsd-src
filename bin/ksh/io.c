@@ -1,4 +1,4 @@
-/*	$OpenBSD: io.c,v 1.27 2015/09/15 18:15:05 tedu Exp $	*/
+/*	$OpenBSD: io.c,v 1.29 2015/09/18 07:28:24 nicm Exp $	*/
 
 /*
  * shell buffered IO and formatted output
@@ -23,7 +23,7 @@ errorf(const char *fmt, ...)
 
 	shl_stdout_ok = 0;	/* debugging: note that stdout not valid */
 	exstat = 1;
-	if (*fmt) {
+	if (fmt != NULL && *fmt != '\0') {
 		error_prefix(true);
 		va_start(va, fmt);
 		shf_vfprintf(shl_out, fmt, va);
@@ -58,7 +58,7 @@ bi_errorf(const char *fmt, ...)
 
 	shl_stdout_ok = 0;	/* debugging: note that stdout not valid */
 	exstat = 1;
-	if (*fmt) {
+	if (fmt != NULL && *fmt != '\0') {
 		error_prefix(true);
 		/* not set when main() calls parse_args() */
 		if (builtin_argv0)
@@ -424,12 +424,12 @@ maketemp(Area *ap, Temp_type type, struct temp **tlist)
 	len = strlen(dir) + 3 + 20 + 20 + 1;
 	tp = alloc(sizeof(struct temp) + len, ap);
 	tp->name = path = (char *) &tp[1];
-	tp->shf = (struct shf *) 0;
+	tp->shf = NULL;
 	tp->type = type;
 	shf_snprintf(path, len, "%s/shXXXXXXXX", dir);
 	fd = mkstemp(path);
 	if (fd >= 0)
-		tp->shf = shf_fdopen(fd, SHF_WR, (struct shf *) 0);
+		tp->shf = shf_fdopen(fd, SHF_WR, NULL);
 	tp->pid = procpid;
 
 	tp->next = *tlist;

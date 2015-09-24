@@ -1,4 +1,4 @@
-/*	$OpenBSD: lex.c,v 1.52 2015/09/15 18:15:05 tedu Exp $	*/
+/*	$OpenBSD: lex.c,v 1.54 2015/09/18 07:28:24 nicm Exp $	*/
 
 /*
  * lexical analysis and source input
@@ -909,7 +909,7 @@ yyerror(const char *fmt, ...)
 	va_start(va, fmt);
 	shf_vfprintf(shl_out, fmt, va);
 	va_end(va);
-	errorf(null);
+	errorf(NULL);
 }
 
 /*
@@ -1135,7 +1135,7 @@ getsc_line(Source *s)
 #endif /* HISTORY */
 	}
 	if (interactive)
-		set_prompt(PS2, (Source *) 0);
+		set_prompt(PS2, NULL);
 }
 
 static char *
