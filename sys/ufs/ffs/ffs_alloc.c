@@ -49,11 +49,13 @@
 #include <sys/syslog.h>
 #include <sys/stdint.h>
 #include <sys/time.h>
+#include <sys/wapbl.h>
 
 #include <ufs/ufs/quota.h>
 #include <ufs/ufs/inode.h>
 #include <ufs/ufs/ufsmount.h>
 #include <ufs/ufs/ufs_extern.h>
+#include <ufs/ufs/ufs_wapbl.h>
 
 #include <ufs/ffs/fs.h>
 #include <ufs/ffs/ffs_extern.h>
@@ -65,6 +67,7 @@
 
 daddr_t		ffs_alloccg(struct inode *, int, daddr_t, int);
 struct buf *	ffs_cgread(struct fs *, struct inode *, int);
+daddr_t		ffs_alloccg(struct inode *, int, daddr_t, int);
 daddr_t		ffs_alloccgblk(struct inode *, struct buf *, daddr_t);
 daddr_t		ffs_clusteralloc(struct inode *, int, daddr_t, int);
 ufsino_t	ffs_dirpref(struct inode *);
@@ -300,11 +303,24 @@ ffs_realloccg(struct inode *ip, daddr_t lbprev, daddr_t bpref, int osize,
 		goto nospace;
 
 	(void) uvm_vnp_uncache(ITOV(ip));
-	if (!DOINGSOFTDEP(ITOV(ip)))
-		ffs_blkfree(ip, bprev, (long)osize);
-	if (nsize < request)
-		ffs_blkfree(ip, bno + numfrags(fs, nsize),
-		    (long)(request - nsize));
+	if (ip->i_ump->um_mountp->mnt_wapbl && ITOV(ip)->v_type != VREG) {
+		UFS_WAPBL_REGISTER_DEALLOCATION(ip->i_ump->um_mountp,
+		    fsbtodb(fs, bprev), osize);
+	} else {
+		if (!DOINGSOFTDEP(ITOV(ip)))
+		    ffs_blkfree(ip, bprev, (long)osize);
+	}
+	if (nsize < request) {
+		if (ip->i_ump->um_mountp->mnt_wapbl &&
+		    ITOV(ip)->v_type != VREG) {
+			UFS_WAPBL_REGISTER_DEALLOCATION(ip->i_ump->um_mountp,
+			    fsbtodb(fs, (bno + numfrags(fs, nsize))),
+			    request - nsize);
+		} else {
+			ffs_blkfree(ip, bno + numfrags(fs, nsize),
+			    (long)(request - nsize));
+		}
+	}
 	DIP_ADD(ip, blocks, btodb(nsize - osize));
 	ip->i_flag |= IN_CHANGE | IN_UPDATE;
 	if (bpp != NULL) {
@@ -538,10 +554,17 @@ ffs1_reallocblks(void *v)
 		printf("\n\tnew:");
 #endif
 	for (blkno = newblk, i = 0; i < len; i++, blkno += fs->fs_frag) {
-		if (!DOINGSOFTDEP(vp))
-			ffs_blkfree(ip,
+		if (ip->i_ump->um_mountp->mnt_wapbl &&
+		    ITOV(ip)->v_type != VREG) {
+			UFS_WAPBL_REGISTER_DEALLOCATION(ip->i_ump->um_mountp,
 			    dbtofsb(fs, buflist->bs_children[i]->b_blkno),
 			    fs->fs_bsize);
+		} else {
+		if (!DOINGSOFTDEP(vp))
+			ffs_blkfree(ip,
+			    buflist->bs_children[i]->b_blkno,
+			    fs->fs_bsize);
+		}
 		buflist->bs_children[i]->b_blkno = fsbtodb(fs, blkno);
 #ifdef DIAGNOSTIC
 		if (!ffs_checkblk(ip,
@@ -753,9 +776,15 @@ ffs2_reallocblks(void *v)
 		printf("\n\tnew:");
 #endif
 	for (blkno = newblk, i = 0; i < len; i++, blkno += fs->fs_frag) {
-		if (!DOINGSOFTDEP(vp))
-			ffs_blkfree(ip, dbtofsb(fs,
-			    buflist->bs_children[i]->b_blkno), fs->fs_bsize);
+		if (ip->i_ump->um_mountp->mnt_wapbl &&
+		    ITOV(ip)->v_type != VREG) {
+			UFS_WAPBL_REGISTER_DEALLOCATION(ip->i_ump->um_mountp,
+			    buflist->bs_children[i]->b_blkno, fs->fs_bsize);
+		} else {
+			if (!DOINGSOFTDEP(vp))
+			    ffs_blkfree(ip, dbtofsb(fs,
+			        buflist->bs_children[i]->b_blkno), fs->fs_bsize);
+		}
 		buflist->bs_children[i]->b_blkno = fsbtodb(fs, blkno);
 #ifdef DIAGNOSTIC
 		if (!ffs_checkblk(ip,
@@ -831,8 +860,15 @@ ffs_inode_alloc(struct inode *pip, mode_t mode, struct ucred *cred,
 	ufsino_t ino, ipref;
 	int cg, error;
 
+	UFS_WAPBL_JUNLOCK_ASSERT(pvp->v_mount);
+	
 	*vpp = NULL;
 	fs = pip->i_fs;
+
+	error = UFS_WAPBL_BEGIN(pvp->v_mount);
+	if (error)
+	    return error;
+	
 	if (fs->fs_cstotal.cs_nifree == 0)
 		goto noinodes;
 
@@ -858,9 +894,15 @@ ffs_inode_alloc(struct inode *pip, mode_t mode, struct ucred *cred,
 	ino = (ufsino_t)ffs_hashalloc(pip, cg, ipref, mode, ffs_nodealloccg);
 	if (ino == 0)
 		goto noinodes;
+	UFS_WAPBL_END(pvp->v_mount);
 	error = VFS_VGET(pvp->v_mount, ino, vpp);
 	if (error) {
-		ffs_inode_free(pip, ino, mode);
+		int err;
+		err = UFS_WAPBL_BEGIN(pvp->v_mount);
+		if (err == 0) {
+			ffs_inode_free(pip, ino, mode);
+			UFS_WAPBL_END(pvp->v_mount);
+		}
 		return (error);
 	}
 
@@ -896,6 +938,7 @@ ffs_inode_alloc(struct inode *pip, mode_t mode, struct ucred *cred,
 	return (0);
 
 noinodes:
+	UFS_WAPBL_END(pvp->v_mount);
 	if (ratecheck(&fsnoinodes_last, &fserr_interval)) {
 		ffs_fserr(fs, cred->cr_uid, "out of inodes");
 		uprintf("\n%s: create/symlink failed, no inodes free\n",
@@ -1681,6 +1724,7 @@ ffs_nodealloccg(struct inode *ip, int cg, daddr_t ipref, int mode)
 	 * and in the cylinder group itself.
 	 */
 	fs = ip->i_fs;
+	UFS_WAPBL_JLOCK_ASSERT(ip->i_ump->um_mountp);
 	if (fs->fs_cs(fs, cg).cs_nifree == 0)
 		return (0);
 
@@ -1759,6 +1803,9 @@ ffs_nodealloccg(struct inode *ip, int cg, daddr_t ipref, int mode)
 
 gotit:
 
+	UFS_WAPBL_REGISTER_INODE(ip->i_ump->um_mountp, cg * fs->fs_ipg + ipref,
+	    mode);
+	
 #ifdef FFS2
 	/*
 	 * For FFS2, check if all inodes in this cylinder group have been used
@@ -2070,6 +2117,8 @@ ffs_freefile(struct inode *pip, ufsino_t ino, mode_t mode)
 			panic("ffs_freefile: freeing free inode");
 	}
 	clrbit(cg_inosused(cgp), ino);
+	UFS_WAPBL_UNREGISTER_INODE(pip->i_ump->um_mountp,
+	    ino + cg + fs->fs_ipg, mode);
 	if (ino < cgp->cg_irotor)
 		cgp->cg_irotor = ino;
 	cgp->cg_cs.cs_nifree++;

@@ -45,7 +45,7 @@
 #include <sys/signalvar.h>
 #include <sys/pool.h>
 #include <sys/event.h>
-#include <sys/specdev.h>
+#include <sys/wapbl.h>
 
 #include <miscfs/fifofs/fifo.h>
 
@@ -54,6 +54,7 @@
 #include <ufs/ufs/dir.h>
 #include <ufs/ufs/ufs_extern.h>
 #include <ufs/ufs/ufsmount.h>
+#include <ufs/ufs/ufs_wapbl.h>
 
 #include <ufs/ffs/fs.h>
 #include <ufs/ffs/ffs_extern.h>
@@ -274,6 +275,13 @@ ffs_read(void *v)
 	if (!(vp->v_mount->mnt_flag & MNT_NOATIME) ||
 	    (ip->i_flag & (IN_CHANGE | IN_UPDATE))) {
 		ip->i_flag |= IN_ACCESS;
+		if ((ap->a_ioflag & IO_SYNC) == IO_SYNC) {
+			error = UFS_WAPBL_BEGIN(vp->v_mount);
+			if (error)
+				return (error);
+			error = UFS_UPDATE(ip, MNT_WAIT);
+			UFS_WAPBL_END(vp->v_mount);
+		}
 	}
 	return (error);
 }
@@ -343,6 +351,12 @@ ffs_write(void *v)
 	osize = DIP(ip, size);
 	flags = ioflag & IO_SYNC ? B_SYNC : 0;
 
+	if ((ioflag & IO_JOURNALLOCKED) == 0) {
+		error = UFS_WAPBL_BEGIN(vp->v_mount);
+		if (error)
+			return (error);
+	}
+	
 	for (error = 0; uio->uio_resid > 0;) {
 		lbn = lblkno(fs, uio->uio_offset);
 		blkoffset = blkoff(fs, uio->uio_offset);
@@ -410,11 +424,67 @@ ffs_write(void *v)
 		}
 	} else if (resid > uio->uio_resid && (ioflag & IO_SYNC)) {
 		error = UFS_UPDATE(ip, 1);
-	}
+	} else
+		UFS_WAPBL_UPDATE(ip, 0);
+	if ((ioflag & IO_JOURNALLOCKED) == 0)
+		UFS_WAPBL_END(vp->v_mount);
 	/* correct the result for writes clamped by vn_fsizechk() */
 	uio->uio_resid += overrun;
 	return (error);
 }
+
+#ifdef WAPBL
+int ffs_wapbl_sync_device(struct vnode *, int);
+int ffs_wapbl_sync_vnode(struct vnode *, int);
+
+int
+ffs_wapbl_sync_device(struct vnode *vp, int waitfor)
+{
+	int error = 0;
+
+	if ((VTOI(vp)->i_flag & (IN_ACCESS | IN_CHANGE | IN_MODIFIED |
+	    IN_UPDATE)) != 0) {
+	    	error = WAPBL_BEGIN(vp->v_mount);
+	    	if (error)
+	    		return error;
+	    	error = UFS_UPDATE(VTOI(vp), waitfor == MNT_WAIT);
+	    	UFS_WAPBL_END(vp->v_mount);
+	}
+
+	return error;
+}
+
+int
+ffs_wapbl_sync_vnode(struct vnode *vp, int waitfor)
+{
+	int error = 0, s;
+
+	if ((VTOI(vp)->i_flag & (IN_ACCESS | IN_CHANGE | IN_MODIFIED |
+	    IN_UPDATE)) != 0) {
+	    	error = WAPBL_BEGIN(vp->v_mount);
+	    	if (error)
+	    		return error;
+	    	error = UFS_UPDATE(VTOI(vp), waitfor == MNT_WAIT);
+	    	UFS_WAPBL_END(vp->v_mount);
+	}
+
+	if (!LIST_EMPTY(&vp->v_dirtyblkhd)) {
+		error = wapbl_flush(vp->v_mount->mnt_wapbl, 0);
+		if (error)
+			return error;
+	}
+
+	if (waitfor == MNT_WAIT) {
+		s = splbio();
+		vwaitforio(vp, 0, "ffs_wapbl", 0);
+		splx(s);
+	}
+
+	KASSERT(LIST_EMPTY(&vp->v_dirtyblkhd));
+
+	return error;
+}
+#endif /* WAPBL */
 
 /*
  * Synch an open file.
@@ -517,12 +587,28 @@ loop:
 				goto loop;
 			}
 #ifdef DIAGNOSTIC
-			if (vp->v_type != VBLK)
+			/*
+			 * if wapbl we will flush the log in
+			 * ffs_wapbl_sync_vnode() and check again
+			 */
+			if (vp->v_type != VBLK &&
+			    vp->v_mount->mnt_wapbl == NULL)
 				vprint("ffs_fsync: dirty", vp);
 #endif
 		}
 	}
 	splx(s);
+
+#ifdef WAPBL
+	if (ap->a_waitfor != MNT_LAZY) {
+		if (vp->v_type == VBLK && vp->v_specmountpoint != NULL &&
+		    vp->v_specmountpoint->mnt_wapbl != NULL)
+		    	return ffs_wapbl_sync_device(vp, ap->a_waitfor);
+		else if (vp->v_mount->mnt_wapbl != NULL)
+			return ffs_wapbl_sync_vnode(vp, ap->a_waitfor);
+	}
+#endif /* WAPBL */
+	
 	return (UFS_UPDATE(VTOI(vp), ap->a_waitfor == MNT_WAIT));
 }
 

@@ -50,7 +50,7 @@
 #include <sys/pool.h>
 #include <sys/dkio.h>
 #include <sys/disk.h>
-#include <sys/specdev.h>
+#include <sys/wapbl.h>
 
 #include <ufs/ufs/quota.h>
 #include <ufs/ufs/ufsmount.h>
@@ -58,6 +58,7 @@
 #include <ufs/ufs/dir.h>
 #include <ufs/ufs/ufs_extern.h>
 #include <ufs/ufs/dirhash.h>
+#include <ufs/ufs/ufs_wapbl.h>
 
 #include <ufs/ffs/fs.h>
 #include <ufs/ffs/ffs_extern.h>
@@ -178,6 +179,15 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 	if (error)
 		return (error);
 
+#ifdef WAPBL
+	/* WAPBL can only be enabled on a r/w mount. */
+	if ((mp->mnt_flag & MNT_RDONLY) && !(mp->mnt_flag & MNT_WANTRDWR)) {
+		mp->mnt_flag &= ~MNT_LOG;
+	}
+#else /* !WAPBL */
+	mp->mnt_flag &= ~MNT_LOG;
+#endif /* !WAPBL */
+	
 #ifndef FFS_SOFTUPDATES
 	if (mp->mnt_flag & MNT_SOFTDEP) {
 		printf("WARNING: soft updates isn't compiled in\n");
@@ -194,6 +204,16 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 	    (MNT_SOFTDEP | MNT_ASYNC)) {
 		return (EINVAL);
 	}
+
+#ifdef WAPBL
+	/*
+	 * Likewise, WAPBL is incompatible with MNT_ASYNC and MNT_SOFTDEP.
+	 */
+	if (mp->mnt_flag & MNT_LOG)
+		if (mp->mnt_flag & (MNT_ASYNC|MNT_SOFTDEP))
+			return (EINVAL);
+#endif /* WAPBL */
+	
 	/*
 	 * If updating, check whether changing from read-only to
 	 * read/write; if there is no device name, that's all we do.
@@ -220,10 +240,29 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 			if (fs->fs_flags & FS_DOSOFTDEP) {
 				error = softdep_flushfiles(mp, flags, p);
 				mp->mnt_flag &= ~MNT_SOFTDEP;
-			} else
+			} else {
 				error = ffs_flushfiles(mp, flags, p);
+				if (error == 0)
+					error = UFS_WAPBL_BEGIN(mp);
+				if (error == 0 &&
+				    ffs_cgupdate(ump, MNT_WAIT) == 0 &&
+				    fs->fs_clean & FS_WASCLEAN) {
+					fs->fs_clean = FS_ISCLEAN;
+					(void) ffs_sbupdate(ump, MNT_WAIT);
+				}
+				if (error == 0)
+					UFS_WAPBL_END(mp);
+			}
 			ronly = 1;
 		}
+
+#ifdef WAPBL
+		if (error == 0 && (mp->mnt_flag & MNT_LOG) == 0) {
+			error = ffs_wapbl_stop(mp, mp->mnt_flag & MNT_FORCE);
+			if (error)
+				return (error);
+		}
+#endif /* WAPBL */
 
 		/*
 		 * Flush soft dependencies if disabling it via an update
@@ -277,6 +316,31 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 					goto error_1;
 			}
 
+			fs->fs_contigdirs = malloc((u_long)fs->fs_ncg,
+			    M_UFSMNT, M_WAITOK|M_ZERO);
+
+#ifdef WAPBL
+			if (mp->mnt_flag & MNT_LOG) {
+				fs->fs_ronly = 0;
+				fs->fs_fmod = 1;
+			}
+
+			if (fs->fs_flags & FS_DOWAPBL) {
+				printf("%s: replaying log to disk\n",
+				    mp->mnt_stat.f_mntonname);
+				KASSERT(mp->mnt_wapbl_replay);
+				error = wapbl_replay_write(mp->mnt_wapbl_replay,
+				    devvp);
+				if (error) {
+					free(fs->fs_contigdirs, M_UFSMNT, 0);
+					return (error);
+				}
+				wapbl_replay_stop(mp->mnt_wapbl_replay);
+				fs->fs_clean = FS_WASCLEAN;
+				goto logok;
+			}
+#endif /* WAPBL */
+			
 			if (fs->fs_clean == 0) {
 #if 0
 				/*
@@ -313,8 +377,18 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 			fs->fs_contigdirs = malloc((u_long)fs->fs_ncg,
 			     M_UFSMNT, M_WAITOK|M_ZERO);
 
+#ifdef WAPBL
+logok:
+#endif /* WAPBL */
 			ronly = 0;
 		}
+
+#ifdef WAPBL
+		error = ffs_wapbl_start(mp);
+		if (error)
+			return error;
+#endif /* WAPBL */
+		
 		if (args.fspec == NULL) {
 			/*
 			 * Process export requests.
@@ -323,8 +397,12 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 			    &args.export_info);
 			if (error)
 				goto error_1;
-			else
+			else {
+				error = UFS_WAPBL_BEGIN(mp);
+				if (error)
+					goto error_1;
 				goto success;
+			}
 		}
 	}
 
@@ -417,6 +495,10 @@ ffs_mount(struct mount *mp, const char *path, void *data,
 	if (error)
 		goto error_2;
 
+	error = UFS_WAPBL_BEGIN(mp);
+	if (error)
+		goto error_2;
+
 	/*
 	 * Initialize FS stat information in mount struct; uses both
 	 * mp->mnt_stat.f_mntonname and mp->mnt_stat.f_mntfromname
@@ -445,6 +527,7 @@ success:
 		}
 		ffs_sbupdate(ump, MNT_WAIT);
 	}
+	UFS_WAPBL_END(mp);
 	return (0);
 
 error_2:	/* error with devvp held */
@@ -693,6 +776,10 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 	bp = NULL;
 	ump = NULL;
 
+#ifdef WAPBL
+sbagain:
+#endif /* WAPBL */
+	
 	/*
 	 * Try reading the super-block in each of its possible locations.
 	 */
@@ -735,6 +822,43 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 		goto out;
 	}
 
+#ifdef WAPBL
+	if ((mp->mnt_wapbl_replay == 0) && (fs->fs_flags & FS_DOWAPBL)) {
+		error = ffs_wapbl_replay_start(mp, fs, devvp);
+		if (error && (mp->mnt_flag & MNT_FORCE) == 0)
+			goto out;
+		if (!error) {
+			if (!ronly) {
+				/* XXX fsmnt may be stale. */
+				printf("%s: replaying log to disk\n",
+				    fs->fs_fsmnt);
+				error = wapbl_replay_write(mp->mnt_wapbl_replay,
+				    devvp);
+				if (error)
+					goto out;
+				wapbl_replay_stop(mp->mnt_wapbl_replay);
+				fs->fs_clean = FS_WASCLEAN;
+			} else {
+				/* XXX fsmnt may be stale */
+				printf("%s: replaying log to memory\n",
+				    fs->fs_fsmnt);
+			}
+
+			/* Force a re-read of the superblock */
+			bp->b_flags |= B_INVAL;
+			brelse(bp);
+			bp = NULL;
+			fs = NULL;
+			goto sbagain;
+		}
+	}
+#else /* !WAPBL */
+	if ((fs->fs_flags & FS_DOWAPBL) && (mp->mnt_flag & MNT_FORCE) == 0) {
+		error = EPERM;
+		goto out;
+	}
+#endif /* !WAPBL */
+	
 	fs->fs_fmod = 0;
 	fs->fs_flags &= ~FS_UNCLEAN;
 	if (fs->fs_clean == 0) {
@@ -793,6 +917,13 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 
 	ffs1_compat_read(fs, ump, sbloc);
 
+	/* Don't bump fs_clean if we're replaying journal */
+	if (!((fs->fs_flags & FS_DOWAPBL) && (fs->fs_clean & FS_WASCLEAN)))
+		if (ronly == 0) {
+			fs->fs_clean <<= 1;
+			fs->fs_fmod = 1;
+		}
+	
 	if (fs->fs_clean == 0)
 		fs->fs_flags |= FS_UNCLEAN;
 	fs->fs_ronly = ronly;
@@ -879,6 +1010,38 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 	if (fs->fs_maxfilesize > maxfilesize)			/* XXX */
 		fs->fs_maxfilesize = maxfilesize;		/* XXX */
 	if (ronly == 0) {
+#ifdef WAPBL
+		KASSERT(fs->fs_ronly == 0);
+		/*
+		 * verify that we can access the last block in the fs if we're
+		 * mounting read/write.
+		 */
+		error = bread(devvp, fsbtodb(fs, fs->fs_size - 1),
+		    fs->fs_fsize, &bp);
+		if (bp->b_bcount != fs->fs_fsize)
+			error = EINVAL;
+		bp->b_flags |= B_INVAL;
+		if (error) {
+			free(fs->fs_csp, M_UFSMNT, 0);
+			free(fs->fs_contigdirs, M_UFSMNT, 0);
+			goto out;
+		}
+		brelse(bp);
+		bp = NULL;
+		/*
+		 * ffs_wapbl_start() needs mp->mnt_stat initialised if it
+		 * needs to create a new log file in-filesystem.
+		 */
+		ffs_statfs(mp, &mp->mnt_stat, curproc);
+
+		error = ffs_wapbl_start(mp);
+		if (error) {
+			free(fs->fs_csp, M_UFSMNT, 0);
+			free(fs->fs_contigdirs, M_UFSMNT, 0);
+			goto out;
+		}
+#endif /* WAPBL */
+		
 		if ((fs->fs_flags & FS_DOSOFTDEP) &&
 		    (error = softdep_mount(devvp, mp, fs, cred)) != 0) {
 			free(fs->fs_csp, M_UFSMNT, 0);
@@ -891,12 +1054,30 @@ ffs_mountfs(struct vnode *devvp, struct mount *mp, struct proc *p)
 			fs->fs_flags |= FS_DOSOFTDEP;
 		else
 			fs->fs_flags &= ~FS_DOSOFTDEP;
-		error = ffs_sbupdate(ump, MNT_WAIT);
-		if (error == EROFS)
+		error = UFS_WAPBL_BEGIN(mp);
+		if (error) {
+ 			free(fs->fs_csp, M_UFSMNT, 0);
+			free(fs->fs_contigdirs, M_UFSMNT, 0);
 			goto out;
+		}
+		error = ffs_sbupdate(ump, MNT_WAIT);
+		UFS_WAPBL_END(mp);
+		if (error == EROFS) {
+ 			free(fs->fs_csp, M_UFSMNT, 0);
+			free(fs->fs_contigdirs, M_UFSMNT, 0);			
+			goto out;
+		}
 	}
 	return (0);
 out:
+#ifdef WAPBL
+	if (mp->mnt_wapbl_replay) {
+		wapbl_replay_stop(mp->mnt_wapbl_replay);
+		wapbl_replay_free(mp->mnt_wapbl_replay);
+		mp->mnt_wapbl_replay = NULL;
+	}
+#endif /* WAPBL */
+	
 	devvp->v_specmountpoint = NULL;
 	if (bp)
 		brelse(bp);
@@ -994,7 +1175,10 @@ ffs_unmount(struct mount *mp, int mntflags, struct proc *p)
 	struct ufsmount *ump;
 	struct fs *fs;
 	int error, flags;
-
+#ifdef WAPBL
+	extern int doforce;
+#endif /* WAPBL */
+	
 	flags = 0;
 	if (mntflags & MNT_FORCE)
 		flags |= FORCECLOSE;
@@ -1007,6 +1191,9 @@ ffs_unmount(struct mount *mp, int mntflags, struct proc *p)
 		error = ffs_flushfiles(mp, flags, p);
 	if (error != 0)
 		return (error);
+	error = UFS_WAPBL_BEGIN(mp);
+	if (error)
+		goto logfail;
 
 	if (fs->fs_ronly == 0) {
 		fs->fs_clean = (fs->fs_flags & FS_UNCLEAN) ? 0 : 1;
@@ -1018,6 +1205,21 @@ ffs_unmount(struct mount *mp, int mntflags, struct proc *p)
 		}
 		free(fs->fs_contigdirs, M_UFSMNT, 0);
 	}
+	UFS_WAPBL_END(mp);
+logfail:
+#ifdef WAPBL
+	KASSERT(!(mp->mnt_wapbl_replay && mp->mnt_wapbl));
+	if (mp->mnt_wapbl_replay) {
+		KASSERT(fs->fs_ronly);
+		wapbl_replay_stop(mp->mnt_wapbl_replay);
+		wapbl_replay_free(mp->mnt_wapbl_replay);
+		mp->mnt_wapbl_replay = NULL;
+	}
+	error = ffs_wapbl_stop(mp, doforce && (mntflags & MNT_FORCE));
+	if (error) {
+		return error;
+	}
+#endif /* WAPBL */	
 	ump->um_devvp->v_specmountpoint = NULL;
 
 	vn_lock(ump->um_devvp, LK_EXCLUSIVE | LK_RETRY, p);
@@ -1069,6 +1271,17 @@ ffs_flushfiles(struct mount *mp, int flags, struct proc *p)
 	vn_lock(ump->um_devvp, LK_EXCLUSIVE | LK_RETRY, p);
 	error = VOP_FSYNC(ump->um_devvp, p->p_ucred, MNT_WAIT, p);
 	VOP_UNLOCK(ump->um_devvp, 0, p);
+
+#ifdef WAPBL
+	if (error)
+		return error;
+	if (mp->mnt_wapbl) {
+		error = wapbl_flush(mp->mnt_wapbl, 1);
+		if (flags & FORCECLOSE)
+			error = 0;
+	}
+#endif
+	
 	return (error);
 }
 
@@ -1202,9 +1415,26 @@ ffs_sync(struct mount *mp, int waitfor, struct ucred *cred, struct proc *p)
 	 * Write back modified superblock.
 	 */
 
-	if (fs->fs_fmod != 0 && (error = ffs_sbupdate(ump, waitfor)) != 0)
-		allerror = error;
+	if (fs->fs_fmod != 0) {
+		error = UFS_WAPBL_BEGIN(mp);
+		if (error)
+			allerror = error;
+		else {
+			error = ffs_cgupdate(ump, waitfor);
+			if (error)
+				allerror = error;
+			UFS_WAPBL_END(mp);
+		}
+	}
 
+#ifdef WAPBL
+	if (mp->mnt_wapbl) {
+		error = wapbl_flush(mp->mnt_wapbl, waitfor != MNT_NOWAIT);
+		if (error)
+			allerror = error;
+	}
+#endif /* WAPBL */
+	
 	return (allerror);
 }
 
