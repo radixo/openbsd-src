@@ -55,7 +55,7 @@
 #include <sys/cdio.h>
 #include <sys/poll.h>
 #include <sys/filedesc.h>
-#include <sys/wapbl.h>
+#include <sys/specdev.h>
 #include <sys/unistd.h>
 
 int vn_read(struct file *, off_t *, struct uio *, struct ucred *);
