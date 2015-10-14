@@ -173,7 +173,7 @@ struct stat {
 #define	SF_ARCHIVED	0x00010000	/* file is archived */
 #define	SF_IMMUTABLE	0x00020000	/* file may not be changed */
 #define	SF_APPEND	0x00040000	/* writes to file may only append */
-#define SF_LOG		0x00400000	/* WAPBL log file indoe */
+#define SF_LOG		0x00400000	/* WAPBL log file inode */
 
 #ifdef _KERNEL
 /*
