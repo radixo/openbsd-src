@@ -1,4 +1,4 @@
-/*	$OpenBSD: basename.c,v 1.8 2005/04/12 06:43:44 otto Exp $	*/
+/*	$OpenBSD: basename.c,v 1.10 2015/10/03 01:07:15 deraadt Exp $	*/
 /*	$NetBSD: basename.c,v 1.9 1995/09/02 05:29:46 jtc Exp $	*/
 
 /*-
@@ -47,6 +47,9 @@ main(int argc, char *argv[])
 	char *p;
 
 	setlocale(LC_ALL, "");
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	while ((ch = getopt(argc, argv, "")) != -1) {
 		switch (ch) {

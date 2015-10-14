@@ -1,4 +1,4 @@
-/*	$OpenBSD: html.c,v 1.55 2015/01/21 20:20:49 schwarze Exp $ */
+/*	$OpenBSD: html.c,v 1.60 2015/10/12 00:14:41 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -128,22 +128,20 @@ static	void	 print_attr(struct html *, const char *, const char *);
 
 
 void *
-html_alloc(const struct mchars *mchars, const struct manoutput *outopts)
+html_alloc(const struct manoutput *outopts)
 {
 	struct html	*h;
 
 	h = mandoc_calloc(1, sizeof(struct html));
 
 	h->tags.head = NULL;
-	h->symtab = mchars;
-
 	h->style = outopts->style;
 	h->base_man = outopts->man;
 	h->base_includes = outopts->includes;
 	if (outopts->fragment)
 		h->oflags |= HTML_FRAGMENT;
 
-	return(h);
+	return h;
 }
 
 void
@@ -216,13 +214,11 @@ print_metaf(struct html *h, enum mandoc_esc deco)
 		font = HTMLFONT_BI;
 		break;
 	case ESCAPE_FONT:
-		/* FALLTHROUGH */
 	case ESCAPE_FONTROMAN:
 		font = HTMLFONT_NONE;
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 
 	if (h->metaf) {
@@ -280,13 +276,10 @@ html_strlen(const char *cp)
 		cp++;
 		switch (mandoc_escape(&cp, NULL, NULL)) {
 		case ESCAPE_ERROR:
-			return(sz);
+			return sz;
 		case ESCAPE_UNICODE:
-			/* FALLTHROUGH */
 		case ESCAPE_NUMBERED:
-			/* FALLTHROUGH */
 		case ESCAPE_SPECIAL:
-			/* FALLTHROUGH */
 		case ESCAPE_OVERSTRIKE:
 			if (skip)
 				skip = 0;
@@ -300,7 +293,7 @@ html_strlen(const char *cp)
 			break;
 		}
 	}
-	return(sz);
+	return sz;
 }
 
 static int
@@ -321,17 +314,17 @@ print_escape(char c)
 		printf("&quot;");
 		break;
 	case ASCII_NBRSP:
-		putchar('-');
+		printf("&nbsp;");
 		break;
 	case ASCII_HYPH:
 		putchar('-');
-		/* FALLTHROUGH */
+		break;
 	case ASCII_BREAK:
 		break;
 	default:
-		return(0);
+		return 0;
 	}
-	return(1);
+	return 1;
 }
 
 static int
@@ -370,15 +363,10 @@ print_encode(struct html *h, const char *p, int norecurse)
 
 		switch (esc) {
 		case ESCAPE_FONT:
-			/* FALLTHROUGH */
 		case ESCAPE_FONTPREV:
-			/* FALLTHROUGH */
 		case ESCAPE_FONTBOLD:
-			/* FALLTHROUGH */
 		case ESCAPE_FONTITALIC:
-			/* FALLTHROUGH */
 		case ESCAPE_FONTBI:
-			/* FALLTHROUGH */
 		case ESCAPE_FONTROMAN:
 			if (0 == norecurse)
 				print_metaf(h, esc);
@@ -406,7 +394,7 @@ print_encode(struct html *h, const char *p, int norecurse)
 				continue;
 			break;
 		case ESCAPE_SPECIAL:
-			c = mchars_spec2cp(h->symtab, seq, len);
+			c = mchars_spec2cp(seq, len);
 			if (c <= 0)
 				continue;
 			break;
@@ -431,7 +419,7 @@ print_encode(struct html *h, const char *p, int norecurse)
 			putchar(c);
 	}
 
-	return(nospace);
+	return nospace;
 }
 
 static void
@@ -493,7 +481,7 @@ print_otag(struct html *h, enum htmltag tag,
 	if ((HTML_AUTOCLOSE | HTML_CLRLINE) & htmltags[tag].flags)
 		putchar('\n');
 
-	return(t);
+	return t;
 }
 
 static void

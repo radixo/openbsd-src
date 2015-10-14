@@ -1,4 +1,4 @@
-/*	$OpenBSD: biosdev.c,v 1.23 2015/09/02 01:52:26 yasuoka Exp $	*/
+/*	$OpenBSD: biosdev.c,v 1.26 2015/10/01 16:16:23 krw Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -438,18 +438,17 @@ bios_getdisklabel(bios_diskinfo_t *bd, struct disklabel *label)
 		if (start == (u_int)-1) {
 			if (err != NULL)
 				return (err);
- 			return "no OpenBSD partition\n";
+			return "no OpenBSD partition\n";
 		}
 	}
-	start = LABELSECTOR + start;
 
 	/* Load BSD disklabel */
 #ifdef BIOS_DEBUG
 	if (debug)
-		printf("loading disklabel @ %u\n", start);
+		printf("loading disklabel @ %u\n", start + DOS_LABELSECTOR);
 #endif
 	/* read disklabel */
-	error = biosd_io(F_READ, bd, start, 1, buf);
+	error = biosd_io(F_READ, bd, start + DOS_LABELSECTOR, 1, buf);
 
 	if (error)
 		return "failed to read disklabel";
@@ -559,7 +558,7 @@ biosopen(struct open_file *f, ...)
 		return 0;
 	}
 #endif
- 
+
 	for (maj = 0; maj < nbdevs &&
 	    strncmp(dev, bdevs[maj], devlen); maj++);
 	if (maj >= nbdevs) {

@@ -1,4 +1,4 @@
-/* $OpenBSD: i915_drv.h,v 1.66 2015/06/26 15:22:23 kettenis Exp $ */
+/* $OpenBSD: i915_drv.h,v 1.68 2015/09/26 11:17:15 kettenis Exp $ */
 /* i915_drv.h -- Private header for the I915 driver -*- linux-c -*-
  */
 /*
@@ -710,10 +710,10 @@ struct i915_hw_ppgtt {
 	struct i915_address_space base;
 	unsigned num_pd_entries;
 	union {
-		struct page **pt_pages;
-		struct page *gen8_pt_pages;
+		struct vm_page **pt_pages;
+		struct vm_page *gen8_pt_pages;
 	};
-	struct page *pd_pages;
+	struct vm_page *pd_pages;
 	int num_pd_pages;
 	int num_pt_pages;
 	union {
@@ -1465,6 +1465,9 @@ typedef struct inteldrm_softc {
 	void *switchcookie;
 	struct task switchtask;
 	struct rasops_info ro;
+
+	struct task burner_task;
+	int burner_dpms_mode;
 
 	struct backlight_device {
 		struct intel_connector *connector;

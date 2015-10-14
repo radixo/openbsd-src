@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_mmap.c,v 1.114 2015/09/06 17:06:43 deraadt Exp $	*/
+/*	$OpenBSD: uvm_mmap.c,v 1.119 2015/09/30 11:36:07 semarie Exp $	*/
 /*	$NetBSD: uvm_mmap.c,v 1.49 2001/02/18 21:19:08 chs Exp $	*/
 
 /*
@@ -65,6 +65,7 @@
 #include <sys/stat.h>
 #include <sys/specdev.h>
 #include <sys/stdint.h>
+#include <sys/pledge.h>
 #include <sys/unistd.h>		/* for KBIND* */
 #include <sys/user.h>
 
@@ -364,6 +365,11 @@ sys_mmap(struct proc *p, void *v, register_t *retval)
 	if (size == 0)
 		return (EINVAL);
 
+	if ((p->p_p->ps_flags & PS_PLEDGE) &&
+	    !(p->p_p->ps_pledge & PLEDGE_PROTEXEC) &&
+	    (prot & PROT_EXEC))
+		return (pledge_fail(p, EPERM, PLEDGE_PROTEXEC));
+
 	/* align file position and save offset.  adjust size. */
 	ALIGN_ADDR(pos, size, pageoff);
 
@@ -661,6 +667,11 @@ sys_mprotect(struct proc *p, void *v, register_t *retval)
 	
 	if ((prot & PROT_MASK) != prot)
 		return (EINVAL);
+
+	if ((p->p_p->ps_flags & PS_PLEDGE) &&
+	    !(p->p_p->ps_pledge & PLEDGE_PROTEXEC) &&
+	    (prot & PROT_EXEC))
+		return (pledge_fail(p, EPERM, PLEDGE_PROTEXEC));
 
 	/*
 	 * align the address to a page boundary, and adjust the size accordingly
@@ -986,11 +997,8 @@ uvm_mmapanon(vm_map_t map, vaddr_t *addr, vsize_t size, vm_prot_t prot,
 			return(EINVAL);
 
 		uvmflag |= UVM_FLAG_FIXED;
-		if ((flags & __MAP_NOREPLACE) == 0) {
-			KERNEL_LOCK();
-			uvm_unmap(map, *addr, *addr + size);	/* zap! */
-			KERNEL_UNLOCK();
-		}
+		if ((flags & __MAP_NOREPLACE) == 0)
+			uvmflag |= UVM_FLAG_UNMAP;
 	}
 
 	if ((flags & MAP_FIXED) == 0 && size >= __LDPGSZ)
@@ -1043,7 +1051,7 @@ uvm_mmapfile(vm_map_t map, vaddr_t *addr, vsize_t size, vm_prot_t prot,
 
 		uvmflag |= UVM_FLAG_FIXED;
 		if ((flags & __MAP_NOREPLACE) == 0)
-			uvm_unmap(map, *addr, *addr + size);	/* zap! */
+			uvmflag |= UVM_FLAG_UNMAP;
 	}
 
 	/*

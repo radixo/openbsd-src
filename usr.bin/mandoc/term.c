@@ -1,4 +1,4 @@
-/*	$OpenBSD: term.c,v 1.109 2015/08/30 21:10:40 schwarze Exp $ */
+/*	$OpenBSD: term.c,v 1.113 2015/10/12 00:07:27 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -452,12 +452,11 @@ term_word(struct termp *p, const char *word)
 			break;
 		case ESCAPE_SPECIAL:
 			if (p->enc == TERMENC_ASCII) {
-				cp = mchars_spec2str(p->symtab,
-				    seq, sz, &ssz);
+				cp = mchars_spec2str(seq, sz, &ssz);
 				if (cp != NULL)
 					encode(p, cp, ssz);
 			} else {
-				uc = mchars_spec2cp(p->symtab, seq, sz);
+				uc = mchars_spec2cp(seq, sz);
 				if (uc > 0)
 					encode1(p, uc);
 			}
@@ -472,7 +471,6 @@ term_word(struct termp *p, const char *word)
 			term_fontrepl(p, TERMFONT_BI);
 			continue;
 		case ESCAPE_FONT:
-			/* FALLTHROUGH */
 		case ESCAPE_FONTROMAN:
 			term_fontrepl(p, TERMFONT_NONE);
 			continue;
@@ -642,7 +640,7 @@ size_t
 term_len(const struct termp *p, size_t sz)
 {
 
-	return((*p->width)(p, ' ') * sz);
+	return (*p->width)(p, ' ') * sz;
 }
 
 static size_t
@@ -651,9 +649,9 @@ cond_width(const struct termp *p, int c, int *skip)
 
 	if (*skip) {
 		(*skip) = 0;
-		return(0);
+		return 0;
 	} else
-		return((*p->width)(p, c));
+		return (*p->width)(p, c);
 }
 
 size_t
@@ -699,13 +697,11 @@ term_strlen(const struct termp *p, const char *cp)
 				break;
 			case ESCAPE_SPECIAL:
 				if (p->enc == TERMENC_ASCII) {
-					rhs = mchars_spec2str(p->symtab,
-					    seq, ssz, &rsz);
+					rhs = mchars_spec2str(seq, ssz, &rsz);
 					if (rhs != NULL)
 						break;
 				} else {
-					uc = mchars_spec2cp(p->symtab,
-					    seq, ssz);
+					uc = mchars_spec2cp(seq, ssz);
 					if (uc > 0)
 						sz += cond_width(p, uc, &skip);
 				}
@@ -769,15 +765,13 @@ term_strlen(const struct termp *p, const char *cp)
 		case ASCII_HYPH:
 			sz += cond_width(p, '-', &skip);
 			cp++;
-			/* FALLTHROUGH */
-		case ASCII_BREAK:
 			break;
 		default:
 			break;
 		}
 	}
 
-	return(sz);
+	return sz;
 }
 
 int
@@ -809,7 +803,6 @@ term_vspan(const struct termp *p, const struct roffsu *su)
 		r = su->scale / 12.0;
 		break;
 	case SCALE_EN:
-		/* FALLTHROUGH */
 	case SCALE_EM:
 		r = su->scale * 0.6;
 		break;
@@ -818,10 +811,9 @@ term_vspan(const struct termp *p, const struct roffsu *su)
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 	ri = r > 0.0 ? r + 0.4995 : r - 0.4995;
-	return(ri < 66 ? ri : 1);
+	return ri < 66 ? ri : 1;
 }
 
 /*
@@ -831,5 +823,5 @@ int
 term_hspan(const struct termp *p, const struct roffsu *su)
 {
 
-	return((*p->hspan)(p, su));
+	return (*p->hspan)(p, su);
 }

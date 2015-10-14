@@ -1,4 +1,4 @@
-/*	$OpenBSD: entry.c,v 1.39 2015/01/23 19:07:27 tedu Exp $	*/
+/*	$OpenBSD: entry.c,v 1.41 2015/10/03 12:46:54 tedu Exp $	*/
 
 /*
  * Copyright 1988,1990,1993,1994 by Paul Vixie
@@ -16,12 +16,6 @@
  * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
  * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT
  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
- */
-
-/* vix 26jan87 [RCS'd; rest of log is in RCS file]
- * vix 01jan87 [added line-level error recovery]
- * vix 31dec86 [added /step to the from-to range, per bob@acornrc]
- * vix 30dec86 [written]
  */
 
 #include "cron.h"
@@ -293,21 +287,6 @@ load_entry(FILE *file, void (*error_func)(const char *), struct passwd *pw,
 			e->envp = tenvp;
 		}
 	}
-#ifndef LOGIN_CAP
-	/* If login.conf is in use we will get the default PATH later. */
-	if (!env_get("PATH", e->envp)) {
-		if (snprintf(envstr, sizeof envstr, "PATH=%s", _PATH_DEFPATH) >=
-		    sizeof(envstr))
-			log_it("CRON", getpid(), "error", "can't set PATH");
-		else {
-			if ((tenvp = env_set(e->envp, envstr)) == NULL) {
-				ecode = e_memory;
-				goto eof;
-			}
-			e->envp = tenvp;
-		}
-	}
-#endif /* LOGIN_CAP */
 	if (snprintf(envstr, sizeof envstr, "LOGNAME=%s", pw->pw_name) >=
 		sizeof(envstr))
 		log_it("CRON", getpid(), "error", "can't set LOGNAME");

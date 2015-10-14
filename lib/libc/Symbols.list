@@ -1,9 +1,9 @@
 /*
  * In order to guarantee that static and shared archs see the same "public"
  * symbols, this file should always include all the non-static symbols that
- * are in the application namespace.  So, if a symbol starts with a letter,
- * don't delete it from here without either making it static or renaming it
- * to have a leading underbar.
+ * are in the application namespace.  So if a symbol starts with a letter,
+ * only delete it from here if you've eliminated it completely, made it
+ * static, or renamed it to have a leading underbar.
  */
 
 /* symbols that no one should be using currently */
@@ -162,8 +162,9 @@ _thread_sys_nfssvc
 _thread_sys_open
 _thread_sys_openat
 _thread_sys_pathconf
-_thread_sys_pipe2
 _thread_sys_pipe
+_thread_sys_pipe2
+_thread_sys_pledge
 _thread_sys_poll
 _thread_sys_ppoll
 _thread_sys_pread
@@ -354,8 +355,9 @@ nfssvc
 open
 openat
 pathconf
-pipe2
 pipe
+pipe2
+pledge
 poll
 posix_madvise
 ppoll
@@ -1403,6 +1405,28 @@ vwscanf
 wprintf
 wscanf
 
+/* old random */
+lcong48_deterministic
+lcong48
+seed48_deterministic
+seed48
+srand48_deterministic
+srand48
+lrand48
+mrand48
+nrand48
+drand48
+erand48
+jrand48
+srand_deterministic
+srand
+rand
+rand_r
+srandom_deterministic
+srandom
+srandomdev
+random
+
 /* stdlib */
 _Exit
 __atexit
@@ -1420,9 +1444,7 @@ atoll
 bsearch
 calloc
 div
-drand48
 ecvt
-erand48
 exit
 fcvt
 free
@@ -1441,22 +1463,16 @@ imaxabs
 imaxdiv
 initstate
 insque
-jrand48
 l64a
 labs
-lcong48
-lcong48_deterministic
 ldiv
 lfind
 llabs
 lldiv
-lrand48
 lsearch
 malloc
 malloc_options
 mergesort
-mrand48
-nrand48
 optarg
 opterr
 optind
@@ -1470,25 +1486,13 @@ qabs
 qdiv
 qsort
 radixsort
-rand
-rand_r
-random
 realloc
 reallocarray
 realpath
 remque
-seed48
-seed48_deterministic
 setenv
 setstate
 sradixsort
-srand48
-srand48_deterministic
-srand
-srand_deterministic
-srandom
-srandom_deterministic
-srandomdev
 strtoimax
 strtol
 strtoll
@@ -1662,7 +1666,6 @@ uuid_is_nil
 uuid_to_string
 
 /* yp */
-xdr_ypresp_all_seq
 yp_all
 yp_bind
 yp_first

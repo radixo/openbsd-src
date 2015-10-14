@@ -1,4 +1,4 @@
-/*	$OpenBSD: parser.c,v 1.69 2014/11/19 21:11:41 tedu Exp $ */
+/*	$OpenBSD: parser.c,v 1.72 2015/10/11 19:21:44 phessler Exp $ */
 
 /*
  * Copyright (c) 2003, 2004 Henning Brauer <henning@openbsd.org>
@@ -17,7 +17,6 @@
  */
 
 #include <sys/types.h>
-#include <sys/socket.h>
 
 #include <err.h>
 #include <errno.h>
@@ -161,6 +160,7 @@ static const struct token t_show_rib[] = {
 	{ ASTYPE,	"peer-as",	AS_PEER,	t_show_rib_as},
 	{ ASTYPE,	"empty-as",	AS_EMPTY,	t_show_rib},
 	{ KEYWORD,	"community",	NONE,		t_show_community},
+	{ FLAG,		"best",		F_CTL_ACTIVE,	t_show_rib},
 	{ FLAG,		"selected",	F_CTL_ACTIVE,	t_show_rib},
 	{ FLAG,		"detail",	F_CTL_DETAIL,	t_show_rib},
 	{ FLAG,		"in",		F_CTL_ADJ_IN,	t_show_rib},
@@ -914,6 +914,10 @@ parse_community(const char *word, struct parse_result *r)
 		as = COMMUNITY_WELLKNOWN;
 		type = COMMUNITY_NO_PEER;
 		goto done;
+	} else if (strcasecmp(word, "BLACKHOLE") == 0) {
+		as = COMMUNITY_WELLKNOWN;
+		type = COMMUNITY_BLACKHOLE;
+		goto done;
 	}
 
 	if ((p = strchr(word, ':')) == NULL) {
@@ -935,6 +939,7 @@ done:
 		case COMMUNITY_NO_EXPORT:
 		case COMMUNITY_NO_ADVERTISE:
 		case COMMUNITY_NO_EXPSUBCONFED:
+		case COMMUNITY_BLACKHOLE:
 			/* valid */
 			break;
 		default:

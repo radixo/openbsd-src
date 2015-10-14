@@ -1,4 +1,4 @@
-/*	$OpenBSD: what.c,v 1.12 2009/10/27 23:59:50 deraadt Exp $	*/
+/*	$OpenBSD: what.c,v 1.14 2015/10/06 13:47:08 deraadt Exp $	*/
 /*	$NetBSD: what.c,v 1.4 1994/12/20 16:01:03 jtc Exp $	*/
 
 /*
@@ -57,6 +57,9 @@ main(int argc, char *argv[])
 	struct utsname utsn;
 	char match[256];
 	int c;
+
+	if (pledge("stdio rpath", NULL) == -1)
+		err(1, "pledge");
 
 	matches = sflag = 0;
 	while ((c = getopt(argc, argv, "s")) != -1) {

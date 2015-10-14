@@ -1,16 +1,18 @@
-#	$OpenBSD: Makefile,v 1.36 2014/04/01 23:14:25 fgsch Exp $
+#	$OpenBSD: Makefile,v 1.38 2015/10/06 00:30:32 deraadt Exp $
 
 .PATH:		${.CURDIR}/..
 
 PROG=	smtpctl
 BINOWN=	root
+BINGRP=	_smtpq
 
-BINMODE?=555
+BINMODE?=2555
 
 BINDIR=	/usr/sbin
 MAN=	smtpctl.8
 MLINKS=	smtpctl.8 mailq.8
 
+CFLAGS+=   -fstack-protector-all
 CFLAGS+=	-I${.CURDIR}/..
 CFLAGS+=	-Wall -Wstrict-prototypes -Wmissing-prototypes
 CFLAGS+=	-Wmissing-declarations

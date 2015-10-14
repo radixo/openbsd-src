@@ -1,4 +1,4 @@
-/*	$OpenBSD: mib.c,v 1.75 2015/01/21 21:50:33 deraadt Exp $	*/
+/*	$OpenBSD: mib.c,v 1.78 2015/10/08 07:26:34 sthen Exp $	*/
 
 /*
  * Copyright (c) 2012 Joel Knight <joel@openbsd.org>
@@ -1193,7 +1193,7 @@ mib_iftable(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 		ber_set_header(ber, BER_CLASS_APPLICATION, SNMP_T_COUNTER32);
 		break;
 	case 19:
-		ber = ber_add_integer(ber, 0);
+		ber = ber_add_integer(ber, (u_int32_t)kif->if_oqdrops);
 		ber_set_header(ber, BER_CLASS_APPLICATION, SNMP_T_COUNTER32);
 		break;
 	case 20:
@@ -2984,7 +2984,8 @@ mib_ipforwarding(struct oid *oid, struct ber_oid *o, struct ber_element **elm)
 	if (sysctl(mib, sizeofa(mib), &v, &len, NULL, 0) == -1)
 		return (-1);
 
-	*elm = ber_add_integer(*elm, v);
+	/* ipForwarding: forwarding(1), notForwarding(2) */
+	*elm = ber_add_integer(*elm, (v == 0) ? 2 : 1);
 
 	return (0);
 }

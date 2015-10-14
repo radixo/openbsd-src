@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandoc.c,v 1.60 2015/02/20 23:51:54 schwarze Exp $ */
+/*	$OpenBSD: mandoc.c,v 1.63 2015/10/12 00:07:27 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2011, 2014 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -81,7 +81,7 @@ mandoc_escape(const char **end, const char **start, int *sz)
 		break;
 	case 'C':
 		if ('\'' != **start)
-			return(ESCAPE_ERROR);
+			return ESCAPE_ERROR;
 		*start = ++*end;
 		gly = ESCAPE_SPECIAL;
 		term = '\'';
@@ -91,13 +91,10 @@ mandoc_escape(const char **end, const char **start, int *sz)
 	 * Escapes taking no arguments at all.
 	 */
 	case 'd':
-		/* FALLTHROUGH */
 	case 'u':
-		/* FALLTHROUGH */
 	case ',':
-		/* FALLTHROUGH */
 	case '/':
-		return(ESCAPE_IGNORE);
+		return ESCAPE_IGNORE;
 
 	/*
 	 * The \z escape is supposed to output the following
@@ -106,26 +103,19 @@ mandoc_escape(const char **end, const char **start, int *sz)
 	 * let us just skip the next character.
 	 */
 	case 'z':
-		return(ESCAPE_SKIPCHAR);
+		return ESCAPE_SKIPCHAR;
 
 	/*
 	 * Handle all triggers matching \X(xy, \Xx, and \X[xxxx], where
 	 * 'X' is the trigger.  These have opaque sub-strings.
 	 */
 	case 'F':
-		/* FALLTHROUGH */
 	case 'g':
-		/* FALLTHROUGH */
 	case 'k':
-		/* FALLTHROUGH */
 	case 'M':
-		/* FALLTHROUGH */
 	case 'm':
-		/* FALLTHROUGH */
 	case 'n':
-		/* FALLTHROUGH */
 	case 'V':
-		/* FALLTHROUGH */
 	case 'Y':
 		gly = ESCAPE_IGNORE;
 		/* FALLTHROUGH */
@@ -153,21 +143,16 @@ mandoc_escape(const char **end, const char **start, int *sz)
 	 * The \B and \w escapes are handled in roff.c, roff_res().
 	 */
 	case 'A':
-		/* FALLTHROUGH */
 	case 'b':
-		/* FALLTHROUGH */
 	case 'D':
-		/* FALLTHROUGH */
 	case 'R':
-		/* FALLTHROUGH */
 	case 'X':
-		/* FALLTHROUGH */
 	case 'Z':
 		gly = ESCAPE_IGNORE;
 		/* FALLTHROUGH */
 	case 'o':
 		if (**start == '\0')
-			return(ESCAPE_ERROR);
+			return ESCAPE_ERROR;
 		if (gly == ESCAPE_ERROR)
 			gly = ESCAPE_OVERSTRIKE;
 		term = **start;
@@ -179,22 +164,16 @@ mandoc_escape(const char **end, const char **start, int *sz)
 	 * and 'N' resolves to a numerical expression.
 	 */
 	case 'h':
-		/* FALLTHROUGH */
 	case 'H':
-		/* FALLTHROUGH */
 	case 'L':
-		/* FALLTHROUGH */
 	case 'l':
-		/* FALLTHROUGH */
 	case 'S':
-		/* FALLTHROUGH */
 	case 'v':
-		/* FALLTHROUGH */
 	case 'x':
 		if (strchr(" %&()*+-./0123456789:<=>", **start)) {
 			if ('\0' != **start)
 				++*end;
-			return(ESCAPE_ERROR);
+			return ESCAPE_ERROR;
 		}
 		gly = ESCAPE_IGNORE;
 		term = **start;
@@ -207,11 +186,11 @@ mandoc_escape(const char **end, const char **start, int *sz)
 	 */
 	case 'N':
 		if ('\0' == **start)
-			return(ESCAPE_ERROR);
+			return ESCAPE_ERROR;
 		(*end)++;
 		if (isdigit((unsigned char)**start)) {
 			*sz = 1;
-			return(ESCAPE_IGNORE);
+			return ESCAPE_IGNORE;
 		}
 		(*start)++;
 		while (isdigit((unsigned char)**end))
@@ -219,7 +198,7 @@ mandoc_escape(const char **end, const char **start, int *sz)
 		*sz = *end - *start;
 		if ('\0' != **end)
 			(*end)++;
-		return(ESCAPE_NUMBERED);
+		return ESCAPE_NUMBERED;
 
 	/*
 	 * Sizes get a special category of their own.
@@ -245,9 +224,7 @@ mandoc_escape(const char **end, const char **start, int *sz)
 			term = '\'';
 			break;
 		case '3':
-			/* FALLTHROUGH */
 		case '2':
-			/* FALLTHROUGH */
 		case '1':
 			*sz = (*end)[-1] == 's' &&
 			    isdigit((unsigned char)(*end)[1]) ? 2 : 1;
@@ -281,12 +258,12 @@ mandoc_escape(const char **end, const char **start, int *sz)
 		while (**end != term) {
 			switch (**end) {
 			case '\0':
-				return(ESCAPE_ERROR);
+				return ESCAPE_ERROR;
 			case '\\':
 				(*end)++;
 				if (ESCAPE_ERROR ==
 				    mandoc_escape(end, NULL, NULL))
-					return(ESCAPE_ERROR);
+					return ESCAPE_ERROR;
 				break;
 			default:
 				(*end)++;
@@ -297,7 +274,7 @@ mandoc_escape(const char **end, const char **start, int *sz)
 	} else {
 		assert(*sz > 0);
 		if ((size_t)*sz > strlen(*start))
-			return(ESCAPE_ERROR);
+			return ESCAPE_ERROR;
 		*end += *sz;
 	}
 
@@ -323,12 +300,10 @@ mandoc_escape(const char **end, const char **start, int *sz)
 
 		switch (**start) {
 		case '3':
-			/* FALLTHROUGH */
 		case 'B':
 			gly = ESCAPE_FONTBOLD;
 			break;
 		case '2':
-			/* FALLTHROUGH */
 		case 'I':
 			gly = ESCAPE_FONTITALIC;
 			break;
@@ -336,7 +311,6 @@ mandoc_escape(const char **end, const char **start, int *sz)
 			gly = ESCAPE_FONTPREV;
 			break;
 		case '1':
-			/* FALLTHROUGH */
 		case 'R':
 			gly = ESCAPE_FONTROMAN;
 			break;
@@ -357,6 +331,9 @@ mandoc_escape(const char **end, const char **start, int *sz)
 			break;
 		if (*sz == 6 && (*start)[1] == '0')
 			break;
+		if (*sz == 5 && (*start)[1] == 'D' &&
+		    strchr("89ABCDEF", (*start)[2]) != NULL)
+			break;
 		if ((int)strspn(*start + 1, "0123456789ABCDEFabcdef")
 		    + 1 == *sz)
 			gly = ESCAPE_UNICODE;
@@ -365,7 +342,7 @@ mandoc_escape(const char **end, const char **start, int *sz)
 		break;
 	}
 
-	return(gly);
+	return gly;
 }
 
 /*
@@ -460,7 +437,7 @@ mandoc_getarg(struct mparse *parse, char **cpp, int ln, int *pos)
 	if ('\0' == *cp && (white || ' ' == cp[-1]))
 		mandoc_msg(MANDOCERR_SPACE_EOL, parse, ln, *pos, NULL);
 
-	return(start);
+	return start;
 }
 
 static int
@@ -474,10 +451,10 @@ a2time(time_t *t, const char *fmt, const char *p)
 	pp = strptime(p, fmt, &tm);
 	if (NULL != pp && '\0' == *pp) {
 		*t = mktime(&tm);
-		return(1);
+		return 1;
 	}
 
-	return(0);
+	return 0;
 }
 
 static char *
@@ -490,7 +467,7 @@ time2a(time_t t)
 
 	tm = localtime(&t);
 	if (tm == NULL)
-		return(NULL);
+		return NULL;
 
 	/*
 	 * Reserve space:
@@ -510,11 +487,11 @@ time2a(time_t t)
 
 	if (0 == strftime(p, 4 + 1, "%Y", tm))
 		goto fail;
-	return(buf);
+	return buf;
 
 fail:
 	free(buf);
-	return(NULL);
+	return NULL;
 }
 
 char *
@@ -536,7 +513,7 @@ mandoc_normdate(struct mparse *parse, char *in, int ln, int pos)
 		t = 0;
 	}
 	out = t ? time2a(t) : NULL;
-	return(out ? out : mandoc_strdup(in));
+	return out ? out : mandoc_strdup(in);
 }
 
 int
@@ -546,7 +523,7 @@ mandoc_eos(const char *p, size_t sz)
 	int		 enclosed, found;
 
 	if (0 == sz)
-		return(0);
+		return 0;
 
 	/*
 	 * End-of-sentence recognition must include situations where
@@ -558,28 +535,24 @@ mandoc_eos(const char *p, size_t sz)
 	for (q = p + (int)sz - 1; q >= p; q--) {
 		switch (*q) {
 		case '\"':
-			/* FALLTHROUGH */
 		case '\'':
-			/* FALLTHROUGH */
 		case ']':
-			/* FALLTHROUGH */
 		case ')':
 			if (0 == found)
 				enclosed = 1;
 			break;
 		case '.':
-			/* FALLTHROUGH */
 		case '!':
-			/* FALLTHROUGH */
 		case '?':
 			found = 1;
 			break;
 		default:
-			return(found && (!enclosed || isalnum((unsigned char)*q)));
+			return found &&
+			    (!enclosed || isalnum((unsigned char)*q));
 		}
 	}
 
-	return(found && !enclosed);
+	return found && !enclosed;
 }
 
 /*
@@ -594,7 +567,7 @@ mandoc_strntoi(const char *p, size_t sz, int base)
 	long		 v;
 
 	if (sz > 31)
-		return(-1);
+		return -1;
 
 	memcpy(buf, p, sz);
 	buf[(int)sz] = '\0';
@@ -603,12 +576,12 @@ mandoc_strntoi(const char *p, size_t sz, int base)
 	v = strtol(buf, &ep, base);
 
 	if (buf[0] == '\0' || *ep != '\0')
-		return(-1);
+		return -1;
 
 	if (v > INT_MAX)
 		v = INT_MAX;
 	if (v < INT_MIN)
 		v = INT_MIN;
 
-	return((int)v);
+	return (int)v;
 }

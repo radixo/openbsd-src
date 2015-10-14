@@ -1,4 +1,4 @@
-/*	$OpenBSD: units.c,v 1.19 2013/11/17 20:19:36 okan Exp $	*/
+/*	$OpenBSD: units.c,v 1.21 2015/10/06 13:29:56 deraadt Exp $	*/
 /*	$NetBSD: units.c,v 1.6 1996/04/06 06:01:03 thorpej Exp $	*/
 
 /*
@@ -23,6 +23,7 @@
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <err.h>
 
 #define UNITSFILE "/usr/share/misc/units.lib"
 
@@ -631,6 +632,9 @@ main(int argc, char **argv)
 	extern char *optarg;
 	extern int optind;
 
+	if (pledge("stdio rpath", NULL) == -1)
+		err(1, "pledge");
+
 	while ((optchar = getopt(argc, argv, "vqf:")) != -1) {
 		switch (optchar) {
 		case 'f':
@@ -659,6 +663,9 @@ main(int argc, char **argv)
 		usage();
 
 	readunits(userfile);
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	if (argc == 3) {
 		strlcpy(havestr, argv[0], sizeof(havestr));

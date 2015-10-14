@@ -1,4 +1,4 @@
-/*	$OpenBSD: colrm.c,v 1.8 2003/06/10 22:20:45 deraadt Exp $	*/
+/*	$OpenBSD: colrm.c,v 1.10 2015/10/05 13:30:30 deraadt Exp $	*/
 /*	$NetBSD: colrm.c,v 1.4 1995/09/02 05:51:37 jtc Exp $	*/
 
 /*-
@@ -51,6 +51,9 @@ main(int argc, char *argv[])
 	u_long column, start, stop;
 	int ch;
 	char *p;
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	while ((ch = getopt(argc, argv, "")) != -1)
 		switch(ch) {

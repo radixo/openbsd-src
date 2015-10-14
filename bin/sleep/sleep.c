@@ -1,4 +1,4 @@
-/*	$OpenBSD: sleep.c,v 1.20 2013/11/21 15:54:46 deraadt Exp $	*/
+/*	$OpenBSD: sleep.c,v 1.23 2015/10/09 01:37:06 deraadt Exp $	*/
 /*	$NetBSD: sleep.c,v 1.8 1995/03/21 09:11:11 cgd Exp $	*/
 
 /*
@@ -37,6 +37,7 @@
 #include <stdlib.h>
 #include <time.h>
 #include <unistd.h>
+#include <err.h>
 
 extern char *__progname;
 
@@ -52,6 +53,9 @@ main(int argc, char *argv[])
 	long nsecs = 0;
 	struct timespec rqtp;
 	int i;
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	signal(SIGALRM, alarmh);
 
@@ -103,7 +107,7 @@ main(int argc, char *argv[])
 
 	if ((secs > 0) || (nsecs > 0))
 		if (nanosleep(&rqtp, NULL))
-			return (errno);
+			err(1, NULL);
 	return (0);
 }
 

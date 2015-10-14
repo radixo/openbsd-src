@@ -1,4 +1,4 @@
-/*	$OpenBSD: script.c,v 1.26 2015/03/15 00:41:28 millert Exp $	*/
+/*	$OpenBSD: script.c,v 1.30 2015/10/07 05:08:27 deraadt Exp $	*/
 /*	$NetBSD: script.c,v 1.3 1994/12/21 08:55:43 jtc Exp $	*/
 
 /*
@@ -165,6 +165,9 @@ main(int argc, char *argv[])
 	sa.sa_handler = finish;
 	(void)sigaction(SIGCHLD, &sa, NULL);
 
+	if (pledge("stdio tty", NULL) == -1)
+		err(1, "pledge");
+
 	(void)fclose(fscript);
 	while (1) {
 		if (dead)
@@ -247,6 +250,9 @@ dooutput(void)
 	sigemptyset(&sa.sa_mask);
 	sa.sa_handler = SIG_IGN;
 	(void)sigaction(SIGCHLD, &sa, NULL);
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	value.it_interval.tv_sec = 30;
 	value.it_interval.tv_usec = 0;

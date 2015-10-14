@@ -1,4 +1,4 @@
-/*	$OpenBSD: arp.c,v 1.63 2015/01/16 06:40:15 deraadt Exp $ */
+/*	$OpenBSD: arp.c,v 1.68 2015/10/09 01:37:09 deraadt Exp $ */
 /*	$NetBSD: arp.c,v 1.12 1995/04/24 13:25:18 cgd Exp $ */
 
 /*
@@ -250,6 +250,9 @@ getsocket(void)
 		err(1, "socket");
 	if (setsockopt(s, PF_ROUTE, ROUTE_TABLEFILTER, &rdomain, len) < 0)
 		err(1, "ROUTE_TABLEFILTER");
+
+	if (pledge("stdio dns", NULL) == -1)
+		err(1, "pledge");
 }
 
 struct sockaddr_in	so_mask = { 8, 0, 0, { 0xffffffff } };
@@ -413,7 +416,7 @@ delete(const char *host, const char *info)
 	if (getinetaddr(host, &sin->sin_addr) == -1)
 		return (1);
 tryagain:
-	if (rtget(&sin, &sdl) < 0) {
+	if (rtget(&sin, &sdl)) {
 		warn("%s", host);
 		return (1);
 	}

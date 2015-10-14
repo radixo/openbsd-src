@@ -1,4 +1,4 @@
-/*	$OpenBSD: radix.c,v 1.47 2015/08/30 10:39:16 mpi Exp $	*/
+/*	$OpenBSD: radix.c,v 1.49 2015/10/07 10:50:35 mpi Exp $	*/
 /*	$NetBSD: radix.c,v 1.20 2003/08/07 16:32:56 agc Exp $	*/
 
 /*
@@ -1185,9 +1185,10 @@ rn_inithead(void **head, int off)
 }
 
 int
-rn_inithead0(struct radix_node_head *rnh, int off)
+rn_inithead0(struct radix_node_head *rnh, int offset)
 {
 	struct radix_node *t, *tt, *ttt;
+	int off = offset * NBBY;
 
 	memset(rnh, 0, sizeof(*rnh));
 	t = rn_newpair(rn_zeros, off, rnh->rnh_nodes);
@@ -1199,11 +1200,6 @@ rn_inithead0(struct radix_node_head *rnh, int off)
 	tt->rn_b = -1 - off;
 	*ttt = *tt;
 	ttt->rn_key = rn_ones;
-	rnh->rnh_addaddr = rn_addroute;
-	rnh->rnh_deladdr = rn_delete;
-	rnh->rnh_matchaddr = rn_match;
-	rnh->rnh_lookup = rn_lookup;
-	rnh->rnh_walktree = rn_walktree;
 	rnh->rnh_treetop = t;
 	return (1);
 }

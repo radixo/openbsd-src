@@ -1,4 +1,4 @@
-/*	$OpenBSD: nm.c,v 1.46 2015/05/17 21:41:50 guenther Exp $	*/
+/*	$OpenBSD: nm.c,v 1.48 2015/10/05 07:16:03 deraadt Exp $	*/
 /*	$NetBSD: nm.c,v 1.7 1996/01/14 23:04:03 pk Exp $	*/
 
 /*
@@ -211,6 +211,10 @@ main(int argc, char *argv[])
 		    posix_radix, posix_radix);
 	if (demangle)
 		pipe2cppfilt();
+
+	if (pledge("stdio rpath", NULL) == -1)
+		err(1, "pledge");
+
 	argv += optind;
 	argc -= optind;
 

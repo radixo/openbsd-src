@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.168 2015/09/13 17:53:44 mpi Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.171 2015/10/07 08:58:01 mpi Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -91,7 +91,7 @@ int	arpt_prune = (5*60*1);	/* walk list every 5 minutes */
 int	arpt_keep = (20*60);	/* once resolved, good for 20 more minutes */
 int	arpt_down = 20;		/* once declared down, don't send for 20 secs */
 
-void arptfree(struct llinfo_arp *);
+void arptfree(struct rtentry *);
 void arptimer(void *);
 struct rtentry *arplookup(u_int32_t, int, int, u_int);
 void in_arpinput(struct mbuf *);
@@ -115,14 +115,6 @@ int revarp_finished;
 struct ifnet *revarp_ifp;
 #endif /* NFSCLIENT */
 
-#ifdef DDB
-
-void	db_print_sa(struct sockaddr *);
-void	db_print_ifa(struct ifaddr *);
-void	db_print_llinfo(caddr_t);
-int	db_show_rtentry(struct rtentry *, void *, unsigned int);
-#endif
-
 /*
  * Timeout routine.  Age arp_tab entries periodically.
  */
@@ -141,7 +133,7 @@ arptimer(void *arg)
 
 		nla = LIST_NEXT(la, la_list);
 		if (rt->rt_expire && rt->rt_expire <= time_second)
-			arptfree(la); /* timer has expired; clear */
+			arptfree(rt); /* timer has expired; clear */
 	}
 	splx(s);
 }
@@ -328,12 +320,12 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
     struct sockaddr *dst, u_char *desten)
 {
 	struct arpcom *ac = (struct arpcom *)ifp;
-	struct llinfo_arp *la;
+	struct llinfo_arp *la = NULL;
 	struct sockaddr_dl *sdl;
 	struct rtentry *rt = NULL;
 	struct mbuf *mh;
 	char addr[INET_ADDRSTRLEN];
-	int error;
+	int error, created = 0;
 
 	if (m->m_flags & M_BCAST) {	/* broadcast */
 		memcpy(desten, etherbroadcastaddr, sizeof(etherbroadcastaddr));
@@ -367,27 +359,26 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 			    "local address\n", __func__, inet_ntop(AF_INET,
 				&satosin(dst)->sin_addr, addr, sizeof(addr)));
 	} else {
-		la = NULL;
-		if ((rt = arplookup(satosin(dst)->sin_addr.s_addr, 1, 0,
-		    ifp->if_rdomain)) != NULL)
+		rt = arplookup(satosin(dst)->sin_addr.s_addr, 1, 0,
+		    ifp->if_rdomain);
+		if (rt != NULL) {
+		    	created = 1;
 			la = ((struct llinfo_arp *)rt->rt_llinfo);
+		}
 		if (la == NULL)
 			log(LOG_DEBUG, "%s: %s: can't allocate llinfo\n",
 			    __func__,
 			    inet_ntop(AF_INET, &satosin(dst)->sin_addr,
 				addr, sizeof(addr)));
 	}
-	if (la == NULL || rt == NULL) {
-		m_freem(m);
-		return (EINVAL);
-	}
+	if (la == NULL || rt == NULL)
+		goto bad;
 	sdl = SDL(rt->rt_gateway);
 	if (sdl->sdl_alen > 0 && sdl->sdl_alen != ETHER_ADDR_LEN) {
 		log(LOG_DEBUG, "%s: %s: incorrect arp information\n", __func__,
 		    inet_ntop(AF_INET, &satosin(dst)->sin_addr,
 			addr, sizeof(addr)));
-		m_freem(m);
-		return (EINVAL);
+		goto bad;
 	}
 	/*
 	 * Check the address family and length is valid, the address
@@ -396,12 +387,12 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 	if ((rt->rt_expire == 0 || rt->rt_expire > time_second) &&
 	    sdl->sdl_family == AF_LINK && sdl->sdl_alen != 0) {
 		memcpy(desten, LLADDR(sdl), sdl->sdl_alen);
+		if (created)
+			rtfree(rt);
 		return (0);
 	}
-	if (ifp->if_flags & IFF_NOARP) {
-		m_freem(m);
-		return (EINVAL);
-	}
+	if (ifp->if_flags & IFF_NOARP)
+		goto bad;
 
 	/*
 	 * There is an arptab entry, but no ethernet address
@@ -460,7 +451,15 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 			}
 		}
 	}
+	if (created)
+		rtfree(rt);
 	return (EAGAIN);
+
+bad:
+	m_freem(m);
+	if (created)
+		rtfree(rt);
+	return (EINVAL);
 }
 
 /*
@@ -529,7 +528,7 @@ in_arpinput(struct mbuf *m)
 	struct arpcom *ac;
 	struct ether_header *eh;
 	struct llinfo_arp *la = 0;
-	struct rtentry *rt;
+	struct rtentry *rt = NULL;
 	struct ifaddr *ifa;
 	struct sockaddr_dl *sdl;
 	struct sockaddr sa;
@@ -725,10 +724,13 @@ in_arpinput(struct mbuf *m)
 reply:
 	if (op != ARPOP_REQUEST) {
 out:
+		rtfree(rt);
 		if_put(ifp);
 		m_freem(m);
 		return;
 	}
+
+	rtfree(rt);
 	if (itaddr.s_addr == myaddr.s_addr) {
 		/* I am the target */
 		memcpy(ea->arp_tha, ea->arp_sha, sizeof(ea->arp_sha));
@@ -743,6 +745,7 @@ out:
 		memcpy(ea->arp_tha, ea->arp_sha, sizeof(ea->arp_sha));
 		sdl = SDL(rt->rt_gateway);
 		memcpy(ea->arp_sha, LLADDR(sdl), sizeof(ea->arp_sha));
+		rtfree(rt);
 	}
 
 	memcpy(ea->arp_tpa, ea->arp_spa, sizeof(ea->arp_spa));
@@ -769,26 +772,17 @@ out:
  * Free an arp entry.
  */
 void
-arptfree(struct llinfo_arp *la)
+arptfree(struct rtentry *rt)
 {
-	struct rtentry *rt = la->la_rt;
-	struct sockaddr_dl *sdl;
-	u_int tid = 0;
+	struct llinfo_arp *la = (struct llinfo_arp *)rt->rt_llinfo;
+	struct sockaddr_dl *sdl = SDL(rt->rt_gateway);
 
-	if (rt == NULL)
-		panic("arptfree");
-	if (rt->rt_refcnt > 0 && (sdl = SDL(rt->rt_gateway)) &&
-	    sdl->sdl_family == AF_LINK) {
+	if ((sdl != NULL) && (sdl->sdl_family == AF_LINK)) {
 		sdl->sdl_alen = 0;
 		la->la_asked = 0;
-		rt->rt_flags &= ~RTF_REJECT;
-		return;
 	}
 
-	if (rt->rt_ifp)
-		tid = rt->rt_ifp->if_rdomain;
-
-	rtdeletemsg(rt, tid);
+	rtdeletemsg(rt, rt->rt_ifp->if_rdomain);
 }
 
 /*
@@ -811,15 +805,11 @@ arplookup(u_int32_t addr, int create, int proxy, u_int tableid)
 	rt = rtalloc((struct sockaddr *)&sin, flags, tableid);
 	if (rt == NULL)
 		return (NULL);
-	rt->rt_refcnt--;
 	if ((rt->rt_flags & RTF_GATEWAY) || (rt->rt_flags & RTF_LLINFO) == 0 ||
 	    rt->rt_gateway->sa_family != AF_LINK) {
-		if (create) {
-			if (rt->rt_refcnt <= 0 &&
-			    (rt->rt_flags & RTF_CLONED) != 0) {
-				rtdeletemsg(rt, tableid);
-			}
-		}
+		if (create && (rt->rt_flags & RTF_CLONED))
+			rtdeletemsg(rt, tableid);
+		rtfree(rt);
 		return (NULL);
 	}
 	return (rt);
@@ -842,13 +832,16 @@ arpproxy(struct in_addr in, unsigned int rtableid)
 
 	/* Check that arp information are correct. */
 	sdl = (struct sockaddr_dl *)rt->rt_gateway;
-	if (sdl->sdl_alen != ETHER_ADDR_LEN)
+	if (sdl->sdl_alen != ETHER_ADDR_LEN) {
+		rtfree(rt);
 		return (0);
+	}
 
 	ifp = rt->rt_ifp;
 	if (!memcmp(LLADDR(sdl), LLADDR(ifp->if_sadl), sdl->sdl_alen))
 		found = 1;
 
+	rtfree(rt);
 	return (found);
 }
 
@@ -1018,101 +1011,3 @@ revarpwhoami(struct in_addr *in, struct ifnet *ifp)
 	return (revarpwhoarewe(ifp, &server, in));
 }
 #endif /* NFSCLIENT */
-
-#ifdef DDB
-
-#include <machine/db_machdep.h>
-#include <ddb/db_output.h>
-
-void
-db_print_sa(struct sockaddr *sa)
-{
-	int len;
-	u_char *p;
-
-	if (sa == NULL) {
-		db_printf("[NULL]");
-		return;
-	}
-
-	p = (u_char *)sa;
-	len = sa->sa_len;
-	db_printf("[");
-	while (len > 0) {
-		db_printf("%d", *p);
-		p++;
-		len--;
-		if (len)
-			db_printf(",");
-	}
-	db_printf("]\n");
-}
-
-void
-db_print_ifa(struct ifaddr *ifa)
-{
-	if (ifa == NULL)
-		return;
-	db_printf("  ifa_addr=");
-	db_print_sa(ifa->ifa_addr);
-	db_printf("  ifa_dsta=");
-	db_print_sa(ifa->ifa_dstaddr);
-	db_printf("  ifa_mask=");
-	db_print_sa(ifa->ifa_netmask);
-	db_printf("  flags=0x%x, refcnt=%d, metric=%d\n",
-	    ifa->ifa_flags, ifa->ifa_refcnt, ifa->ifa_metric);
-}
-
-void
-db_print_llinfo(caddr_t li)
-{
-	struct llinfo_arp *la;
-
-	if (li == 0)
-		return;
-	la = (struct llinfo_arp *)li;
-	db_printf("  la_rt=%p la_asked=0x%lx\n", la->la_rt, la->la_asked);
-}
-
-/*
- * Function to pass to rtalble_walk().
- * Return non-zero error to abort walk.
- */
-int
-db_show_rtentry(struct rtentry *rt, void *w, unsigned int id)
-{
-	db_printf("rtentry=%p", rt);
-
-	db_printf(" flags=0x%x refcnt=%d use=%llu expire=%lld rtableid=%u\n",
-	    rt->rt_flags, rt->rt_refcnt, rt->rt_use, rt->rt_expire, id);
-
-	db_printf(" key="); db_print_sa(rt_key(rt));
-	db_printf(" mask="); db_print_sa(rt_mask(rt));
-	db_printf(" gw="); db_print_sa(rt->rt_gateway);
-
-	db_printf(" ifp=%p ", rt->rt_ifp);
-	if (rt->rt_ifp)
-		db_printf("(%s)", rt->rt_ifp->if_xname);
-	else
-		db_printf("(NULL)");
-
-	db_printf(" ifa=%p\n", rt->rt_ifa);
-	db_print_ifa(rt->rt_ifa);
-
-	db_printf(" gwroute=%p llinfo=%p\n", rt->rt_gwroute, rt->rt_llinfo);
-	db_print_llinfo(rt->rt_llinfo);
-	return (0);
-}
-
-/*
- * Function to print all the route trees.
- * Use this from ddb:  "call db_show_arptab"
- */
-int
-db_show_arptab(void)
-{
-	db_printf("Route tree for AF_INET\n");
-	rtable_walk(0, AF_INET, db_show_rtentry, NULL);
-	return (0);
-}
-#endif

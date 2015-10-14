@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_macro.c,v 1.155 2015/05/01 16:01:53 schwarze Exp $ */
+/*	$OpenBSD: mdoc_macro.c,v 1.158 2015/10/06 18:30:44 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -241,13 +241,13 @@ lookup(struct roff_man *mdoc, int from, int line, int ppos, const char *p)
 		res = mdoc_hash_find(p);
 		if (res != TOKEN_NONE) {
 			if (mdoc_macros[res].flags & MDOC_CALLABLE)
-				return(res);
+				return res;
 			if (res != MDOC_br && res != MDOC_sp && res != MDOC_ll)
 				mandoc_msg(MANDOCERR_MACRO_CALL,
 				    mdoc->parse, line, ppos, p);
 		}
 	}
-	return(TOKEN_NONE);
+	return TOKEN_NONE;
 }
 
 /*
@@ -327,41 +327,40 @@ rew_alt(int tok)
 {
 	switch (tok) {
 	case MDOC_Ac:
-		return(MDOC_Ao);
+		return MDOC_Ao;
 	case MDOC_Bc:
-		return(MDOC_Bo);
+		return MDOC_Bo;
 	case MDOC_Brc:
-		return(MDOC_Bro);
+		return MDOC_Bro;
 	case MDOC_Dc:
-		return(MDOC_Do);
+		return MDOC_Do;
 	case MDOC_Ec:
-		return(MDOC_Eo);
+		return MDOC_Eo;
 	case MDOC_Ed:
-		return(MDOC_Bd);
+		return MDOC_Bd;
 	case MDOC_Ef:
-		return(MDOC_Bf);
+		return MDOC_Bf;
 	case MDOC_Ek:
-		return(MDOC_Bk);
+		return MDOC_Bk;
 	case MDOC_El:
-		return(MDOC_Bl);
+		return MDOC_Bl;
 	case MDOC_Fc:
-		return(MDOC_Fo);
+		return MDOC_Fo;
 	case MDOC_Oc:
-		return(MDOC_Oo);
+		return MDOC_Oo;
 	case MDOC_Pc:
-		return(MDOC_Po);
+		return MDOC_Po;
 	case MDOC_Qc:
-		return(MDOC_Qo);
+		return MDOC_Qo;
 	case MDOC_Re:
-		return(MDOC_Rs);
+		return MDOC_Rs;
 	case MDOC_Sc:
-		return(MDOC_So);
+		return MDOC_So;
 	case MDOC_Xc:
-		return(MDOC_Xo);
+		return MDOC_Xo;
 	default:
-		return(tok);
+		return tok;
 	}
-	/* NOTREACHED */
 }
 
 static void
@@ -412,7 +411,7 @@ find_pending(struct roff_man *mdoc, int tok, int line, int ppos,
 			}
 		}
 	}
-	return(irc);
+	return irc;
 }
 
 /*
@@ -507,14 +506,14 @@ macro_or_word(MACRO_PROT_ARGS, int parsed)
 	if (ntok == TOKEN_NONE) {
 		dword(mdoc, line, ppos, p, DELIM_MAX, tok == TOKEN_NONE ||
 		    mdoc_macros[tok].flags & MDOC_JOIN);
-		return(0);
+		return 0;
 	} else {
 		if (mdoc_macros[tok].fp == in_line_eoln)
 			rew_elem(mdoc, tok);
 		mdoc_macro(mdoc, ntok, line, ppos, pos, buf);
 		if (tok == TOKEN_NONE)
 			append_delims(mdoc, line, pos, buf);
-		return(1);
+		return 1;
 	}
 }
 
@@ -733,15 +732,10 @@ in_line(MACRO_PROT_ARGS)
 
 	switch (tok) {
 	case MDOC_An:
-		/* FALLTHROUGH */
 	case MDOC_Ar:
-		/* FALLTHROUGH */
 	case MDOC_Fl:
-		/* FALLTHROUGH */
 	case MDOC_Mt:
-		/* FALLTHROUGH */
 	case MDOC_Nm:
-		/* FALLTHROUGH */
 	case MDOC_Pa:
 		nc = 1;
 		break;
@@ -945,7 +939,6 @@ blk_full(MACRO_PROT_ARGS)
 			if (mdoc_macros[n->tok].flags & MDOC_EXPLICIT) {
 				switch (tok) {
 				case MDOC_Sh:
-					/* FALLTHROUGH */
 				case MDOC_Ss:
 					mandoc_vmsg(MANDOCERR_BLK_BROKEN,
 					    mdoc->parse, line, ppos,
@@ -1288,16 +1281,12 @@ in_line_argn(MACRO_PROT_ARGS)
 
 	switch (tok) {
 	case MDOC_Ap:
-		/* FALLTHROUGH */
 	case MDOC_Ns:
-		/* FALLTHROUGH */
 	case MDOC_Ux:
 		maxargs = 0;
 		break;
 	case MDOC_Bx:
-		/* FALLTHROUGH */
 	case MDOC_Es:
-		/* FALLTHROUGH */
 	case MDOC_Xr:
 		maxargs = 2;
 		break;
@@ -1425,9 +1414,9 @@ parse_rest(struct roff_man *mdoc, int tok, int line, int *pos, char *buf)
 	for (;;) {
 		la = *pos;
 		if (mdoc_args(mdoc, line, pos, buf, tok, NULL) == ARGS_EOLN)
-			return(0);
+			return 0;
 		if (macro_or_word(mdoc, tok, line, la, pos, buf, 1))
-			return(1);
+			return 1;
 	}
 }
 
