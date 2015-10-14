@@ -33,10 +33,6 @@
 #ifndef _UFS_UFS_UFS_WAPBL_H_
 #define	_UFS_UFS_UFS_WAPBL_H_
 
-#if defined(_KERNEL_OPT)
-#include "opt_wapbl.h"
-#endif
-
 /*
  * Information for the journal location stored in the superblock.
  * We store the journal version, some flags, the journal location
@@ -56,7 +52,7 @@
 #define	 UFS_WAPBL_EPART_BLKSZ			  2
 #define	 UFS_WAPBL_EPART_UNUSED			  3
 
-#define	UFS_WAPBL_JOURNALLOC_IN_FILESYSTEM	2
+#define UFS_WAPBL_JOURNALLOC_IN_FILESYSTEM	2
 #define	 UFS_WAPBL_INFS_ADDR			  0 /* locator slots */
 #define	 UFS_WAPBL_INFS_COUNT			  1
 #define	 UFS_WAPBL_INFS_BLKSZ			  2

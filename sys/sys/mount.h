@@ -507,8 +507,6 @@ struct uvm_constraint_range;
 extern int bufbackoff(struct uvm_constraint_range*, long);
 
 
-#include <sys/wapbl.h>
-
 /*
  * This operations vector is so wapbl can be wrapped into a filesystem lkm.
  * XXX Eventually, we want to move this functionality

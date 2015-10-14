@@ -311,6 +311,18 @@ vfs_allocate_syncvnode(struct mount *mp)
 }
 
 /*
+ * Return delay factor appropriate for the given file system.   For
+ * WAPBL we use the sync vnode to burst out metadata updates: sync
+ * those file systems more frequently.
+ */
+static inline int
+sync_delay(struct mount *mp)
+{
+
+	return mp->mnt_wapbl != NULL ? syncdelay / 3 : syncdelay;
+}
+
+/*
  * Do a lazy sync of the filesystem.
  */
 int
@@ -330,7 +342,7 @@ sync_fsync(void *v)
 	/*
 	 * Move ourselves to the back of the sync list.
 	 */
-	vn_syncer_add_to_worklist(syncvp, syncdelay);
+	vn_syncer_add_to_worklist(syncvp, sync_delay(mp));
 
 	/*
 	 * Walk the list of vnodes pushing all that are dirty and

@@ -53,6 +53,7 @@
 #include <sys/conf.h>
 #include <sys/mount.h>
 #include <sys/kernel.h>
+#include <sys/pool.h>
 #include <sys/mutex.h>
 #include <sys/atomic.h>
 #include <sys/malloc.h>
@@ -60,8 +61,6 @@
 #include <sys/dkio.h>
 #include <sys/wapbl.h>
 #include <sys/wapbl_replay.h>
-
-#include <sys/specdev.h>
 
 #define	wapbl_alloc(s) malloc((s), M_TEMP, M_WAITOK | M_ZERO)
 #define	wapbl_free(a, s) free((a), M_TEMP, (s))
@@ -346,7 +345,7 @@ wapbl_start(struct wapbl ** wlp, struct mount *mp, struct vnode *vp,
 	int fs_dev_bshift = log_dev_bshift;
 	int run;
 
-	WAPBL_PRINTF(WAPBL_PRINT_OPEN, ("wapbl_start: vp=%p off=%" PRId64
+	WAPBL_PRINTF(WAPBL_PRINT_OPEN, ("wapbl_start: vp=%p off=%lld"
 	    " count=%zu blksize=%zu\n", vp, off, count, blksize));
 
 	if (log_dev_bshift > fs_dev_bshift) {
@@ -387,7 +386,6 @@ wapbl_start(struct wapbl ** wlp, struct mount *mp, struct vnode *vp,
 	wl = wapbl_calloc(1, sizeof(*wl));
 	rw_init(&wl->wl_rwlock, "wapbl_lock");
 	mtx_init(&wl->wl_mtx, IPL_BIO);
-	/* cv_init(&wl->wl_reclaimable_cv, "wapblrec"); */
 	LIST_INIT(&wl->wl_bufs);
 	SIMPLEQ_INIT(&wl->wl_entries);
 
@@ -450,7 +448,7 @@ wapbl_start(struct wapbl ** wlp, struct mount *mp, struct vnode *vp,
 	wl->wl_dealloclens = wapbl_alloc(sizeof(*wl->wl_dealloclens) *
 	    wl->wl_dealloclim);
 
-	wl->wl_buffer = wapbl_alloc(MAXPHYS);
+	wl->wl_buffer = dma_alloc(MAXPHYS, PR_WAITOK | PR_ZERO);
 	wl->wl_buffer_used = 0;
 
 	wapbl_inodetrk_init(wl, WAPBL_INODETRK_SIZE);
@@ -459,7 +457,7 @@ wapbl_start(struct wapbl ** wlp, struct mount *mp, struct vnode *vp,
 	{
 		struct wapbl_wc_header *wc;
 		size_t len = 1 << wl->wl_log_dev_bshift;
-		wc = wapbl_calloc(1, len);
+		wc = dma_alloc(len, PR_WAITOK | PR_ZERO);
 		wc->wc_type = WAPBL_WC_HEADER;
 		wc->wc_len = len;
 		wc->wc_circ_off = wl->wl_circ_off;
@@ -496,12 +494,12 @@ wapbl_start(struct wapbl ** wlp, struct mount *mp, struct vnode *vp,
  errout:
 	wapbl_discard(wl);
 	wapbl_free(wl->wl_wc_scratch, wl->wl_wc_header->wc_len);
-	wapbl_free(wl->wl_wc_header, wl->wl_wc_header->wc_len);
+	dma_free(wl->wl_wc_header, wl->wl_wc_header->wc_len);
 	wapbl_free(wl->wl_deallocblks,
 	    sizeof(*wl->wl_deallocblks) * wl->wl_dealloclim);
 	wapbl_free(wl->wl_dealloclens,
 	    sizeof(*wl->wl_dealloclens) * wl->wl_dealloclim);
-	wapbl_free(wl->wl_buffer, MAXPHYS);
+	dma_free(wl->wl_buffer, MAXPHYS);
 	wapbl_inodetrk_free(wl);
 	wapbl_free(wl, sizeof(*wl));
 
@@ -517,7 +515,7 @@ wapbl_bbusy(struct buf  *bp, int timo, struct mutex *mtx)
 
 	if (bp->b_flags & B_BUSY) {
 		bp->b_flags |= B_WANTED;
-		msleep(bp, mtx, PRIBIO + 1, "buf", timo);
+		msleep(bp, mtx, PRIBIO + 1, "wapblbuf", timo);
 		return -1;
 	}
 	bp->b_flags |= B_BUSY;
@@ -548,11 +546,8 @@ wapbl_discard(struct wapbl *wl)
 #ifdef WAPBL_DEBUG_PRINT
 	{
 		pid_t pid = -1;
-		lwpid_t lid = -1;
 		if (curproc)
 			pid = curproc->p_pid;
-		if (curlwp)
-			lid = curlwp->l_lid;
 #ifdef WAPBL_DEBUG_BUFBYTES
 		WAPBL_PRINTF(WAPBL_PRINT_DISCARD,
 		    ("wapbl_discard: thread %d.%d discarding "
@@ -575,11 +570,11 @@ wapbl_discard(struct wapbl *wl)
 		}
 #else /* !WAPBL_DEBUG_BUFBYTES */
 		WAPBL_PRINTF(WAPBL_PRINT_DISCARD,
-		    ("wapbl_discard: thread %d.%d discarding transaction\n"
+		    ("wapbl_discard: proc %d discarding transaction\n"
 		    "\tbufcount=%zu bufbytes=%zu bcount=%zu "
 		    "deallocs=%d inodes=%d\n"
 		    "\terrcnt = %u, reclaimable=%zu reserved=%zu\n",
-		    pid, lid, wl->wl_bufcount, wl->wl_bufbytes,
+		    pid, wl->wl_bufcount, wl->wl_bufbytes,
 		    wl->wl_bcount, wl->wl_dealloccnt,
 		    wl->wl_inohashcnt, wl->wl_error_count,
 		    wl->wl_reclaimable_bytes, wl->wl_reserved_bytes));
@@ -693,12 +688,12 @@ wapbl_stop(struct wapbl *wl, int force)
 	vp = wl->wl_logvp;
 
 	wapbl_free(wl->wl_wc_scratch, wl->wl_wc_header->wc_len);
-	wapbl_free(wl->wl_wc_header, wl->wl_wc_header->wc_len);
+	dma_free(wl->wl_wc_header, wl->wl_wc_header->wc_len);
 	wapbl_free(wl->wl_deallocblks,
 	    sizeof(*wl->wl_deallocblks) * wl->wl_dealloclim);
 	wapbl_free(wl->wl_dealloclens,
 	    sizeof(*wl->wl_dealloclens) * wl->wl_dealloclim);
-	wapbl_free(wl->wl_buffer, MAXPHYS);
+	dma_free(wl->wl_buffer, MAXPHYS);
 	wapbl_inodetrk_free(wl);
 
 	/* cv_destroy(&wl->wl_reclaimable_cv); */
@@ -712,7 +707,6 @@ wapbl_stop(struct wapbl *wl, int force)
 static int
 wapbl_doio(void *data, size_t len, struct vnode *devvp, daddr_t pbn, int flags)
 {
-	/* struct pstats *pstats = curlwp->l_proc->p_stats; */
 	struct buf *bp;
 	int error, s;
 
@@ -737,12 +731,13 @@ wapbl_doio(void *data, size_t len, struct vnode *devvp, daddr_t pbn, int flags)
 	bp->b_dev = devvp->v_rdev;
 	bp->b_data = data;
 	bp->b_bufsize = bp->b_resid = bp->b_bcount = len;
+	bp->b_vp = devvp;
 	bp->b_blkno = pbn;
 	/* BIO_SETPRIO(bp, BPRIO_TIMECRITICAL); */
 
 	WAPBL_PRINTF(WAPBL_PRINT_IO,
-	    ("wapbl_doio: %s %d bytes at block %"PRId64" on dev 0x%"PRIx64"\n",
-	    BUF_ISWRITE(bp) ? "write" : "read", bp->b_bcount,
+	    ("wapbl_doio: %s %ld bytes at block %lld on dev 0x%x\n",
+	    (bp->b_flags & B_READ) == 0 ? "write" : "read", bp->b_bcount,
 	    bp->b_blkno, bp->b_dev));
 
 	VOP_STRATEGY(bp);
@@ -753,8 +748,8 @@ wapbl_doio(void *data, size_t len, struct vnode *devvp, daddr_t pbn, int flags)
 
 	if (error) {
 		WAPBL_PRINTF(WAPBL_PRINT_ERROR,
-		    ("wapbl_doio: %s %zu bytes at block %" PRId64
-		    " on dev 0x%"PRIx64" failed with error %d\n",
+		    ("wapbl_doio: %s %zu bytes at block %lld"
+		    " on dev 0x%x failed with error %d\n",
 		    (((flags & (B_WRITE | B_READ)) == B_WRITE) ?
 		     "write" : "read"),
 		    len, pbn, devvp->v_rdev, error));
@@ -951,9 +946,9 @@ wapbl_begin(struct wapbl *wl, const char *file, int line)
 
 #if defined(WAPBL_DEBUG_PRINT)
 	WAPBL_PRINTF(WAPBL_PRINT_TRANSACTION,
-	    ("wapbl_begin thread %d.%d with bufcount=%zu "
+	    ("wapbl_begin proc %d with bufcount=%zu "
 	    "bufbytes=%zu bcount=%zu at %s:%d\n",
-	    curproc->p_pid, curlwp->l_lid, wl->wl_bufcount,
+	    curproc->p_pid, wl->wl_bufcount,
 	    wl->wl_bufbytes, wl->wl_bcount, file, line));
 #endif
 
@@ -966,9 +961,9 @@ wapbl_end(struct wapbl *wl)
 
 #if defined(WAPBL_DEBUG_PRINT)
 	WAPBL_PRINTF(WAPBL_PRINT_TRANSACTION,
-	     ("wapbl_end thread %d.%d with bufcount=%zu "
+	     ("wapbl_end proc %d with bufcount=%zu "
 	      "bufbytes=%zu bcount=%zu\n",
-	      curproc->p_pid, curlwp->l_lid, wl->wl_bufcount,
+	      curproc->p_pid, wl->wl_bufcount,
 	      wl->wl_bufbytes, wl->wl_bcount));
 #endif
 
@@ -1015,9 +1010,9 @@ wapbl_add_buf(struct wapbl *wl, struct buf * bp)
 	if (bp->b_flags & B_LOCKED) {
 		LIST_REMOVE(bp, b_wapbllist);
 		WAPBL_PRINTF(WAPBL_PRINT_BUFFER2,
-		   ("wapbl_add_buf thread %d.%d re-adding buf %p "
-		    "with %d bytes %d bcount\n",
-		    curproc->p_pid, curlwp->l_lid, bp, bp->b_bufsize,
+		   ("wapbl_add_buf proc %d re-adding buf %p "
+		    "with %ld bytes %ld bcount\n",
+		    curproc->p_pid, bp, bp->b_bufsize,
 		    bp->b_bcount));
 	} else {
 		/* unlocked by dirty buffers shouldn't exist */
@@ -1026,9 +1021,9 @@ wapbl_add_buf(struct wapbl *wl, struct buf * bp)
 		wl->wl_bcount += bp->b_bcount;
 		wl->wl_bufcount++;
 		WAPBL_PRINTF(WAPBL_PRINT_BUFFER,
-		   ("wapbl_add_buf thread %d.%d adding buf %p "
-		    "with %d bytes %d bcount\n",
-		    curproc->p_pid, curlwp->l_lid, bp, bp->b_bufsize,
+		   ("wapbl_add_buf proc %d adding buf %p "
+		    "with %ld bytes %ld bcount\n",
+		    curproc->p_pid, bp, bp->b_bufsize,
 		    bp->b_bcount));
 	}
 	LIST_INSERT_HEAD(&wl->wl_bufs, bp, b_wapbllist);
@@ -1057,9 +1052,9 @@ wapbl_remove_buf_locked(struct wapbl * wl, struct buf *bp)
 	KASSERT(bp->b_flags & B_LOCKED);
 
 	WAPBL_PRINTF(WAPBL_PRINT_BUFFER,
-	   ("wapbl_remove_buf thread %d.%d removing buf %p with "
-	    "%d bytes %d bcount\n",
-	    curproc->p_pid, curlwp->l_lid, bp, bp->b_bufsize, bp->b_bcount));
+	   ("wapbl_remove_buf proc %d removing buf %p with "
+	    "%ld bytes %ld bcount\n",
+	    curproc->p_pid, bp, bp->b_bufsize, bp->b_bcount));
 
 	KASSERT(wl->wl_bufbytes >= bp->b_bufsize);
 	wl->wl_bufbytes -= bp->b_bufsize;
@@ -1228,7 +1223,6 @@ wapbl_truncate(struct wapbl *wl, size_t minfree, int waitonly)
                     &wl->wl_reclaimable_bytes, wl, wl->wl_reclaimable_bytes,
 		    minfree));
 
-		/* cv_wait(&wl->wl_reclaimable_cv, &wl->wl_mtx); */
 		msleep(&wl->wl_reclaimable_cv, &wl->wl_mtx, PRIBIO, "wapbltr", 0);
 	}
 	if (wl->wl_reclaimable_bytes < minfree) {
@@ -1280,8 +1274,8 @@ wapbl_truncate(struct wapbl *wl, size_t minfree, int waitonly)
 	wl->wl_reclaimable_bytes -= delta;
 	mtx_leave(&wl->wl_mtx);
 	WAPBL_PRINTF(WAPBL_PRINT_TRUNCATE,
-	    ("wapbl_truncate thread %d.%d truncating %zu bytes\n",
-	    curproc->p_pid, curlwp->l_lid, delta));
+	    ("wapbl_truncate %d truncating %zu bytes\n",
+	    curproc->p_pid, delta));
 
 	return 0;
 }
@@ -1296,6 +1290,8 @@ wapbl_biodone(struct buf *bp)
 #ifdef WAPBL_DEBUG_BUFBYTES
 	const int bufsize = bp->b_bufsize;
 #endif
+
+	bp->b_iodone = NULL;
 
 	/*
 	 * Handle possible flushing of buffers after log has been
@@ -1354,7 +1350,7 @@ wapbl_biodone(struct buf *bp)
 			mtx_enter(&wl->wl_mtx);
 			wl->wl_error_count++;
 			mtx_leave(&wl->wl_mtx);
-			cv_broadcast(&wl->wl_reclaimable_cv);
+			wakeup(&wl->wl_reclaimable_cv);
 		}
 		we->we_error = bp->b_error;
 		bp->b_error = 0;
@@ -1366,7 +1362,6 @@ wapbl_biodone(struct buf *bp)
 		mtx_enter(&wl->wl_mtx);
 		if (wl->wl_error_count == 0) {
 			wl->wl_error_count++;
-			/* cv_broadcast(&wl->wl_reclaimable_cv); */
 			wakeup(&wl->wl_reclaimable_cv);
 		}
 		mtx_leave(&wl->wl_mtx);
@@ -1420,7 +1415,6 @@ wapbl_biodone(struct buf *bp)
 			wl->wl_reclaimable_bytes += delta;
 			KASSERT(wl->wl_error_count >= errcnt);
 			wl->wl_error_count -= errcnt;
-			/* cv_broadcast(&wl->wl_reclaimable_cv); */
 			wakeup(&wl->wl_reclaimable_cv);
 		}
 	}
@@ -1443,6 +1437,7 @@ wapbl_flush(struct wapbl *wl, int waitfor)
 	size_t flushsize;
 	size_t reserved;
 	int error = 0, s;
+	int rwflags = RW_WRITE;
 
 	/*
 	 * Do a quick check to see if a full flush can be skipped
@@ -1459,13 +1454,15 @@ wapbl_flush(struct wapbl *wl, int waitfor)
 		mtx_leave(&wl->wl_mtx);
 		if (nbufs == 0)
 			return 0;
+		rwflags |= RW_NOSLEEP;
 	}
 
 	/*
 	 * XXX we may consider using LK_UPGRADE here
 	 * if we want to call flush from inside a transaction
 	 */
-	rw_enter(&wl->wl_rwlock, RW_WRITE);
+	if (rw_enter(&wl->wl_rwlock, rwflags) != 0)
+		return 0;
 	wl->wl_flush(wl->wl_mount, wl->wl_deallocblks, wl->wl_dealloclens,
 	    wl->wl_dealloccnt);
 
@@ -1532,8 +1529,8 @@ wapbl_flush(struct wapbl *wl, int waitfor)
 	    &head, &tail);
 #ifdef WAPBL_DEBUG
 	if (head != off) {
-		panic("lost head! head=%"PRIdMAX" tail=%" PRIdMAX
-		      " off=%"PRIdMAX" flush=%zu\n",
+		panic("lost head! head=%lld tail=%lld"
+		      " off=%lld flush=%zu\n",
 		      (intmax_t)head, (intmax_t)tail, (intmax_t)off,
 		      flushsize);
 	}
@@ -1569,10 +1566,10 @@ wapbl_flush(struct wapbl *wl, int waitfor)
 		 wl->wl_inohashcnt));
 #else
 	WAPBL_PRINTF(WAPBL_PRINT_FLUSH,
-		("wapbl_flush: thread %d.%d head+=%zu tail+=%zu used=%zu"
+		("wapbl_flush: proc %d head+=%zu tail+=%zu used=%zu"
 		 "\n\tbufcount=%zu bufbytes=%zu bcount=%zu deallocs=%d "
 		 "inodes=%d\n",
-		 curproc->p_pid, curlwp->l_lid, flushsize, delta,
+		 curproc->p_pid, flushsize, delta,
 		 wapbl_space_used(wl->wl_circ_size, head, tail),
 		 wl->wl_bufcount, wl->wl_bufbytes, wl->wl_bcount,
 		 wl->wl_dealloccnt, wl->wl_inohashcnt));
@@ -1612,6 +1609,7 @@ wapbl_flush(struct wapbl *wl, int waitfor)
 			continue;
 		}
 		bp->b_iodone = wapbl_biodone;
+		bp->b_flags |= B_CALL;
 		bp->b_private = we;
 		bremfree(bp);
 		wapbl_remove_buf_locked(wl, bp);
@@ -1650,11 +1648,8 @@ wapbl_flush(struct wapbl *wl, int waitfor)
 #ifdef WAPBL_DEBUG_PRINT
 	if (error) {
 		pid_t pid = -1;
-		lwpid_t lid = -1;
 		if (curproc)
 			pid = curproc->p_pid;
-		if (curlwp)
-			lid = curlwp->l_lid;
 		mtx_enter(&wl->wl_mtx);
 #ifdef WAPBL_DEBUG_BUFBYTES
 		WAPBL_PRINTF(WAPBL_PRINT_ERROR,
@@ -1678,12 +1673,12 @@ wapbl_flush(struct wapbl *wl, int waitfor)
 		}
 #else
 		WAPBL_PRINTF(WAPBL_PRINT_ERROR,
-		    ("wapbl_flush: thread %d.%d aborted flush: "
+		    ("wapbl_flush: proc %d aborted flush: "
 		     "error = %d\n"
 		     "\tbufcount=%zu bufbytes=%zu bcount=%zu "
 		     "deallocs=%d inodes=%d\n"
 		     "\terrcnt = %d, reclaimable=%zu reserved=%zu\n",
-		     pid, lid, error, wl->wl_bufcount,
+		     pid, error, wl->wl_bufcount,
 		     wl->wl_bufbytes, wl->wl_bcount,
 		     wl->wl_dealloccnt, wl->wl_inohashcnt,
 		     wl->wl_error_count, wl->wl_reclaimable_bytes,
@@ -1708,7 +1703,6 @@ wapbl_flush(struct wapbl *wl, int waitfor)
 void
 wapbl_jlock_assert(struct wapbl *wl)
 {
-
 	KASSERT(rw_status(&wl->wl_rwlock) != 0);
 }
 
@@ -1853,7 +1847,7 @@ wapbl_register_deallocation(struct wapbl *wl, daddr_t blk, int len)
 	wl->wl_dealloclens[wl->wl_dealloccnt] = len;
 	wl->wl_dealloccnt++;
 	WAPBL_PRINTF(WAPBL_PRINT_ALLOC,
-	    ("wapbl_register_deallocation: blk=%ldd len=%d\n", blk, len));
+	    ("wapbl_register_deallocation: blk=%lld len=%d\n", blk, len));
 	mtx_leave(&wl->wl_mtx);
 }
 
@@ -1914,7 +1908,7 @@ wapbl_register_inode(struct wapbl *wl, ino_t ino, mode_t mode)
 		LIST_INSERT_HEAD(wih, wi, wi_hash);
 		wl->wl_inohashcnt++;
 		WAPBL_PRINTF(WAPBL_PRINT_INODE,
-		    ("wapbl_register_inode: ino=%ldd\n", ino));
+		    ("wapbl_register_inode: ino=%lld\n", ino));
 		mtx_leave(&wl->wl_mtx);
 	} else {
 		mtx_leave(&wl->wl_mtx);
@@ -1931,7 +1925,7 @@ wapbl_unregister_inode(struct wapbl *wl, ino_t ino, mode_t mode)
 	wi = wapbl_inodetrk_get(wl, ino);
 	if (wi) {
 		WAPBL_PRINTF(WAPBL_PRINT_INODE,
-		    ("wapbl_unregister_inode: ino=%ldd\n", ino));
+		    ("wapbl_unregister_inode: ino=%lld\n", ino));
 		KASSERT(wl->wl_inohashcnt > 0);
 		wl->wl_inohashcnt--;
 		LIST_REMOVE(wi, wi_hash);
@@ -2057,7 +2051,7 @@ wapbl_write_commit(struct wapbl *wl, off_t head, off_t tail)
 	wc->wc_timensec = ts.tv_nsec;
 
 	WAPBL_PRINTF(WAPBL_PRINT_WRITE,
-	    ("wapbl_write_commit: head = %"PRIdMAX "tail = %lld\n",
+	    ("wapbl_write_commit: head = %lld tail = %lld\n",
 	    (intmax_t)head, (intmax_t)tail));
 
 	/*
@@ -2471,7 +2465,7 @@ wapbl_replay_start(struct wapbl_replay **wrp, struct vnode *vp,
 	daddr_t pbn;
 
 	WAPBL_PRINTF(WAPBL_PRINT_REPLAY,
-	    ("wapbl_replay_start: vp=%p off=%"PRId64 " count=%zu blksize=%zu\n",
+	    ("wapbl_replay_start: vp=%p off=%lld count=%zu blksize=%zu\n",
 	    vp, off, count, blksize));
 
 	if (off < 0)
@@ -2538,8 +2532,8 @@ wapbl_replay_start(struct wapbl_replay **wrp, struct vnode *vp,
 	used = wapbl_space_used(wch->wc_circ_size, wch->wc_head, wch->wc_tail);
 
 	WAPBL_PRINTF(WAPBL_PRINT_REPLAY,
-	    ("wapbl_replay: head=%ldd tail=%ldd off=%"PRId64
-	    " len=%ldd used=%zu\n",
+	    ("wapbl_replay: head=%lld tail=%lld off=%lld"
+	    " len=%lld used=%zu\n",
 	    wch->wc_head, wch->wc_tail, wch->wc_circ_off,
 	    wch->wc_circ_size, used));
 
