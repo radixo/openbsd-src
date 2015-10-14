@@ -516,11 +516,6 @@ vn_lock(struct vnode *vp, int flags, struct proc *p)
 	if ((flags & LK_RECURSEFAIL) == 0)
 		flags |= LK_CANRECURSE;
 	
-#ifdef DIAGNOSTIC
-	if (wapbl_vphaswapbl(vp))
-		WAPBL_JUNLOCK_ASSERT(wapbl_vptomp(vp));
-#endif
-
 	do {
 		if (vp->v_flag & VXLOCK) {
 			vp->v_flag |= VXWANT;
