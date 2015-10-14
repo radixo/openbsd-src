@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exec.c,v 1.162 2015/07/20 00:56:10 guenther Exp $	*/
+/*	$OpenBSD: kern_exec.c,v 1.168 2015/10/09 01:10:27 deraadt Exp $	*/
 /*	$NetBSD: kern_exec.c,v 1.75 1996/02/09 18:59:28 christos Exp $	*/
 
 /*-
@@ -53,6 +53,7 @@
 #include <sys/signalvar.h>
 #include <sys/stat.h>
 #include <sys/conf.h>
+#include <sys/pledge.h>
 #ifdef SYSVSHM
 #include <sys/shm.h>
 #endif
@@ -249,6 +250,9 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	struct ucred *cred = p->p_ucred;
 	char *argp;
 	char * const *cpp, *dp, *sp;
+#ifdef KTRACE
+	char *env_start;
+#endif
 	struct process *pr = p->p_p;
 	long argc, envc;
 	size_t len, sgap;
@@ -276,6 +280,7 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	 * Mark this process as "leave me alone, I'm execing".
 	 */
 	atomic_setbits_int(&pr->ps_flags, PS_INEXEC);
+	p->p_pledgenote = TMN_XPATH;
 
 #if NSYSTRACE > 0
 	if (ISSET(p->p_flag, P_SYSTRACE)) {
@@ -377,9 +382,17 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 		goto bad;
 	}
 
+#ifdef KTRACE
+	if (KTRPOINT(p, KTR_EXECARGS))
+		ktrexec(p, KTR_EXECARGS, argp, dp - argp);
+#endif
+
 	envc = 0;
 	/* environment does not need to be there */
 	if ((cpp = SCARG(uap, envp)) != NULL ) {
+#ifdef KTRACE
+		env_start = dp;
+#endif
 		while (1) {
 			len = argp + ARG_MAX - dp;
 			if ((error = copyin(cpp, &sp, sizeof(sp))) != 0)
@@ -395,6 +408,11 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 			cpp++;
 			envc++;
 		}
+
+#ifdef KTRACE
+		if (KTRPOINT(p, KTR_EXECENV))
+			ktrexec(p, KTR_EXECENV, env_start, dp - env_start);
+#endif
 	}
 
 	dp = (char *)(((long)dp + _STACKALIGNBYTES) & ~_STACKALIGNBYTES);
@@ -533,6 +551,9 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 		atomic_setbits_int(&pr->ps_flags, PS_SUGIDEXEC);
 	else
 		atomic_clearbits_int(&pr->ps_flags, PS_SUGIDEXEC);
+
+	atomic_clearbits_int(&pr->ps_flags, PS_PLEDGE);
+	pledge_dropwpaths(pr);
 
 	/*
 	 * deal with set[ug]id.
@@ -686,7 +707,7 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	if (pr->ps_flags & PS_TRACED)
 		psignal(p, SIGTRAP);
 
-	free(pack.ep_hdr, M_EXEC, 0);
+	free(pack.ep_hdr, M_EXEC, pack.ep_hdrlen);
 
 	/*
 	 * Call emulation specific exec hook. This can setup per-process
@@ -713,12 +734,17 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	if (pack.ep_emul->e_proc_exec)
 		(*pack.ep_emul->e_proc_exec)(p, &pack);
 
+#if defined(KTRACE) && defined(COMPAT_LINUX)
+	/* update ps_emul, but don't ktrace it if native-execing-native */
+	if (pr->ps_emul != pack.ep_emul || pack.ep_emul != &emul_native) {
+		pr->ps_emul = pack.ep_emul;
+
+		if (KTRPOINT(p, KTR_EMUL))
+			ktremul(p);
+	}
+#else
 	/* update ps_emul, the old value is no longer needed */
 	pr->ps_emul = pack.ep_emul;
-
-#ifdef KTRACE
-	if (KTRPOINT(p, KTR_EMUL))
-		ktremul(p);
 #endif
 
 	atomic_clearbits_int(&pr->ps_flags, PS_INEXEC);
@@ -748,14 +774,14 @@ bad:
 	if (pack.ep_interp != NULL)
 		pool_put(&namei_pool, pack.ep_interp);
 	if (pack.ep_emul_arg != NULL)
-		free(pack.ep_emul_arg, M_TEMP, 0);
+		free(pack.ep_emul_arg, M_TEMP, pack.ep_emul_argsize);
 	/* close and put the exec'd file */
 	vn_close(pack.ep_vp, FREAD, cred, p);
 	pool_put(&namei_pool, nid.ni_cnd.cn_pnbuf);
 	km_free(argp, NCARGS, &kv_exec, &kp_pageable);
 
  freehdr:
-	free(pack.ep_hdr, M_EXEC, 0);
+	free(pack.ep_hdr, M_EXEC, pack.ep_hdrlen);
 #if NSYSTRACE > 0
  clrflag:
 #endif
@@ -778,13 +804,13 @@ exec_abort:
 	if (pack.ep_interp != NULL)
 		pool_put(&namei_pool, pack.ep_interp);
 	if (pack.ep_emul_arg != NULL)
-		free(pack.ep_emul_arg, M_TEMP, 0);
+		free(pack.ep_emul_arg, M_TEMP, pack.ep_emul_argsize);
 	pool_put(&namei_pool, nid.ni_cnd.cn_pnbuf);
 	vn_close(pack.ep_vp, FREAD, cred, p);
 	km_free(argp, NCARGS, &kv_exec, &kp_pageable);
 
 free_pack_abort:
-	free(pack.ep_hdr, M_EXEC, 0);
+	free(pack.ep_hdr, M_EXEC, pack.ep_hdrlen);
 	if (pathbuf != NULL)
 		pool_put(&namei_pool, pathbuf);
 	exit1(p, W_EXITCODE(0, SIGABRT), EXIT_NORMAL);

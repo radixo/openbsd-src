@@ -22,9 +22,9 @@
 .\" OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 .\" SUCH DAMAGE.
 .\"
-.\"	$OpenBSD: style.9,v 1.59 2015/01/23 13:02:49 sthen Exp $
+.\"	$OpenBSD: style.9,v 1.63 2015/10/05 21:59:29 tedu Exp $
 .\"
-.Dd $Mdocdate: January 23 2015 $
+.Dd $Mdocdate: October 5 2015 $
 .Dt STYLE 9
 .Os
 .Sh NAME
@@ -34,7 +34,7 @@
 This file specifies the preferred style for kernel source files in the
 .Ox
 source tree.
-It is also a guide for preferred user land code style.
+It is also a guide for preferred userland code style.
 These guidelines should be followed for all new code.
 In general, code can be considered
 .Dq new code
@@ -110,7 +110,7 @@ All functions are prototyped somewhere.
 .Pp
 Function prototypes for private functions (i.e., functions not used
 elsewhere) go at the top of the first source module.
-In user land, functions local to one source module should be declared
+In userland, functions local to one source module should be declared
 .Ql static .
 This should not be done in kernel land since it makes it impossible
 to use the kernel debugger.
@@ -263,9 +263,8 @@ call and the switch statement, unless
 parts of the switch cascade.
 Elements in a switch statement that cascade should have a FALLTHROUGH comment.
 Numerical arguments should be checked for accuracy.
-Code that cannot be reached should have a NOTREACHED comment.
 .Bd -literal -offset indent
-while ((ch = getopt(argc, argv, "abn:")) != -1)
+while ((ch = getopt(argc, argv, "abn:")) != -1) {
 	switch (ch) {		/* Indent the switch. */
 	case 'a':		/* Don't indent the case. */
 		aflag = 1;
@@ -282,8 +281,8 @@ while ((ch = getopt(argc, argv, "abn:")) != -1)
 		break;
 	default:
 		usage();
-		/* NOTREACHED */
 	}
+}
 argc -= optind;
 argv += optind;
 .Ed
@@ -379,11 +378,11 @@ k = !(l & FLAGS);
 .Pp
 Exits should be 0 on success, or non-zero for errors.
 .Bd -literal -offset indent
-exit(0);	/*
-		 * Avoid obvious comments such as
-		 * "Exit 0 on success."
-		 */
-}
+/*
+ * Avoid obvious comments such as
+ * "Exit 0 on success."
+ */
+exit(0);
 .Ed
 .Pp
 The function type should be on a line by itself
@@ -532,8 +531,7 @@ if ((four = malloc(sizeof(struct foo))) == NULL)
 	err(1, NULL);
 if ((six = (int *)overflow()) == NULL)
 	errx(1, "Number overflowed.");
-return (eight);
-}
+return eight;
 .Ed
 .Pp
 Old-style function declarations look like this:
@@ -604,7 +602,6 @@ string may be used instead of hard-coding the program name.
 .Bd -literal -offset indent
 (void)fprintf(stderr, "usage: %s [-ab]\en", __progname);
 exit(1);
-}
 .Ed
 .Pp
 New core kernel code should be reasonably compliant with the style guides.
@@ -615,6 +612,10 @@ Whenever possible, code should be run through a code checker
 (e.g.,
 .Dq Li gcc -Wall -W -Wpointer-arith -Wbad-function-cast ...\&
 or splint from the ports tree) and produce minimal warnings.
+Since lint has been removed, the only lint-style comment that should
+be used is FALLTHROUGH, as it's useful to humans.
+Other lint-style comments such as ARGSUSED, LINTED, NOTREACHED, and
+PRINTFLIKE may be deleted.
 .Pp
 Note that documentation follows its own style guide,
 as documented in

@@ -1,4 +1,4 @@
-/*	$OpenBSD: read.c,v 1.115 2015/07/19 05:59:07 schwarze Exp $ */
+/*	$OpenBSD: read.c,v 1.118 2015/10/11 21:06:59 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -22,6 +22,7 @@
 
 #include <assert.h>
 #include <ctype.h>
+#include <err.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <stdarg.h>
@@ -44,7 +45,6 @@
 struct	mparse {
 	struct roff_man	 *man; /* man parser */
 	struct roff	 *roff; /* roff parser (!NULL) */
-	const struct mchars *mchars; /* character table */
 	char		 *sodest; /* filename pointed to by .so */
 	const char	 *file; /* filename of current input file */
 	struct buf	 *primary; /* buffer currently being parsed */
@@ -606,10 +606,8 @@ read_whole_file(struct mparse *curp, const char *file, int fd,
 	size_t		 off;
 	ssize_t		 ssz;
 
-	if (-1 == fstat(fd, &st)) {
-		perror(file);
-		exit((int)MANDOCLEVEL_SYSERR);
-	}
+	if (fstat(fd, &st) == -1)
+		err((int)MANDOCLEVEL_SYSERR, "%s", file);
 
 	/*
 	 * If we're a regular file, try just reading in the whole entry
@@ -621,20 +619,18 @@ read_whole_file(struct mparse *curp, const char *file, int fd,
 	if (curp->gzip == 0 && S_ISREG(st.st_mode)) {
 		if (st.st_size > 0x7fffffff) {
 			mandoc_msg(MANDOCERR_TOOLARGE, curp, 0, 0, NULL);
-			return(0);
+			return 0;
 		}
 		*with_mmap = 1;
 		fb->sz = (size_t)st.st_size;
 		fb->buf = mmap(NULL, fb->sz, PROT_READ, MAP_SHARED, fd, 0);
 		if (fb->buf != MAP_FAILED)
-			return(1);
+			return 1;
 	}
 
 	if (curp->gzip) {
-		if ((gz = gzdopen(fd, "rb")) == NULL) {
-			perror(file);
-			exit((int)MANDOCLEVEL_SYSERR);
-		}
+		if ((gz = gzdopen(fd, "rb")) == NULL)
+			err((int)MANDOCLEVEL_SYSERR, "%s", file);
 	} else
 		gz = NULL;
 
@@ -661,18 +657,16 @@ read_whole_file(struct mparse *curp, const char *file, int fd,
 		    read(fd, fb->buf + (int)off, fb->sz - off);
 		if (ssz == 0) {
 			fb->sz = off;
-			return(1);
+			return 1;
 		}
-		if (ssz == -1) {
-			perror(file);
-			exit((int)MANDOCLEVEL_SYSERR);
-		}
+		if (ssz == -1)
+			err((int)MANDOCLEVEL_SYSERR, "%s", file);
 		off += (size_t)ssz;
 	}
 
 	free(fb->buf);
 	fb->buf = NULL;
-	return(0);
+	return 0;
 }
 
 static void
@@ -757,7 +751,7 @@ mparse_readfd(struct mparse *curp, int fd, const char *file)
 	if (fd != STDIN_FILENO && close(fd) == -1)
 		perror(file);
 
-	return(curp->file_status);
+	return curp->file_status;
 }
 
 enum mandoclevel
@@ -772,7 +766,7 @@ mparse_open(struct mparse *curp, int *fd, const char *file)
 	/* First try to use the filename as it is. */
 
 	if ((*fd = open(file, O_RDONLY)) != -1)
-		return(MANDOCLEVEL_OK);
+		return MANDOCLEVEL_OK;
 
 	/*
 	 * If that doesn't work and the filename doesn't
@@ -785,19 +779,19 @@ mparse_open(struct mparse *curp, int *fd, const char *file)
 		free(cp);
 		if (*fd != -1) {
 			curp->gzip = 1;
-			return(MANDOCLEVEL_OK);
+			return MANDOCLEVEL_OK;
 		}
 	}
 
 	/* Neither worked, give up. */
 
 	mandoc_msg(MANDOCERR_FILE, curp, 0, 0, strerror(errno));
-	return(MANDOCLEVEL_ERROR);
+	return MANDOCLEVEL_ERROR;
 }
 
 struct mparse *
 mparse_alloc(int options, enum mandoclevel wlevel, mandocmsg mmsg,
-    const struct mchars *mchars, const char *defos)
+    const char *defos)
 {
 	struct mparse	*curp;
 
@@ -808,8 +802,7 @@ mparse_alloc(int options, enum mandoclevel wlevel, mandocmsg mmsg,
 	curp->mmsg = mmsg;
 	curp->defos = defos;
 
-	curp->mchars = mchars;
-	curp->roff = roff_alloc(curp, curp->mchars, options);
+	curp->roff = roff_alloc(curp, options);
 	curp->man = roff_man_alloc( curp->roff, curp, curp->defos,
 		curp->options & MPARSE_QUICK ? 1 : 0);
 	if (curp->options & MPARSE_MDOC) {
@@ -820,7 +813,7 @@ mparse_alloc(int options, enum mandoclevel wlevel, mandocmsg mmsg,
 		curp->man->macroset = MACROSET_MAN;
 	}
 	curp->man->first->tok = TOKEN_NONE;
-	return(curp);
+	return curp;
 }
 
 void
@@ -906,13 +899,13 @@ const char *
 mparse_strerror(enum mandocerr er)
 {
 
-	return(mandocerrs[er]);
+	return mandocerrs[er];
 }
 
 const char *
 mparse_strlevel(enum mandoclevel lvl)
 {
-	return(mandoclevels[lvl]);
+	return mandoclevels[lvl];
 }
 
 void
@@ -928,5 +921,5 @@ mparse_getkeep(const struct mparse *p)
 {
 
 	assert(p->secondary);
-	return(p->secondary->sz ? p->secondary->buf : NULL);
+	return p->secondary->sz ? p->secondary->buf : NULL;
 }

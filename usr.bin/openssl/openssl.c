@@ -1,4 +1,4 @@
-/* $OpenBSD: openssl.c,v 1.12 2015/09/14 01:45:03 doug Exp $ */
+/* $OpenBSD: openssl.c,v 1.16 2015/10/10 20:18:30 deraadt Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *
@@ -114,6 +114,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include "apps.h"
 
@@ -135,6 +136,8 @@
 #define FUNC_TYPE_PKEY          4
 #define FUNC_TYPE_MD_ALG        5
 #define FUNC_TYPE_CIPHER_ALG    6
+
+int single_execution = 0;
 
 typedef struct {
         int type;
@@ -435,6 +438,11 @@ main(int argc, char **argv)
 	arg.data = NULL;
 	arg.count = 0;
 
+	if (pledge("stdio inet rpath wpath cpath proc", NULL) == -1) {
+		fprintf(stderr, "openssl: pledge: %s\n", strerror(errno));
+		exit(1);
+	}
+
 	bio_err = BIO_new_fp(stderr, BIO_NOCLOSE);
 	if (bio_err == NULL) {
 		fprintf(stderr, "openssl: failed to initialise bio_err\n");
@@ -493,6 +501,8 @@ main(int argc, char **argv)
 	fp = lh_FUNCTION_retrieve(prog, &f);
 	if (fp != NULL) {
 		argv[0] = pname;
+
+		single_execution = 1;
 		ret = fp->func(argc, argv);
 		goto end;
 	}
@@ -503,6 +513,8 @@ main(int argc, char **argv)
 	if (argc != 1) {
 		argc--;
 		argv++;
+
+		single_execution = 1;
 		ret = do_cmd(prog, argc, argv);
 		if (ret < 0)
 			ret = 0;

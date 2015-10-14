@@ -1,4 +1,4 @@
-/*	$OpenBSD: i915_gem.c,v 1.99 2015/07/16 18:48:51 kettenis Exp $	*/
+/*	$OpenBSD: i915_gem.c,v 1.102 2015/09/30 06:29:09 kettenis Exp $	*/
 /*
  * Copyright (c) 2008-2009 Owain G. Ainsworth <oga@openbsd.org>
  *
@@ -1228,6 +1228,7 @@ static int __wait_seqno(struct intel_ring_buffer *ring, u32 seqno,
 	trace_i915_gem_request_wait_begin(ring, seqno);
 	getrawmonotonic(&before);
 	for (;;) {
+		atomic_inc_int(&ring->irq_queue.count);
 		sleep_setup(&sls, &ring->irq_queue, interruptible ? PCATCH : 0, "wseq");
 
 		/* We need to check whether any gpu reset happened in between
@@ -1272,6 +1273,7 @@ static int __wait_seqno(struct intel_ring_buffer *ring, u32 seqno,
 		sleep_finish(&sls, 1);
 		sleep_finish_timeout(&sls);
 		ret = sleep_finish_signal(&sls);
+		atomic_dec_int(&ring->irq_queue.count);
 	}
 	getrawmonotonic(&now);
 	trace_i915_gem_request_wait_end(ring, seqno);
@@ -1282,6 +1284,7 @@ static int __wait_seqno(struct intel_ring_buffer *ring, u32 seqno,
 	sleep_finish(&sls, 0);
 	sleep_finish_timeout(&sls);
 	sleep_finish_signal(&sls);
+	atomic_dec_int(&ring->irq_queue.count);
 
 	if (timeout) {
 		struct timespec sleep_time = timespec_sub(now, before);
@@ -1656,7 +1659,7 @@ unlock:
 	uvmfault_unlockall(ufi, ufi->entry->aref.ar_amap, NULL, NULL);
 	mutex_unlock(&dev->struct_mutex);
 	pmap_update(ufi->orig_map->pmap);
-out:
+
 	switch (ret) {
 	case -EIO:
 		/*
@@ -1697,6 +1700,7 @@ out:
 		break;
 	}
 
+out:
 	intel_runtime_pm_put(dev_priv);
 	return ret;
 }
@@ -3081,12 +3085,10 @@ int i915_vma_unbind(struct i915_vma *vma)
 
 	if (obj->has_global_gtt_mapping)
 		i915_gem_gtt_unbind_object(obj);
-#ifdef notyet
 	if (obj->has_aliasing_ppgtt_mapping) {
 		i915_ppgtt_unbind_object(dev_priv->mm.aliasing_ppgtt, obj);
 		obj->has_aliasing_ppgtt_mapping = 0;
 	}
-#endif
 	i915_gem_gtt_finish_object(obj);
 
 	list_del(&vma->mm_list);

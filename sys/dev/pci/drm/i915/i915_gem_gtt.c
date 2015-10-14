@@ -1,4 +1,4 @@
-/*	$OpenBSD$	*/
+/*	$OpenBSD: i915_gem_gtt.c,v 1.12 2015/09/26 11:17:15 kettenis Exp $	*/
 /*
  * Copyright © 2010 Daniel Vetter
  *
@@ -35,6 +35,8 @@
 #define _PAGE_PAT	PG_PAT
 #define _PAGE_PWT	PG_WT
 #define _PAGE_PCD	PG_N
+
+static void gen8_setup_private_ppat(struct drm_i915_private *dev_priv);
 
 #define GEN6_PPGTT_PD_ENTRIES 512
 #define I915_PPGTT_PT_ENTRIES (PAGE_SIZE / sizeof(gen6_gtt_pte_t))
@@ -205,7 +207,6 @@ static gen6_gtt_pte_t iris_pte_encode(dma_addr_t addr,
 	return pte;
 }
 
-#ifdef notyet
 /* Broadwell Page Directory Pointer Descriptors */
 static int gen8_write_pdp(struct intel_ring_buffer *ring, unsigned entry,
 			   uint64_t val)
@@ -277,7 +278,7 @@ static void gen8_ppgtt_clear_range(struct i915_address_space *vm,
 				      I915_CACHE_LLC, use_scratch);
 
 	while (num_entries) {
-		struct page *page_table = &ppgtt->gen8_pt_pages[act_pt];
+		struct vm_page *page_table = &ppgtt->gen8_pt_pages[act_pt];
 
 		last_pte = first_pte + num_entries;
 		if (last_pte > GEN8_PTES_PER_PAGE)
@@ -296,6 +297,7 @@ static void gen8_ppgtt_clear_range(struct i915_address_space *vm,
 	}
 }
 
+#ifdef __linux__
 static void gen8_ppgtt_insert_entries(struct i915_address_space *vm,
 				      struct sg_table *pages,
 				      unsigned first_entry,
@@ -326,6 +328,39 @@ static void gen8_ppgtt_insert_entries(struct i915_address_space *vm,
 	if (pt_vaddr)
 		kunmap_atomic(pt_vaddr);
 }
+#else
+static void gen8_ppgtt_insert_entries(struct i915_address_space *vm,
+				      struct vm_page **pages,
+				      unsigned int num_entries,
+				      unsigned first_entry,
+				      enum i915_cache_level cache_level)
+{
+	struct i915_hw_ppgtt *ppgtt =
+		container_of(vm, struct i915_hw_ppgtt, base);
+	gen8_gtt_pte_t *pt_vaddr;
+	unsigned act_pt = first_entry / GEN8_PTES_PER_PAGE;
+	unsigned act_pte = first_entry % GEN8_PTES_PER_PAGE;
+	int i;
+
+	pt_vaddr = NULL;
+	for (i = 0; i < num_entries; i++) {
+		if (pt_vaddr == NULL)
+			pt_vaddr = kmap_atomic(&ppgtt->gen8_pt_pages[act_pt]);
+
+		pt_vaddr[act_pte] =
+			gen8_pte_encode(VM_PAGE_TO_PHYS(pages[i]),
+					cache_level, true);
+		if (++act_pte == GEN8_PTES_PER_PAGE) {
+			kunmap_atomic(pt_vaddr);
+			pt_vaddr = NULL;
+			act_pt++;
+			act_pte = 0;
+		}
+	}
+	if (pt_vaddr)
+		kunmap_atomic(pt_vaddr);
+}
+#endif
 
 static void gen8_ppgtt_cleanup(struct i915_address_space *vm)
 {
@@ -368,7 +403,8 @@ static void gen8_ppgtt_cleanup(struct i915_address_space *vm)
  **/
 static int gen8_ppgtt_init(struct i915_hw_ppgtt *ppgtt, uint64_t size)
 {
-	struct page *pt_pages;
+	struct drm_i915_private *dev_priv = ppgtt->base.dev->dev_private;
+	struct vm_page *pt_pages;
 	int i, j, ret = -ENOMEM;
 	const int max_pdp = DIV_ROUND_UP(size, 1 << 30);
 	const int num_pt_pages = GEN8_PDES_PER_PAGE * max_pdp;
@@ -398,6 +434,7 @@ static int gen8_ppgtt_init(struct i915_hw_ppgtt *ppgtt, uint64_t size)
 	ppgtt->base.clear_range = gen8_ppgtt_clear_range;
 	ppgtt->base.insert_entries = gen8_ppgtt_insert_entries;
 	ppgtt->base.cleanup = gen8_ppgtt_cleanup;
+	ppgtt->base.scratch = dev_priv->gtt.base.scratch;
 	ppgtt->base.start = 0;
 	ppgtt->base.total = ppgtt->num_pt_pages * GEN8_PTES_PER_PAGE * PAGE_SIZE;
 
@@ -424,7 +461,7 @@ static int gen8_ppgtt_init(struct i915_hw_ppgtt *ppgtt, uint64_t size)
 			goto err_out;
 
 		for (j = 0; j < GEN8_PDES_PER_PAGE; j++) {
-			struct page *p = &pt_pages[i * GEN8_PDES_PER_PAGE + j];
+			struct vm_page *p = &pt_pages[i * GEN8_PDES_PER_PAGE + j];
 			temp = pci_map_page(ppgtt->base.dev->pdev,
 					    p, 0, PAGE_SIZE,
 					    PCI_DMA_BIDIRECTIONAL);
@@ -580,6 +617,7 @@ static void gen6_ppgtt_clear_range(struct i915_address_space *vm,
 	}
 }
 
+#ifdef __linux__
 static void gen6_ppgtt_insert_entries(struct i915_address_space *vm,
 				      struct sg_table *pages,
 				      unsigned first_entry,
@@ -610,6 +648,39 @@ static void gen6_ppgtt_insert_entries(struct i915_address_space *vm,
 	if (pt_vaddr)
 		kunmap_atomic(pt_vaddr);
 }
+#else
+static void gen6_ppgtt_insert_entries(struct i915_address_space *vm,
+				      struct vm_page **pages,
+				      unsigned int num_entries,
+				      unsigned first_entry,
+				      enum i915_cache_level cache_level)
+{
+	struct i915_hw_ppgtt *ppgtt =
+		container_of(vm, struct i915_hw_ppgtt, base);
+	gen6_gtt_pte_t *pt_vaddr;
+	unsigned act_pt = first_entry / I915_PPGTT_PT_ENTRIES;
+	unsigned act_pte = first_entry % I915_PPGTT_PT_ENTRIES;
+	int i;
+
+	pt_vaddr = NULL;
+	for (i = 0; i < num_entries; i++) {
+		if (pt_vaddr == NULL)
+			pt_vaddr = kmap_atomic(ppgtt->pt_pages[act_pt]);
+
+		pt_vaddr[act_pte] =
+			vm->pte_encode(VM_PAGE_TO_PHYS(pages[i]),
+				       cache_level, true);
+		if (++act_pte == I915_PPGTT_PT_ENTRIES) {
+			kunmap_atomic(pt_vaddr);
+			pt_vaddr = NULL;
+			act_pt++;
+			act_pte = 0;
+		}
+	}
+	if (pt_vaddr)
+		kunmap_atomic(pt_vaddr);
+}
+#endif
 
 static void gen6_ppgtt_cleanup(struct i915_address_space *vm)
 {
@@ -708,11 +779,9 @@ err_pt_alloc:
 
 	return ret;
 }
-#endif
 
 static int i915_gem_init_aliasing_ppgtt(struct drm_device *dev)
 {
-#ifdef notyet
 	struct drm_i915_private *dev_priv = dev->dev_private;
 	struct i915_hw_ppgtt *ppgtt;
 	int ret;
@@ -739,9 +808,6 @@ static int i915_gem_init_aliasing_ppgtt(struct drm_device *dev)
 	}
 
 	return ret;
-#else
-	return 0;
-#endif
 }
 
 void i915_gem_cleanup_aliasing_ppgtt(struct drm_device *dev)
@@ -889,6 +955,9 @@ void i915_gem_restore_gtt_mappings(struct drm_device *dev)
 		i915_gem_clflush_object(obj, obj->pin_display);
 		i915_gem_gtt_bind_object(obj, obj->cache_level);
 	}
+
+	if (INTEL_INFO(dev)->gen >= 8)
+		gen8_setup_private_ppat(dev_priv);
 
 	i915_ggtt_flush(dev_priv);
 }
@@ -1488,10 +1557,12 @@ static int ggtt_probe_common(struct drm_device *dev,
 	bus_space_handle_t gsm;
 	bus_addr_t addr;
 	bus_size_t size;
+	pcireg_t type;
 	int ret;
 
-	ret = -pci_mapreg_info(dev_priv->pc, dev_priv->tag, 0x10,
-	    PCI_MAPREG_MEM_TYPE_64BIT, &addr, &size, NULL);
+	type = pci_mapreg_type(dev_priv->pc, dev_priv->tag, 0x10);
+	ret = -pci_mapreg_info(dev_priv->pc, dev_priv->tag, 0x10, type,
+	    &addr, &size, NULL);
 	if (ret)
 		return ret;
 
@@ -1565,8 +1636,9 @@ static int gen8_gmch_probe(struct drm_device *dev,
 	if (!pci_set_dma_mask(dev->pdev, DMA_BIT_MASK(39)))
 		pci_set_consistent_dma_mask(dev->pdev, DMA_BIT_MASK(39));
 #else
-	ret = -pci_mapreg_info(dev_priv->pc, dev_priv->tag, 0x18,
-	    PCI_MAPREG_MEM_TYPE_64BIT, mappable_base, mappable_end, NULL);
+	pcireg_t type = pci_mapreg_type(dev_priv->pc, dev_priv->tag, 0x18);
+	ret = -pci_mapreg_info(dev_priv->pc, dev_priv->tag, 0x18, type,
+	    mappable_base, mappable_end, NULL);
 	if (ret)
 		return ret;
 #endif
@@ -1603,8 +1675,9 @@ static int gen6_gmch_probe(struct drm_device *dev,
 	*mappable_base = pci_resource_start(dev->pdev, 2);
 	*mappable_end = pci_resource_len(dev->pdev, 2);
 #else
-	ret = -pci_mapreg_info(dev_priv->pc, dev_priv->tag, 0x18,
-	    PCI_MAPREG_MEM_TYPE_64BIT, mappable_base, mappable_end, NULL);
+	pcireg_t type = pci_mapreg_type(dev_priv->pc, dev_priv->tag, 0x18);
+	ret = -pci_mapreg_info(dev_priv->pc, dev_priv->tag, 0x18, type,
+	    mappable_base, mappable_end, NULL);
 	if (ret)
 		return ret;
 #endif

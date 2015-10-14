@@ -1,4 +1,4 @@
-/*	$OpenBSD: term_ascii.c,v 1.32 2015/04/04 17:46:58 schwarze Exp $ */
+/*	$OpenBSD: term_ascii.c,v 1.36 2015/10/12 00:07:27 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -32,8 +32,7 @@
 #include "manconf.h"
 #include "main.h"
 
-static	struct termp	 *ascii_init(enum termenc, const struct mchars *,
-				const struct manoutput *);
+static	struct termp	 *ascii_init(enum termenc, const struct manoutput *);
 static	int		  ascii_hspan(const struct termp *,
 				const struct roffsu *);
 static	size_t		  ascii_width(const struct termp *, int);
@@ -51,15 +50,13 @@ static	size_t		  locale_width(const struct termp *, int);
 
 
 static struct termp *
-ascii_init(enum termenc enc, const struct mchars *mchars,
-	const struct manoutput *outopts)
+ascii_init(enum termenc enc, const struct manoutput *outopts)
 {
 	char		*v;
 	struct termp	*p;
 
 	p = mandoc_calloc(1, sizeof(struct termp));
 
-	p->symtab = mchars;
 	p->line = 1;
 	p->tabwidth = 5;
 	p->defrmargin = p->lastrmargin = 78;
@@ -103,28 +100,28 @@ ascii_init(enum termenc enc, const struct mchars *mchars,
 	if (outopts->synopsisonly)
 		p->synopsisonly = 1;
 
-	return(p);
+	return p;
 }
 
 void *
-ascii_alloc(const struct mchars *mchars, const struct manoutput *outopts)
+ascii_alloc(const struct manoutput *outopts)
 {
 
-	return(ascii_init(TERMENC_ASCII, mchars, outopts));
+	return ascii_init(TERMENC_ASCII, outopts);
 }
 
 void *
-utf8_alloc(const struct mchars *mchars, const struct manoutput *outopts)
+utf8_alloc(const struct manoutput *outopts)
 {
 
-	return(ascii_init(TERMENC_UTF8, mchars, outopts));
+	return ascii_init(TERMENC_UTF8, outopts);
 }
 
 void *
-locale_alloc(const struct mchars *mchars, const struct manoutput *outopts)
+locale_alloc(const struct manoutput *outopts)
 {
 
-	return(ascii_init(TERMENC_LOCALE, mchars, outopts));
+	return ascii_init(TERMENC_LOCALE, outopts);
 }
 
 static void
@@ -164,7 +161,7 @@ static size_t
 ascii_width(const struct termp *p, int c)
 {
 
-	return(1);
+	return 1;
 }
 
 void
@@ -234,7 +231,6 @@ ascii_hspan(const struct termp *p, const struct roffsu *su)
 		r = su->scale * 0.24;
 		break;
 	case SCALE_VS:
-		/* FALLTHROUGH */
 	case SCALE_PC:
 		r = su->scale * 40.0;
 		break;
@@ -242,15 +238,13 @@ ascii_hspan(const struct termp *p, const struct roffsu *su)
 		r = su->scale * 10.0 / 3.0;
 		break;
 	case SCALE_EN:
-		/* FALLTHROUGH */
 	case SCALE_EM:
 		r = su->scale * 24.0;
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
-	return(r > 0.0 ? r + 0.01 : r - 0.01);
+	return r > 0.0 ? r + 0.01 : r - 0.01;
 }
 
 const char *
@@ -325,8 +319,8 @@ ascii_uc2str(int uc)
 
 	assert(uc >= 0);
 	if ((size_t)uc < sizeof(tab)/sizeof(tab[0]))
-		return(tab[uc]);
-	return(mchars_uc2str(uc));
+		return tab[uc];
+	return mchars_uc2str(uc);
 }
 
 static size_t
@@ -339,7 +333,7 @@ locale_width(const struct termp *p, int c)
 	rc = wcwidth(c);
 	if (rc < 0)
 		rc = 0;
-	return(rc);
+	return rc;
 }
 
 static void

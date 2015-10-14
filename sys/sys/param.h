@@ -1,4 +1,4 @@
-/*	$OpenBSD: param.h,v 1.117 2015/06/17 22:35:08 deraadt Exp $	*/
+/*	$OpenBSD: param.h,v 1.118 2015/07/02 01:34:00 dlg Exp $	*/
 
 /*-
  * Copyright (c) 1982, 1986, 1989, 1993

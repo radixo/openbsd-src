@@ -1,4 +1,4 @@
-/*	$OpenBSD: aucat.c,v 1.62 2014/09/07 10:12:17 guenther Exp $	*/
+/*	$OpenBSD: aucat.c,v 1.67 2015/10/02 09:51:54 ratchov Exp $	*/
 /*
  * Copyright (c) 2008 Alexandre Ratchov <alex@caoua.org>
  *
@@ -205,22 +205,29 @@ _aucat_wdata(struct aucat *hdl, const void *buf, size_t len,
 static int
 aucat_mkcookie(unsigned char *cookie)
 {
+#define COOKIE_SUFFIX	"/.aucat_cookie"
+#define TEMPL_SUFFIX	".XXXXXXXX"
 	struct stat sb;
-	char buf[PATH_MAX], tmp[PATH_MAX], *path;
-	ssize_t len;
-	int fd;
+	char *home, *path = NULL, *tmp = NULL;
+	size_t home_len, path_len;
+	int fd, len;
+
+	/* please gcc */
+	path_len = 0xdeadbeef;
 
 	/*
 	 * try to load the cookie
 	 */
-	path = issetugid() ? NULL : getenv("AUCAT_COOKIE");
-	if (path == NULL) {
-		path = issetugid() ? NULL : getenv("HOME");
-		if (path == NULL)
-			goto bad_gen;
-		snprintf(buf, PATH_MAX, "%s/.aucat_cookie", path);
-		path = buf;
-	}
+	home = issetugid() ? NULL : getenv("HOME");
+	if (home == NULL)
+		goto bad_gen;
+	home_len = strlen(home);
+	path = malloc(home_len + sizeof(COOKIE_SUFFIX));
+	if (path == NULL)
+		goto bad_gen;
+	memcpy(path, home, home_len);
+	memcpy(path + home_len, COOKIE_SUFFIX, sizeof(COOKIE_SUFFIX));
+	path_len = home_len + sizeof(COOKIE_SUFFIX) - 1;
 	fd = open(path, O_RDONLY);
 	if (fd < 0) {
 		if (errno != ENOENT)
@@ -245,7 +252,7 @@ aucat_mkcookie(unsigned char *cookie)
 		goto bad_close;
 	}
 	close(fd);
-	return 1;
+	goto done;
 bad_close:
 	close(fd);
 bad_gen:
@@ -257,29 +264,34 @@ bad_gen:
 	/*
 	 * try to save the cookie
 	 */
-	if (path == NULL)
-		return 1;
-	if (strlcpy(tmp, path, PATH_MAX) >= PATH_MAX ||
-	    strlcat(tmp, ".XXXXXXXX", PATH_MAX) >= PATH_MAX) {
-		DPRINTF("%s: too long\n", path);
-		return 1;
-	}
+	if (home == NULL)
+		goto done;
+	tmp = malloc(path_len + sizeof(TEMPL_SUFFIX));
+	if (tmp == NULL)
+		goto done;
+	memcpy(tmp, path, path_len);
+	memcpy(tmp + path_len, TEMPL_SUFFIX, sizeof(TEMPL_SUFFIX));
 	fd = mkstemp(tmp);
 	if (fd < 0) {
 		DPERROR(tmp);
-		return 1;
+		goto done;
 	}
 	if (write(fd, cookie, AMSG_COOKIELEN) < 0) {
 		DPERROR(tmp);
 		unlink(tmp);
 		close(fd);
-		return 1;
+		goto done;
 	}
 	close(fd);
 	if (rename(tmp, path) < 0) {
 		DPERROR(tmp);
 		unlink(tmp);
 	}
+done:
+	if (tmp)
+		free(tmp);
+	if (path)
+		free(path);
 	return 1;
 }
 
@@ -341,7 +353,7 @@ aucat_connect_un(struct aucat *hdl, unsigned int unit)
 
 	uid = geteuid();
 	snprintf(ca.sun_path, sizeof(ca.sun_path),
-	    "/tmp/aucat-%u/%s%u", uid, AUCAT_PATH, unit);
+	    SOCKPATH_DIR "-%u/" SOCKPATH_FILE "%u", uid, unit);
 	ca.sun_family = AF_UNIX;
 	s = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
 	if (s < 0)
@@ -352,7 +364,7 @@ aucat_connect_un(struct aucat *hdl, unsigned int unit)
 		DPERROR(ca.sun_path);
 		/* try shared server */
 		snprintf(ca.sun_path, sizeof(ca.sun_path),
-		    "/tmp/aucat/%s%u", AUCAT_PATH, unit);
+		    SOCKPATH_DIR "/" SOCKPATH_FILE "%u", unit);
 		while (connect(s, (struct sockaddr *)&ca, len) < 0) {
 			if (errno == EINTR)
 				continue;

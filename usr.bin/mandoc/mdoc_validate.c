@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_validate.c,v 1.207 2015/04/23 16:17:04 schwarze Exp $ */
+/*	$OpenBSD: mdoc_validate.c,v 1.211 2015/10/12 00:07:27 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -299,11 +299,9 @@ mdoc_valid_pre(struct roff_man *mdoc, struct roff_node *n)
 	case ROFFT_TEXT:
 		if (n->sec != SEC_SYNOPSIS || n->parent->tok != MDOC_Fd)
 			check_text(mdoc, n->line, n->pos, n->string);
-		/* FALLTHROUGH */
+		return;
 	case ROFFT_TBL:
-		/* FALLTHROUGH */
 	case ROFFT_EQN:
-		/* FALLTHROUGH */
 	case ROFFT_ROOT:
 		return;
 	default:
@@ -329,9 +327,7 @@ mdoc_valid_post(struct roff_man *mdoc)
 
 	switch (n->type) {
 	case ROFFT_TEXT:
-		/* FALLTHROUGH */
 	case ROFFT_EQN:
-		/* FALLTHROUGH */
 	case ROFFT_TBL:
 		break;
 	case ROFFT_ROOT:
@@ -564,13 +560,9 @@ pre_bl(PRE_ARGS)
 			    n->line, n->pos, "Bl -tag");
 		break;
 	case LIST_column:
-		/* FALLTHROUGH */
 	case LIST_diag:
-		/* FALLTHROUGH */
 	case LIST_ohang:
-		/* FALLTHROUGH */
 	case LIST_inset:
-		/* FALLTHROUGH */
 	case LIST_item:
 		if (n->norm->Bl.width)
 			mandoc_vmsg(MANDOCERR_BL_SKIPW, mdoc->parse,
@@ -578,9 +570,7 @@ pre_bl(PRE_ARGS)
 			    mdoc_argnames[mdoclt]);
 		break;
 	case LIST_bullet:
-		/* FALLTHROUGH */
 	case LIST_dash:
-		/* FALLTHROUGH */
 	case LIST_hyphen:
 		if (NULL == n->norm->Bl.width)
 			n->norm->Bl.width = "2n";
@@ -655,7 +645,6 @@ pre_bd(PRE_ARGS)
 			break;
 		default:
 			abort();
-			/* NOTREACHED */
 		}
 		if (DISP__NONE == dt)
 			continue;
@@ -1023,13 +1012,11 @@ post_defaults(POST_ARGS)
 		roff_word_alloc(mdoc, nn->line, nn->pos, "...");
 		break;
 	case MDOC_Pa:
-		/* FALLTHROUGH */
 	case MDOC_Mt:
 		roff_word_alloc(mdoc, nn->line, nn->pos, "~");
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 	mdoc->last = nn;
 }
@@ -1115,13 +1102,9 @@ post_it(POST_ARGS)
 
 	switch (lt) {
 	case LIST_tag:
-		/* FALLTHROUGH */
 	case LIST_hang:
-		/* FALLTHROUGH */
 	case LIST_ohang:
-		/* FALLTHROUGH */
 	case LIST_inset:
-		/* FALLTHROUGH */
 	case LIST_diag:
 		if (nit->head->child == NULL)
 			mandoc_vmsg(MANDOCERR_IT_NOHEAD,
@@ -1130,11 +1113,8 @@ post_it(POST_ARGS)
 			    mdoc_argnames[nbl->args->argv[0].arg]);
 		break;
 	case LIST_bullet:
-		/* FALLTHROUGH */
 	case LIST_dash:
-		/* FALLTHROUGH */
 	case LIST_enum:
-		/* FALLTHROUGH */
 	case LIST_hyphen:
 		if (nit->body == NULL || nit->body->child == NULL)
 			mandoc_vmsg(MANDOCERR_IT_NOBODY,
@@ -1195,9 +1175,7 @@ post_bl_block(POST_ARGS)
 		while (NULL != nc) {
 			switch (nc->tok) {
 			case MDOC_Pp:
-				/* FALLTHROUGH */
 			case MDOC_Lp:
-				/* FALLTHROUGH */
 			case MDOC_br:
 				break;
 			default:
@@ -1821,8 +1799,8 @@ child_an(const struct roff_node *n)
 
 	for (n = n->child; n != NULL; n = n->next)
 		if ((n->tok == MDOC_An && n->nchild) || child_an(n))
-			return(1);
-	return(0);
+			return 1;
+	return 0;
 }
 
 static void
@@ -1850,7 +1828,6 @@ post_sh_head(POST_ARGS)
 	 */
 
 	secname = NULL;
-	sec = SEC_CUSTOM;
 	deroff(&secname, mdoc->last);
 	sec = NULL == secname ? SEC_CUSTOM : a2sec(secname);
 
@@ -1930,7 +1907,6 @@ post_sh_head(POST_ARGS)
 		goodsec = "2, 3, 4, 9";
 		/* FALLTHROUGH */
 	case SEC_RETURN_VALUES:
-		/* FALLTHROUGH */
 	case SEC_LIBRARY:
 		if (*mdoc->meta.msec == '2')
 			break;
@@ -2079,7 +2055,6 @@ pre_literal(PRE_ARGS)
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 }
 
@@ -2295,9 +2270,9 @@ a2sec(const char *p)
 
 	for (i = 0; i < (int)SEC__MAX; i++)
 		if (secnames[i] && 0 == strcmp(p, secnames[i]))
-			return((enum roff_sec)i);
+			return (enum roff_sec)i;
 
-	return(SEC_CUSTOM);
+	return SEC_CUSTOM;
 }
 
 static size_t
@@ -2306,89 +2281,89 @@ macro2len(int macro)
 
 	switch (macro) {
 	case MDOC_Ad:
-		return(12);
+		return 12;
 	case MDOC_Ao:
-		return(12);
+		return 12;
 	case MDOC_An:
-		return(12);
+		return 12;
 	case MDOC_Aq:
-		return(12);
+		return 12;
 	case MDOC_Ar:
-		return(12);
+		return 12;
 	case MDOC_Bo:
-		return(12);
+		return 12;
 	case MDOC_Bq:
-		return(12);
+		return 12;
 	case MDOC_Cd:
-		return(12);
+		return 12;
 	case MDOC_Cm:
-		return(10);
+		return 10;
 	case MDOC_Do:
-		return(10);
+		return 10;
 	case MDOC_Dq:
-		return(12);
+		return 12;
 	case MDOC_Dv:
-		return(12);
+		return 12;
 	case MDOC_Eo:
-		return(12);
+		return 12;
 	case MDOC_Em:
-		return(10);
+		return 10;
 	case MDOC_Er:
-		return(17);
+		return 17;
 	case MDOC_Ev:
-		return(15);
+		return 15;
 	case MDOC_Fa:
-		return(12);
+		return 12;
 	case MDOC_Fl:
-		return(10);
+		return 10;
 	case MDOC_Fo:
-		return(16);
+		return 16;
 	case MDOC_Fn:
-		return(16);
+		return 16;
 	case MDOC_Ic:
-		return(10);
+		return 10;
 	case MDOC_Li:
-		return(16);
+		return 16;
 	case MDOC_Ms:
-		return(6);
+		return 6;
 	case MDOC_Nm:
-		return(10);
+		return 10;
 	case MDOC_No:
-		return(12);
+		return 12;
 	case MDOC_Oo:
-		return(10);
+		return 10;
 	case MDOC_Op:
-		return(14);
+		return 14;
 	case MDOC_Pa:
-		return(32);
+		return 32;
 	case MDOC_Pf:
-		return(12);
+		return 12;
 	case MDOC_Po:
-		return(12);
+		return 12;
 	case MDOC_Pq:
-		return(12);
+		return 12;
 	case MDOC_Ql:
-		return(16);
+		return 16;
 	case MDOC_Qo:
-		return(12);
+		return 12;
 	case MDOC_So:
-		return(12);
+		return 12;
 	case MDOC_Sq:
-		return(12);
+		return 12;
 	case MDOC_Sy:
-		return(6);
+		return 6;
 	case MDOC_Sx:
-		return(16);
+		return 16;
 	case MDOC_Tn:
-		return(10);
+		return 10;
 	case MDOC_Va:
-		return(12);
+		return 12;
 	case MDOC_Vt:
-		return(12);
+		return 12;
 	case MDOC_Xr:
-		return(10);
+		return 10;
 	default:
 		break;
 	};
-	return(0);
+	return 0;
 }

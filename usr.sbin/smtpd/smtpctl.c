@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpctl.c,v 1.124 2014/07/20 01:38:40 guenther Exp $	*/
+/*	$OpenBSD: smtpctl.c,v 1.129 2015/10/12 07:58:19 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -27,6 +27,7 @@
 #include <sys/tree.h>
 #include <sys/un.h>
 #include <sys/wait.h>
+#include <sys/stat.h>
 
 #include <err.h>
 #include <errno.h>
@@ -52,6 +53,7 @@
 #define PATH_ENCRYPT	"/usr/bin/encrypt"
 
 int srv_connect(void);
+int srv_connected(void);
 
 void usage(void);
 static void show_queue_envelope(struct envelope *, int);
@@ -64,6 +66,7 @@ static int is_gzip_fp(FILE *);
 static int is_encrypted_fp(FILE *);
 static int is_encrypted_buffer(const char *);
 static int is_gzip_buffer(const char *);
+static FILE *offline_file(void);
 
 extern char	*__progname;
 int		 sendmail;
@@ -125,6 +128,38 @@ srv_connect(void)
 
 	return (1);
 }
+
+int
+srv_connected(void)
+{
+	return ibuf != NULL ? 1 : 0;
+}
+
+FILE *
+offline_file(void)
+{
+	char	path[PATH_MAX];
+	int	fd;
+	FILE   *fp;
+
+	if (! bsnprintf(path, sizeof(path), "%s%s/%lld.XXXXXXXXXX", PATH_SPOOL,
+		PATH_OFFLINE, (long long int) time(NULL)))
+		err(EX_UNAVAILABLE, "snprintf");
+
+	if ((fd = mkstemp(path)) == -1 || (fp = fdopen(fd, "w+")) == NULL) {
+		if (fd != -1)
+			unlink(path);
+		err(EX_UNAVAILABLE, "cannot create temporary file %s", path);
+	}
+
+	if (fchmod(fd, 0600) == -1) {
+		unlink(path);
+		err(EX_SOFTWARE, "fchmod");
+	}
+
+	return fp;
+}
+
 
 static void
 srv_flush(void)
@@ -302,7 +337,7 @@ srv_iter_envelopes(uint32_t msgid, struct envelope *evp)
 static int
 srv_iter_evpids(uint32_t msgid, uint64_t *evpid, int *offset)
 {
-	static uint64_t	*evpids = NULL;
+	static uint64_t	*evpids = NULL, *tmp;
 	static int	 n, alloc = 0;
 	struct envelope	 evp;
 
@@ -318,10 +353,11 @@ srv_iter_evpids(uint32_t msgid, uint64_t *evpid, int *offset)
 		while (srv_iter_envelopes(msgid, &evp)) {
 			if (n == alloc) {
 				alloc += 256;
-				evpids = reallocarray(evpids, alloc,
+				tmp = reallocarray(evpids, alloc,
 				    sizeof(*evpids));
-				if (evpids == NULL)
+				if (tmp == NULL)
 					err(1, "reallocarray");
+				evpids = tmp;
 			}
 			evpids[n++] = evp.id;
 		}
@@ -638,7 +674,7 @@ do_show_queue(int argc, struct parameter *argv)
 	if (!srv_connect()) {
 		log_init(1);
 		queue_init("fs", 0);
-		if (chroot(PATH_SPOOL) == -1 || chdir(".") == -1)
+		if (chroot(PATH_SPOOL) == -1 || chdir("/") == -1)
 			err(1, "%s", PATH_SPOOL);
 		fts = fts_open(qpath, FTS_PHYSICAL|FTS_NOCHDIR, NULL);
 		if (fts == NULL)
@@ -882,16 +918,32 @@ do_show_mta_block(int argc, struct parameter *argv)
 int
 main(int argc, char **argv)
 {
-	char	*argv_mailq[] = { "show", "queue", NULL };
+	gid_t		 gid;
+	char		*argv_mailq[] = { "show", "queue", NULL };
+	FILE		*offlinefp = NULL;
 
+	gid = getgid();
 	if (strcmp(__progname, "sendmail") == 0 ||
 	    strcmp(__progname, "send-mail") == 0) {
+		if (!srv_connect())
+			offlinefp = offline_file();
+
+		if (setresgid(gid, gid, gid) == -1)
+			err(1, "setresgid");
+
+		/* we'll reduce further down the road */
+		if (pledge("stdio rpath tmppath getpw recvfd", NULL) == -1)
+			err(1, "pledge");
+		
 		sendmail = 1;
-		return (enqueue(argc, argv));
+		return (enqueue(argc, argv, offlinefp));
 	}
 
 	if (geteuid())
 		errx(1, "need root privileges");
+
+	if (setresgid(gid, gid, gid) == -1)
+		err(1, "setresgid");
 
 	cmd_install("encrypt",			do_encrypt);
 	cmd_install("encrypt <str>",		do_encrypt);

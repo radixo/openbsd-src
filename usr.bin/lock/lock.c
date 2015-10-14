@@ -1,4 +1,4 @@
-/*	$OpenBSD: lock.c,v 1.27 2013/08/22 04:43:40 guenther Exp $	*/
+/*	$OpenBSD: lock.c,v 1.30 2015/10/09 01:37:08 deraadt Exp $	*/
 /*	$NetBSD: lock.c,v 1.8 1996/05/07 18:32:31 jtc Exp $	*/
 
 /*
@@ -89,6 +89,9 @@ main(int argc, char *argv[])
 	style = NULL;
 	usemine = 0;
 	no_timeout = 0;
+
+	if (pledge("stdio rpath wpath getpw tty", NULL) == -1)
+		err(1, "pledge");
 
 	if (!(pw = getpwuid(getuid())))
 		errx(1, "unknown uid %u.", getuid());

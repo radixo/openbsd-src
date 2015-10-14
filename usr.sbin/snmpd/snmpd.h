@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmpd.h,v 1.59 2015/01/16 00:05:13 deraadt Exp $	*/
+/*	$OpenBSD: snmpd.h,v 1.61 2015/10/05 15:29:14 uebayasi Exp $	*/
 
 /*
  * Copyright (c) 2007, 2008, 2012 Reyk Floeter <reyk@openbsd.org>
@@ -262,6 +262,7 @@ struct kif {
 #define	if_imcasts	if_data.ifi_imcasts
 #define	if_omcasts	if_data.ifi_omcasts
 #define	if_iqdrops	if_data.ifi_iqdrops
+#define	if_oqdrops	if_data.ifi_oqdrops
 #define	if_noproto	if_data.ifi_noproto
 #define	if_lastchange	if_data.ifi_lastchange
 #define	if_capabilities	if_data.ifi_capabilities
@@ -396,6 +397,7 @@ struct snmp_message {
 	struct ber_element	*sm_c;
 	struct ber_element	*sm_next;
 	struct ber_element	*sm_last;
+	struct ber_element	*sm_end;
 
 	u_int8_t		 sm_data[READ_BUF_SIZE];
 	size_t			 sm_datalen;
@@ -638,7 +640,7 @@ int		 mps_getreq(struct snmp_message *, struct ber_element *,
 int		 mps_getnextreq(struct snmp_message *, struct ber_element *,
 		    struct ber_oid *);
 int		 mps_getbulkreq(struct snmp_message *, struct ber_element **,
-		    struct ber_oid *, int);
+		    struct ber_element **, struct ber_oid *, int);
 int		 mps_setreq(struct snmp_message *, struct ber_element *,
 		    struct ber_oid *);
 int		 mps_set(struct ber_oid *, void *, long long);

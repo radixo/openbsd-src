@@ -1,6 +1,6 @@
-/*	$OpenBSD: drm_linux.h,v 1.33 2015/07/16 18:48:51 kettenis Exp $	*/
+/*	$OpenBSD: drm_linux.h,v 1.40 2015/09/27 11:09:26 jsg Exp $	*/
 /*
- * Copyright (c) 2013, 2014 Mark Kettenis
+ * Copyright (c) 2013, 2014, 2015 Mark Kettenis
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -290,6 +290,7 @@ spin_unlock_irqrestore(struct mutex *mtxp, __unused unsigned long flags)
 
 struct wait_queue_head {
 	struct mutex lock;
+	unsigned int count;
 };
 typedef struct wait_queue_head wait_queue_head_t;
 
@@ -297,6 +298,7 @@ static inline void
 init_waitqueue_head(wait_queue_head_t *wq)
 {
 	mtx_init(&wq->lock, IPL_NONE);
+	wq->count = 0;
 }
 
 #define wait_event(wq, condition) \
@@ -305,8 +307,10 @@ do {						\
 						\
 	if (condition)				\
 		break;				\
+	atomic_inc_int(&(wq).count);		\
 	sleep_setup(&sls, &wq, 0, "drmwe");	\
 	sleep_finish(&sls, !(condition));	\
+	atomic_dec_int(&(wq).count);		\
 } while (!(condition))
 
 #define __wait_event_timeout(wq, condition, ret) \
@@ -314,12 +318,14 @@ do {						\
 	struct sleep_state sls;			\
 	int deadline, __error;			\
 						\
+	atomic_inc_int(&(wq).count);		\
 	sleep_setup(&sls, &wq, 0, "drmwet");	\
 	sleep_setup_timeout(&sls, ret);		\
 	deadline = ticks + ret;			\
 	sleep_finish(&sls, !(condition));	\
 	ret = deadline - ticks;			\
 	__error = sleep_finish_timeout(&sls);	\
+	atomic_dec_int(&(wq).count);		\
 	if (ret < 0 || __error == EWOULDBLOCK)	\
 		ret = 0;			\
 	if (ret == 0 && (condition)) {		\
@@ -341,6 +347,7 @@ do {						\
 	struct sleep_state sls;			\
 	int deadline, __error, __error1;		\
 						\
+	atomic_inc_int(&(wq).count);		\
 	sleep_setup(&sls, &wq, PCATCH, "drmweti"); \
 	sleep_setup_timeout(&sls, ret);		\
 	sleep_setup_signal(&sls, PCATCH);	\
@@ -349,6 +356,7 @@ do {						\
 	ret = deadline - ticks;			\
 	__error1 = sleep_finish_timeout(&sls);	\
 	__error = sleep_finish_signal(&sls);	\
+	atomic_dec_int(&(wq).count);		\
 	if (ret < 0 || __error1 == EWOULDBLOCK)	\
 		ret = 0;			\
 	if (__error == ERESTART)			\
@@ -372,8 +380,9 @@ do {						\
 #define wake_up(x)			wakeup(x)
 #define wake_up_all(x)			wakeup(x)
 #define wake_up_all_locked(x)		wakeup(x)
+#define wake_up_interruptible(x)	wakeup(x)
 
-#define waitqueue_active(x)		true
+#define waitqueue_active(wq)		((wq)->count > 0)
 
 struct completion {
 	u_int done;
@@ -416,6 +425,19 @@ complete_all(struct completion *x)
 }
 
 struct workqueue_struct;
+
+static inline struct workqueue_struct *
+alloc_ordered_workqueue(const char *name, int flags)
+{
+	struct taskq *tq = taskq_create(name, 1, IPL_TTY, 0);
+	return (struct workqueue_struct *)tq;
+}
+
+static inline void
+destroy_workqueue(struct workqueue_struct *wq)
+{
+	taskq_destroy((struct taskq *)wq);
+}
 
 struct work_struct {
 	struct task task;
@@ -609,6 +631,7 @@ timespec_valid(const struct timespec *ts)
 }
 
 typedef struct timeval ktime_t;
+
 static inline struct timeval
 ktime_get(void)
 {
@@ -616,6 +639,41 @@ ktime_get(void)
 	
 	getmicrouptime(&tv);
 	return tv;
+}
+
+static inline struct timeval
+ktime_get_monotonic_offset(void)
+{
+	struct timeval tv = {0, 0};
+	return tv;
+}
+
+static inline int64_t
+ktime_to_ns(struct timeval tv)
+{
+	return timeval_to_ns(&tv);
+}
+
+#define ktime_to_timeval(tv) (tv)
+
+static inline struct timeval
+ktime_sub(struct timeval a, struct timeval b)
+{
+	struct timeval res;
+	timersub(&a, &b, &res);
+	return res;
+}
+
+static inline struct timeval
+ktime_add_ns(struct timeval tv, int64_t ns)
+{
+	return ns_to_timeval(timeval_to_ns(&tv) + ns);
+}
+
+static inline struct timeval
+ktime_sub_ns(struct timeval tv, int64_t ns)
+{
+	return ns_to_timeval(timeval_to_ns(&tv) - ns);
 }
 
 #define GFP_ATOMIC	M_NOWAIT
@@ -680,26 +738,96 @@ vfree(void *objp)
 }
 
 struct kref {
-	uint32_t count;
+	uint32_t refcount;
 };
 
 static inline void
 kref_init(struct kref *ref)
 {
-	ref->count = 1;
+	ref->refcount = 1;
 }
 
 static inline void
 kref_get(struct kref *ref)
 {
-	atomic_inc_int(&ref->count);
+	atomic_inc_int(&ref->refcount);
+}
+
+static inline int
+kref_get_unless_zero(struct kref *ref)
+{
+	if (ref->refcount != 0) {
+		atomic_inc_int(&ref->refcount);
+		return (1);
+	} else {
+		return (0);
+	}
 }
 
 static inline void
 kref_put(struct kref *ref, void (*release)(struct kref *ref))
 {
-	if (atomic_dec_int_nv(&ref->count) == 0)
+	if (atomic_dec_int_nv(&ref->refcount) == 0)
 		release(ref);
+}
+
+static inline void
+kref_sub(struct kref *ref, unsigned int v, void (*release)(struct kref *ref))
+{
+	if (atomic_sub_int_nv(&ref->refcount, v) == 0)
+		release(ref);
+}
+
+struct kobject {
+	struct kref kref;
+	struct kobj_type *type;
+};
+
+struct kobj_type {
+	void (*release)(struct kobject *);
+};
+
+static inline void
+kobject_init(struct kobject *obj, struct kobj_type *type)
+{
+	kref_init(&obj->kref);
+	obj->type = type;
+}
+
+static inline int
+kobject_init_and_add(struct kobject *obj, struct kobj_type *type,
+    struct kobject *parent, const char *fmt, ...)
+{
+	kobject_init(obj, type);
+	return (0);
+}
+
+static inline struct kobject *
+kobject_get(struct kobject *obj)
+{
+	if (obj != NULL)
+		kref_get(&obj->kref);
+	return (obj);
+}
+
+static inline void
+kobject_release(struct kref *ref)
+{
+	struct kobject *obj = container_of(ref, struct kobject, kref);
+	if (obj->type && obj->type->release)
+		obj->type->release(obj);
+}
+
+static inline void
+kobject_put(struct kobject *obj)
+{
+	if (obj != NULL)
+		kref_put(&obj->kref, kobject_release);
+}
+
+static inline void
+kobject_del(struct kobject *obj)
+{
 }
 
 #define min_t(t, a, b) ({ \
@@ -926,6 +1054,29 @@ typedef enum {
 	PCI_D3cold
 } pci_power_t;
 
+#if defined(__amd64__) || defined(__i386__)
+
+#define PCI_DMA_BIDIRECTIONAL	0
+
+static inline dma_addr_t
+pci_map_page(struct pci_dev *pdev, struct vm_page *page, unsigned long offset, size_t size, int direction)
+{
+	return VM_PAGE_TO_PHYS(page);
+}
+
+static inline void
+pci_unmap_page(struct pci_dev *pdev, dma_addr_t dma_address, size_t size, int direction)
+{
+}
+
+static inline int
+pci_dma_mapping_error(struct pci_dev *pdev, dma_addr_t dma_addr)
+{
+	return 0;
+}
+
+#endif
+
 #define memcpy_toio(d, s, n)	memcpy(d, s, n)
 #define memcpy_fromio(d, s, n)	memcpy(d, s, n)
 #define memset_io(d, b, n)	memset(d, b, n)
@@ -949,6 +1100,7 @@ iowrite32(u32 val, volatile void __iomem *addr)
 }
 
 #define readl(p) ioread32(p)
+#define writel(v, p) iowrite32(v, p)
 #define readq(p) ioread64(p)
 
 #define page_to_phys(page)	(VM_PAGE_TO_PHYS(page))
@@ -994,7 +1146,7 @@ roundup_pow_of_two(unsigned long x)
 	return (1UL << flsl(x - 1));
 }
 
-#define is_power_of_2(x)	((((x)-1)&(x))==0)
+#define is_power_of_2(x)	(x != 0 && (((x) - 1) & (x)) == 0)
 
 #define PAGE_ALIGN(addr)	(((addr) + PAGE_MASK) & ~PAGE_MASK)
 #define IS_ALIGNED(x, y)	(((x) & ((y) - 1)) == 0)
@@ -1088,6 +1240,27 @@ of_machine_is_compatible(const char *model)
 }
 #endif
 
+struct vm_page *alloc_pages(unsigned int, unsigned int);
+void	__free_pages(struct vm_page *, unsigned int);
+
+static inline struct vm_page *
+alloc_page(unsigned int gfp_mask)
+{
+	return alloc_pages(gfp_mask, 0);
+}
+
+static inline void
+__free_page(struct vm_page *page)
+{
+	return __free_pages(page, 0);
+}
+
+static inline unsigned int
+get_order(size_t size)
+{
+	return flsl((size - 1) >> PAGE_SHIFT);
+}
+
 #if defined(__i386__) || defined(__amd64__)
 
 static inline void
@@ -1170,3 +1343,15 @@ __copy_from_user_inatomic_nocache(void *to, const void *from, unsigned len)
 }
 
 #endif
+
+struct fb_var_screeninfo {
+	int pixclock;
+};
+
+struct fb_info {
+	struct fb_var_screeninfo var;
+	void *par;
+};
+
+#define framebuffer_alloc(flags, device) \
+	kzalloc(sizeof(struct fb_info), GFP_KERNEL)

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uname.c,v 1.13 2015/01/16 06:40:13 deraadt Exp $	*/
+/*	$OpenBSD: uname.c,v 1.15 2015/10/03 12:41:16 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1994 Winning Strategies, Inc.
@@ -58,6 +58,9 @@ main(int argc, char *argv[])
 	int print_mask = 0;
 
 	setlocale(LC_ALL, "");
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	while ((c = getopt(argc, argv, "amnrsvp")) != -1 ) {
 		switch (c) {

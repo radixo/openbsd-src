@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.124 2015/08/05 12:46:12 deraadt Exp $	*/
+/*	$OpenBSD: ping.c,v 1.127 2015/10/09 01:37:06 deraadt Exp $	*/
 /*	$NetBSD: ping.c,v 1.20 1995/08/11 22:37:58 cgd Exp $	*/
 
 /*
@@ -501,6 +501,14 @@ main(int argc, char *argv[])
 	else
 		(void)printf("PING %s: %d data bytes\n", hostname, datalen);
 
+	if (options & F_NUMERIC) {
+		if (pledge("stdio inet", NULL) == -1)
+			err(1, "pledge");
+	} else {
+		if (pledge("stdio inet dns", NULL) == -1)
+			err(1, "pledge");
+	}
+
 	(void)signal(SIGINT, finish);
 	(void)signal(SIGALRM, catcher);
 	(void)signal(SIGINFO, prtsig);
@@ -615,7 +623,6 @@ void
 pinger(void)
 {
 	struct icmp *icp;
-	char buf[8192];
 	int cc, i;
 	u_char *packet = outpack;
 
@@ -680,9 +687,8 @@ pinger(void)
 	if (i < 0 || i != cc)  {
 		if (i < 0)
 			perror("ping: sendto");
-		snprintf(buf, sizeof buf, "ping: wrote %s %d chars, ret=%d\n",
+		dprintf(STDOUT_FILENO, "ping: wrote %s %d chars, ret=%d\n",
 		    hostname, cc, i);
-		write(STDOUT_FILENO, buf, strlen(buf));
 	}
 	if (!(options & F_QUIET) && options & F_FLOOD)
 		(void)write(STDOUT_FILENO, &DOT, 1);

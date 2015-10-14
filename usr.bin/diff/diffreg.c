@@ -1,4 +1,4 @@
-/*	$OpenBSD: diffreg.c,v 1.85 2015/02/05 12:59:57 millert Exp $	*/
+/*	$OpenBSD: diffreg.c,v 1.88 2015/10/05 20:15:00 millert Exp $	*/
 
 /*
  * Copyright (C) Caldera International Inc.  2001-2002.
@@ -71,6 +71,7 @@
 #include <err.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <paths.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -80,7 +81,6 @@
 #include <limits.h>
 
 #include "diff.h"
-#include "pathnames.h"
 #include "xmalloc.h"
 
 #define MINIMUM(a, b)	(((a) < (b)) ? (a) : (b))
@@ -293,8 +293,7 @@ int
 diffreg(char *file1, char *file2, int flags)
 {
 	FILE *f1, *f2;
-	int i, rval, ostdout = -1;
-	pid_t pid = -1;
+	int i, rval;
 
 	f1 = f2 = NULL;
 	rval = D_SAME;
@@ -370,45 +369,6 @@ diffreg(char *file1, char *file2, int flags)
 		status |= 1;
 		goto closem;
 	}
-	if (lflag) {
-		/* redirect stdout to pr */
-		int pfd[2];
-		char *header;
-		char *prargv[] = { "pr", "-h", NULL, "-f", NULL };
-
-		xasprintf(&header, "%s %s %s", diffargs, file1, file2);
-		prargv[2] = header;
-		fflush(stdout);
-		rewind(stdout);
-		pipe(pfd);
-		switch ((pid = fork())) {
-		case -1:
-			warnx("No more processes");
-			status |= 2;
-			xfree(header);
-			rval = D_ERROR;
-			goto closem;
-		case 0:
-			/* child */
-			if (pfd[0] != STDIN_FILENO) {
-				dup2(pfd[0], STDIN_FILENO);
-				close(pfd[0]);
-			}
-			close(pfd[1]);
-			execv(_PATH_PR, prargv);
-			_exit(127);
-		default:
-			/* parent */
-			if (pfd[1] != STDOUT_FILENO) {
-				ostdout = dup(STDOUT_FILENO);
-				dup2(pfd[1], STDOUT_FILENO);
-				close(pfd[1]);
-			}
-			close(pfd[0]);
-			rewind(stdout);
-			xfree(header);
-		}
-	}
 	prepare(0, f1, stb1.st_size, flags);
 	prepare(1, f2, stb2.st_size, flags);
 
@@ -429,31 +389,18 @@ diffreg(char *file1, char *file2, int flags)
 	clistlen = 100;
 	clist = xcalloc(clistlen, sizeof(*clist));
 	i = stone(class, slen[0], member, klist, flags);
-	xfree(member);
-	xfree(class);
+	free(member);
+	free(class);
 
 	J = xreallocarray(J, len[0] + 2, sizeof(*J));
 	unravel(klist[i]);
-	xfree(clist);
-	xfree(klist);
+	free(clist);
+	free(klist);
 
 	ixold = xreallocarray(ixold, len[0] + 2, sizeof(*ixold));
 	ixnew = xreallocarray(ixnew, len[1] + 2, sizeof(*ixnew));
 	check(f1, f2, flags);
 	output(file1, f1, file2, f2, flags);
-	if (ostdout != -1) {
-		int wstatus;
-
-		/* close the pipe to pr and restore stdout */
-		fflush(stdout);
-		rewind(stdout);
-		if (ostdout != STDOUT_FILENO) {
-			close(STDOUT_FILENO);
-			dup2(ostdout, STDOUT_FILENO);
-			close(ostdout);
-		}
-		waitpid(pid, &wstatus, 0);
-	}
 closem:
 	if (anychange) {
 		status |= 1;
@@ -899,7 +846,7 @@ unsort(struct line *f, int l, int *b)
 		a[f[i].serial] = f[i].value;
 	for (i = 1; i <= l; i++)
 		b[i] = a[i];
-	xfree(a);
+	free(a);
 }
 
 static int
@@ -1006,7 +953,7 @@ ignoreline(char *line)
 	int ret;
 
 	ret = regexec(&ignore_re, line, 0, NULL, 0);
-	xfree(line);
+	free(line);
 	return (ret == 0);	/* if it matched, it should be ignored. */
 }
 
@@ -1137,7 +1084,7 @@ proceed:
 		 * back and restart where we left off.
 		 */
 		diff_output(".\n");
-		diff_output("%ds/^\\.\\././\n", a);
+		diff_output("%ds/.//\n", a);
 		a += i;
 		c += i;
 		goto restart;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: server_http.c,v 1.98 2015/08/21 07:30:50 reyk Exp $	*/
+/*	$OpenBSD: server_http.c,v 1.100 2015/10/13 07:57:13 reyk Exp $	*/
 
 /*
  * Copyright (c) 2006 - 2015 Reyk Floeter <reyk@openbsd.org>
@@ -195,6 +195,7 @@ server_http_authenticate(struct server_config *srv_conf, struct client *clt)
 		}
 	}
 done:
+	free(line);
 	if (fp != NULL)
 		fclose(fp);
 
@@ -918,7 +919,7 @@ server_expand_http(struct client *clt, const char *val, char *buf,
 	/* Find previously matched substrings by index */
 	for (p = val; clt->clt_srv_match.sm_nmatch &&
 	    (p = strstr(p, "%")) != NULL; p++) {
-		if (!isdigit(*(p + 1)))
+		if (!isdigit((unsigned char)*(p + 1)))
 			continue;
 
 		/* Copy number, leading '%' char and add trailing \0 */

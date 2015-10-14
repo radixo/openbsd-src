@@ -1,4 +1,4 @@
-/*	$OpenBSD: rev.c,v 1.9 2007/03/16 17:16:28 jasper Exp $	*/
+/*	$OpenBSD: rev.c,v 1.11 2015/10/07 06:18:00 deraadt Exp $	*/
 /*	$NetBSD: rev.c,v 1.5 1995/09/28 08:49:40 tls Exp $	*/
 
 /*-
@@ -48,6 +48,9 @@ main(int argc, char *argv[])
 	FILE *fp;
 	size_t len;
 	int ch, rval;
+
+	if (pledge("stdio rpath", NULL) == -1)
+		err(1, "pledge");
 
 	while ((ch = getopt(argc, argv, "")) != -1)
 		switch(ch) {

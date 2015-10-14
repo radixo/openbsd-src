@@ -1,4 +1,4 @@
-/*	$OpenBSD: term_ps.c,v 1.38 2015/03/27 21:17:16 schwarze Exp $ */
+/*	$OpenBSD: term_ps.c,v 1.42 2015/10/12 00:07:27 schwarze Exp $ */
 /*
  * Copyright (c) 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -18,6 +18,7 @@
 #include <sys/types.h>
 
 #include <assert.h>
+#include <err.h>
 #include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -102,8 +103,7 @@ static	void		  ps_printf(struct termp *, const char *, ...);
 static	void		  ps_putchar(struct termp *, char);
 static	void		  ps_setfont(struct termp *, enum termfont);
 static	void		  ps_setwidth(struct termp *, int, int);
-static	struct termp	 *pspdf_alloc(const struct mchars *,
-				const struct manoutput *);
+static	struct termp	 *pspdf_alloc(const struct manoutput *);
 static	void		  pdf_obj(struct termp *, size_t);
 
 /*
@@ -504,29 +504,29 @@ static	const struct font fonts[TERMFONT__MAX] = {
 };
 
 void *
-pdf_alloc(const struct mchars *mchars, const struct manoutput *outopts)
+pdf_alloc(const struct manoutput *outopts)
 {
 	struct termp	*p;
 
-	if (NULL != (p = pspdf_alloc(mchars, outopts)))
+	if (NULL != (p = pspdf_alloc(outopts)))
 		p->type = TERMTYPE_PDF;
 
-	return(p);
+	return p;
 }
 
 void *
-ps_alloc(const struct mchars *mchars, const struct manoutput *outopts)
+ps_alloc(const struct manoutput *outopts)
 {
 	struct termp	*p;
 
-	if (NULL != (p = pspdf_alloc(mchars, outopts)))
+	if (NULL != (p = pspdf_alloc(outopts)))
 		p->type = TERMTYPE_PS;
 
-	return(p);
+	return p;
 }
 
 static struct termp *
-pspdf_alloc(const struct mchars *mchars, const struct manoutput *outopts)
+pspdf_alloc(const struct manoutput *outopts)
 {
 	struct termp	*p;
 	unsigned int	 pagex, pagey;
@@ -534,7 +534,6 @@ pspdf_alloc(const struct mchars *mchars, const struct manoutput *outopts)
 	const char	*pp;
 
 	p = mandoc_calloc(1, sizeof(struct termp));
-	p->symtab = mchars;
 	p->enc = TERMENC_ASCII;
 	p->fontq = mandoc_reallocarray(NULL,
 	    (p->fontsz = 8), sizeof(enum termfont));
@@ -577,7 +576,7 @@ pspdf_alloc(const struct mchars *mchars, const struct manoutput *outopts)
 			pagex = 216;
 			pagey = 356;
 		} else if (2 != sscanf(pp, "%ux%u", &pagex, &pagey))
-			fprintf(stderr, "%s: Unknown paper\n", pp);
+			warnx("%s: Unknown paper", pp);
 	}
 
 	/*
@@ -611,7 +610,7 @@ pspdf_alloc(const struct mchars *mchars, const struct manoutput *outopts)
 	p->ps->lineheight = lineheight;
 
 	p->defrmargin = pagex - (marginx * 2);
-	return(p);
+	return p;
 }
 
 static void
@@ -980,9 +979,7 @@ ps_pletter(struct termp *p, int c)
 
 	switch (c) {
 	case '(':
-		/* FALLTHROUGH */
 	case ')':
-		/* FALLTHROUGH */
 	case '\\':
 		ps_putchar(p, '\\');
 		break;
@@ -1265,7 +1262,7 @@ ps_width(const struct termp *p, int c)
 	else
 		c -= 32;
 
-	return((size_t)fonts[(int)TERMFONT_NONE].gly[c].wx);
+	return (size_t)fonts[(int)TERMFONT_NONE].gly[c].wx;
 }
 
 static int
@@ -1320,7 +1317,7 @@ ps_hspan(const struct termp *p, const struct roffsu *su)
 		break;
 	}
 
-	return(r * 24.0);
+	return r * 24.0;
 }
 
 static void

@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_subr.c,v 1.232 2015/07/16 18:17:27 claudio Exp $	*/
+/*	$OpenBSD: vfs_subr.c,v 1.235 2015/10/08 08:41:58 mpi Exp $	*/
 /*	$NetBSD: vfs_subr.c,v 1.53 1996/04/22 01:39:13 christos Exp $	*/
 
 /*
@@ -296,16 +296,30 @@ vattr_null(struct vattr *vap)
 {
 
 	vap->va_type = VNON;
-	/* XXX These next two used to be one line, but for a GCC bug. */
+	/*
+	 * Don't get fancy: u_quad_t = u_int = VNOVAL leaves the u_quad_t
+	 * with 2^31-1 instead of 2^64-1.  Just write'm out and let
+	 * the compiler do its job.
+	 */
+	vap->va_mode = VNOVAL;
+	vap->va_nlink = VNOVAL;
+	vap->va_uid = VNOVAL;
+	vap->va_gid = VNOVAL;
+	vap->va_fsid = VNOVAL;
+	vap->va_fileid = VNOVAL;
 	vap->va_size = VNOVAL;
+	vap->va_blocksize = VNOVAL;
+	vap->va_atime.tv_sec = VNOVAL;
+	vap->va_atime.tv_nsec = VNOVAL;
+	vap->va_mtime.tv_sec = VNOVAL;
+	vap->va_mtime.tv_nsec = VNOVAL;
+	vap->va_ctime.tv_sec = VNOVAL;
+	vap->va_ctime.tv_nsec = VNOVAL;
+	vap->va_gen = VNOVAL;
+	vap->va_flags = VNOVAL;
+	vap->va_rdev = VNOVAL;
 	vap->va_bytes = VNOVAL;
-	vap->va_mode = vap->va_nlink = vap->va_uid = vap->va_gid =
-		vap->va_fsid = vap->va_fileid =
-		vap->va_blocksize = vap->va_rdev =
-		vap->va_atime.tv_sec = vap->va_atime.tv_nsec =
-		vap->va_mtime.tv_sec = vap->va_mtime.tv_nsec =
-		vap->va_ctime.tv_sec = vap->va_ctime.tv_nsec =
-		vap->va_flags = vap->va_gen = VNOVAL;
+	vap->va_filerev = VNOVAL;
 	vap->va_vaflags = 0;
 }
 
@@ -1385,7 +1399,7 @@ vfs_hang_addrlist(struct mount *mp, struct netexport *nep,
 	case AF_INET:
 		if ((rnh = nep->ne_rtable_inet) == NULL) {
 			if (!rn_inithead((void **)&nep->ne_rtable_inet,
-			    offsetof(struct sockaddr_in, sin_addr) * 8)) {
+			    offsetof(struct sockaddr_in, sin_addr))) {
 				error = ENOBUFS;
 				goto out;
 			}
@@ -1396,8 +1410,7 @@ vfs_hang_addrlist(struct mount *mp, struct netexport *nep,
 		error = EINVAL;
 		goto out;
 	}
-	rn = (*rnh->rnh_addaddr)((caddr_t)saddr, (caddr_t)smask, rnh,
-		np->netc_rnodes, 0);
+	rn = rn_addroute(saddr, smask, rnh, np->netc_rnodes, 0);
 	if (rn == 0 || np != (struct netcred *)rn) { /* already exists */
 		error = EPERM;
 		goto out;
@@ -1416,7 +1429,7 @@ vfs_free_netcred(struct radix_node *rn, void *w, u_int id)
 {
 	struct radix_node_head *rnh = (struct radix_node_head *)w;
 
-	(*rnh->rnh_deladdr)(rn->rn_key, rn->rn_mask, rnh, NULL);
+	rn_delete(rn->rn_key, rn->rn_mask, rnh, NULL);
 	free(rn, M_NETADDR, 0);
 	return (0);
 }
@@ -1430,7 +1443,7 @@ vfs_free_addrlist(struct netexport *nep)
 	struct radix_node_head *rnh;
 
 	if ((rnh = nep->ne_rtable_inet) != NULL) {
-		(*rnh->rnh_walktree)(rnh, vfs_free_netcred, rnh);
+		rn_walktree(rnh, vfs_free_netcred, rnh);
 		free(rnh, M_RTABLE, 0);
 		nep->ne_rtable_inet = NULL;
 	}
@@ -1475,11 +1488,8 @@ vfs_export_lookup(struct mount *mp, struct netexport *nep, struct mbuf *nam)
 				rnh = NULL;
 				break;
 			}
-			if (rnh != NULL) {
-				np = (struct netcred *)
-					(*rnh->rnh_matchaddr)((caddr_t)saddr,
-					    rnh);
-			}
+			if (rnh != NULL)
+				np = (struct netcred *)rn_match(saddr, rnh);
 		}
 		/*
 		 * If no address match, use the default if it exists.

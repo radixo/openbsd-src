@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.42 2015/09/13 09:58:03 kettenis Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.47 2015/10/05 15:19:29 uebayasi Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -39,6 +39,7 @@
 #include <sys/queue.h>
 #include <sys/mbuf.h>
 #include <sys/srp.h>
+#include <sys/refcnt.h>
 #ifdef _KERNEL
 #include <net/hfsc.h>
 #endif
@@ -119,7 +120,7 @@ TAILQ_HEAD(ifnet_head, ifnet);		/* the actual queue head */
 
 struct ifnet {				/* and the entries */
 	void	*if_softc;		/* lower-level data for this if */
-	unsigned int if_refcnt;
+	struct	refcnt if_refcnt;
 	TAILQ_ENTRY(ifnet) if_list;	/* all struct ifnets are chained */
 	TAILQ_ENTRY(ifnet) if_txlist;	/* list of ifnets ready to tx */
 	TAILQ_HEAD(, ifaddr) if_addrlist; /* linked list of addresses per if */
@@ -132,7 +133,6 @@ struct ifnet {				/* and the entries */
 	int	if_pcount;		/* number of promiscuous listeners */
 	caddr_t	if_bpf;			/* packet filter structure */
 	caddr_t if_bridgeport;		/* used by bridge ports */
-	caddr_t	if_tp;			/* used by trunk ports */
 	caddr_t	if_pf_kif;		/* pf interface abstraction */
 	union {
 		caddr_t	carp_s;		/* carp structure (used by !carp ifs) */
@@ -194,6 +194,7 @@ struct ifnet {				/* and the entries */
 #define	if_imcasts	if_data.ifi_imcasts
 #define	if_omcasts	if_data.ifi_omcasts
 #define	if_iqdrops	if_data.ifi_iqdrops
+#define	if_oqdrops	if_data.ifi_oqdrops
 #define	if_noproto	if_data.ifi_noproto
 #define	if_lastchange	if_data.ifi_lastchange
 #define	if_capabilities	if_data.ifi_capabilities
@@ -323,22 +324,22 @@ do {									\
 #define	IF_LEN(ifq)		((ifq)->ifq_len)
 #define	IF_IS_EMPTY(ifq)	((ifq)->ifq_len == 0)
 
-/* XXX pattr unused */
-#define	IFQ_ENQUEUE(ifq, m, pattr, err)					\
+#define	IFQ_ENQUEUE(ifq, m, err)					\
 do {									\
 	if (HFSC_ENABLED(ifq))						\
 		(err) = hfsc_enqueue(((struct ifqueue *)(ifq)), m);	\
 	else {								\
 		if (IF_QFULL((ifq))) {					\
-			m_freem((m));					\
 			(err) = ENOBUFS;				\
 		} else {						\
 			IF_ENQUEUE((ifq), (m));				\
 			(err) = 0;					\
 		}							\
 	}								\
-	if ((err))							\
+	if ((err)) {							\
+		m_freem((m));						\
 		(ifq)->ifq_drops++;					\
+	}								\
 } while (/* CONSTCOND */0)
 
 #define	IFQ_DEQUEUE(ifq, m)						\

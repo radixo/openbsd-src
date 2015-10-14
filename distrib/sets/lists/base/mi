@@ -56,6 +56,7 @@
 ./etc/examples/dhclient.conf
 ./etc/examples/dhcpd.conf
 ./etc/examples/dvmrpd.conf
+./etc/examples/eigrpd.conf
 ./etc/examples/exports
 ./etc/examples/ftpchroot
 ./etc/examples/hostapd.conf
@@ -143,6 +144,7 @@
 ./etc/rc.d/dhcpd
 ./etc/rc.d/dhcrelay
 ./etc/rc.d/dvmrpd
+./etc/rc.d/eigrpd
 ./etc/rc.d/ftpd
 ./etc/rc.d/ftpproxy
 ./etc/rc.d/ftpproxy6
@@ -2282,6 +2284,8 @@
 ./usr/sbin/dvmrpctl
 ./usr/sbin/dvmrpd
 ./usr/sbin/edquota
+./usr/sbin/eigrpctl
+./usr/sbin/eigrpd
 ./usr/sbin/ftp-proxy
 ./usr/sbin/fw_update
 ./usr/sbin/group
@@ -2779,6 +2783,7 @@
 ./usr/share/zoneinfo/America/Eirunepe
 ./usr/share/zoneinfo/America/El_Salvador
 ./usr/share/zoneinfo/America/Ensenada
+./usr/share/zoneinfo/America/Fort_Nelson
 ./usr/share/zoneinfo/America/Fort_Wayne
 ./usr/share/zoneinfo/America/Fortaleza
 ./usr/share/zoneinfo/America/Glace_Bay
@@ -3390,6 +3395,7 @@
 ./usr/share/zoneinfo/posix/America/Eirunepe
 ./usr/share/zoneinfo/posix/America/El_Salvador
 ./usr/share/zoneinfo/posix/America/Ensenada
+./usr/share/zoneinfo/posix/America/Fort_Nelson
 ./usr/share/zoneinfo/posix/America/Fort_Wayne
 ./usr/share/zoneinfo/posix/America/Fortaleza
 ./usr/share/zoneinfo/posix/America/Glace_Bay
@@ -4002,6 +4008,7 @@
 ./usr/share/zoneinfo/right/America/Eirunepe
 ./usr/share/zoneinfo/right/America/El_Salvador
 ./usr/share/zoneinfo/right/America/Ensenada
+./usr/share/zoneinfo/right/America/Fort_Nelson
 ./usr/share/zoneinfo/right/America/Fort_Wayne
 ./usr/share/zoneinfo/right/America/Fortaleza
 ./usr/share/zoneinfo/right/America/Glace_Bay

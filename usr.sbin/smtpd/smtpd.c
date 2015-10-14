@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.c,v 1.238 2015/01/20 17:37:54 deraadt Exp $	*/
+/*	$OpenBSD: smtpd.c,v 1.245 2015/10/13 07:18:53 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -33,6 +33,7 @@
 #include <errno.h>
 #include <event.h>
 #include <fcntl.h>
+#include <fts.h>
 #include <imsg.h>
 #include <inttypes.h>
 #include <login_cap.h>
@@ -352,7 +353,8 @@ parent_sig_handler(int sig, short event, void *p)
 				} else
 					len = asprintf(&cause, "exited okay");
 			} else
-				fatalx("smtpd: unexpected cause of SIGCHLD");
+				/* WIFSTOPPED or WIFCONTINUED */
+				continue;
 
 			if (len == -1)
 				fatal("asprintf");
@@ -605,26 +607,16 @@ main(int argc, char *argv[])
 				err(1, "strdup");
 		}
 		else {
-			char   *buf;
-			char   *lbuf;
-			size_t	len;
+			char   *buf = NULL;
+			size_t	sz = 0;
+			ssize_t	len;
 
 			if (strcasecmp(env->sc_queue_key, "stdin") == 0) {
-				lbuf = NULL;
-				buf = fgetln(stdin, &len);
-				if (buf[len - 1] == '\n') {
-					lbuf = calloc(len, 1);
-					if (lbuf == NULL)
-						err(1, "calloc");
-					memcpy(lbuf, buf, len-1);
-				}
-				else {
-					lbuf = calloc(len+1, 1);
-					if (lbuf == NULL)
-						err(1, "calloc");
-					memcpy(lbuf, buf, len);
-				}
-				env->sc_queue_key = lbuf;
+				if ((len = getline(&buf, &sz, stdin)) == -1)
+					err(1, "getline");
+				if (buf[len - 1] == '\n')
+					buf[len - 1] = '\0';
+				env->sc_queue_key = buf;
 			}
 		}
 	}
@@ -768,8 +760,10 @@ fork_peers(void)
 void
 post_fork(int proc)
 {
-	if (proc != PROC_QUEUE && env->sc_queue_key)
+	if (proc != PROC_QUEUE && env->sc_queue_key) {
 		explicit_bzero(env->sc_queue_key, strlen(env->sc_queue_key));
+		free(env->sc_queue_key);
+	}
 
 	if (proc != PROC_CONTROL) {
 		close(control_socket);
@@ -905,7 +899,6 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 	struct child	*child;
 	pid_t		 pid;
 	int		 allout, pipefd[2];
-	mode_t		 omode;
 
 	log_debug("debug: smtpd: forking mda for session %016"PRIx64
 	    ": \"%s\" as %s", id, deliver->to, deliver->user);
@@ -941,9 +934,7 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 
 	/* prepare file which captures stdout and stderr */
 	(void)strlcpy(sfn, "/tmp/smtpd.out.XXXXXXXXXXX", sizeof(sfn));
-	omode = umask(7077);
 	allout = mkstemp(sfn);
-	umask(omode);
 	if (allout < 0) {
 		(void)snprintf(ebuf, sizeof ebuf, "mkstemp: %s", strerror(errno));
 		m_create(p_pony, IMSG_MDA_DONE, 0, 0, -1);
@@ -1011,28 +1002,49 @@ forkmda(struct mproc *p, uint64_t id, struct deliver *deliver)
 static void
 offline_scan(int fd, short ev, void *arg)
 {
-	DIR		*dir = arg;
-	struct dirent	*d;
+	char		*path_argv[2];
+	FTS		*fts = arg;
+	FTSENT		*e;
 	int		 n = 0;
 
-	if (dir == NULL) {
+	path_argv[0] = PATH_SPOOL PATH_OFFLINE;
+	path_argv[1] = NULL;
+
+	if (fts == NULL) {
 		log_debug("debug: smtpd: scanning offline queue...");
-		if ((dir = opendir(PATH_SPOOL PATH_OFFLINE)) == NULL)
-			errx(1, "smtpd: opendir");
+		fts = fts_open(path_argv, FTS_PHYSICAL | FTS_NOCHDIR, NULL);
+		if (fts == NULL) {
+			log_warn("fts_open: %s", path_argv[0]);
+			return;
+		}
 	}
 
-	while ((d = readdir(dir)) != NULL) {
-		if (d->d_type != DT_REG)
+	while ((e = fts_read(fts)) != NULL) {
+		if (e->fts_info != FTS_F)
 			continue;
 
-		if (offline_add(d->d_name)) {
+		/* offline files must be at depth 1 */
+		if (e->fts_level != 1)
+			continue;
+
+		/* offline file group must match parent directory group */
+		if (e->fts_statp->st_gid != e->fts_parent->fts_statp->st_gid)
+			continue;
+
+		if (e->fts_statp->st_size == 0) {
+			if (unlink(e->fts_accpath) == -1)
+				log_warnx("warn: smtpd: could not unlink %s", e->fts_accpath);
+			continue;
+		}
+		
+		if (offline_add(e->fts_name)) {
 			log_warnx("warn: smtpd: "
-			    "could not add offline message %s", d->d_name);
+			    "could not add offline message %s", e->fts_name);
 			continue;
 		}
 
 		if ((n++) == OFFLINE_READMAX) {
-			evtimer_set(&offline_ev, offline_scan, dir);
+			evtimer_set(&offline_ev, offline_scan, fts);
 			offline_timeout.tv_sec = 0;
 			offline_timeout.tv_usec = 100000;
 			evtimer_add(&offline_ev, &offline_timeout);
@@ -1041,25 +1053,28 @@ offline_scan(int fd, short ev, void *arg)
 	}
 
 	log_debug("debug: smtpd: offline scanning done");
-	closedir(dir);
+	fts_close(fts);
 }
 
 static int
 offline_enqueue(char *name)
 {
-	char		 t[PATH_MAX], *path;
+	char		*path;
 	struct stat	 sb;
 	pid_t		 pid;
 	struct child	*child;
 	struct passwd	*pw;
+	int		 pathlen;
 
-	if (!bsnprintf(t, sizeof t, "%s/%s", PATH_SPOOL PATH_OFFLINE, name)) {
-		log_warnx("warn: smtpd: path name too long");
+	pathlen = asprintf(&path, "%s/%s", PATH_SPOOL PATH_OFFLINE, name);
+	if (pathlen == -1) {
+		log_warnx("warn: smtpd: asprintf");
 		return (-1);
 	}
 
-	if ((path = strdup(t)) == NULL) {
-		log_warn("warn: smtpd: strdup");
+	if (pathlen >= PATH_MAX) {
+		log_warnx("warn: smtpd: pathname exceeds PATH_MAX");
+		free(path);
 		return (-1);
 	}
 
@@ -1072,20 +1087,36 @@ offline_enqueue(char *name)
 	}
 
 	if (pid == 0) {
-		char	*envp[2], *p, *tmp;
+		char	*envp[2], *p = NULL, *tmp;
+		int	 fd;
 		FILE	*fp;
-		size_t	 len;
+		size_t	 sz = 0;
+		ssize_t	 len;
 		arglist	 args;
+
+		if (closefrom(STDERR_FILENO + 1) == -1)
+			_exit(1);
 
 		memset(&args, 0, sizeof(args));
 
-		if (lstat(path, &sb) == -1) {
-			log_warn("warn: smtpd: lstat: %s", path);
+		if ((fd = open(path, O_RDONLY|O_NOFOLLOW|O_NONBLOCK)) == -1) {
+			log_warn("warn: smtpd: open: %s", path);
 			_exit(1);
 		}
 
-		if (chflags(path, 0) == -1) {
-			log_warn("warn: smtpd: chflags: %s", path);
+		if (fstat(fd, &sb) == -1) {
+			log_warn("warn: smtpd: fstat: %s", path);
+			_exit(1);
+		}
+
+		if (! S_ISREG(sb.st_mode)) {
+			log_warnx("warn: smtpd: file %s (uid %d) not regular",
+			    path, sb.st_uid);
+			_exit(1);
+		}
+
+		if (sb.st_nlink != 1) {
+			log_warnx("warn: smtpd: file %s is hard-link", path);
 			_exit(1);
 		}
 
@@ -1096,19 +1127,12 @@ offline_enqueue(char *name)
 			_exit(1);
 		}
 
-		if (! S_ISREG(sb.st_mode)) {
-			log_warnx("warn: smtpd: file %s (uid %d) not regular",
-			    path, sb.st_uid);
-			_exit(1);
-		}
-
 		if (setgroups(1, &pw->pw_gid) ||
 		    setresgid(pw->pw_gid, pw->pw_gid, pw->pw_gid) ||
-		    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid) ||
-		    closefrom(STDERR_FILENO + 1) == -1)
+		    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 			_exit(1);
 
-		if ((fp = fopen(path, "r")) == NULL)
+		if ((fp = fdopen(fd, "r")) == NULL)
 			_exit(1);
 
 		if (chdir(pw->pw_dir) == -1 && chdir("/") == -1)
@@ -1119,7 +1143,7 @@ offline_enqueue(char *name)
 		    dup2(fileno(fp), STDIN_FILENO) == -1)
 			_exit(1);
 
-		if ((p = fgetln(fp, &len)) == NULL)
+		if ((len = getline(&p, &sz, fp)) == -1)
 			_exit(1);
 
 		if (p[len - 1] != '\n')
@@ -1132,6 +1156,7 @@ offline_enqueue(char *name)
 		while ((tmp = strsep(&p, "|")) != NULL)
 			addargs(&args, "%s", tmp);
 
+		free(p);
 		if (lseek(fileno(fp), len, SEEK_SET) == -1)
 			_exit(1);
 
@@ -1208,7 +1233,7 @@ parent_forward_open(char *username, char *directory, uid_t uid, gid_t gid)
 	}
 
 	do {
-		fd = open(pathname, O_RDONLY);
+		fd = open(pathname, O_RDONLY|O_NOFOLLOW|O_NONBLOCK);
 	} while (fd == -1 && errno == EINTR);
 	if (fd == -1) {
 		if (errno == ENOENT)
@@ -1217,7 +1242,11 @@ parent_forward_open(char *username, char *directory, uid_t uid, gid_t gid)
 			errno = EAGAIN;
 			return -1;
 		}
-		log_warn("warn: smtpd: parent_forward_open: %s", pathname);
+		if (errno == ELOOP)
+			log_warnx("warn: smtpd: parent_forward_open: %s: "
+			    "cannot follow symbolic links", pathname);
+		else
+			log_warn("warn: smtpd: parent_forward_open: %s", pathname);
 		return -1;
 	}
 

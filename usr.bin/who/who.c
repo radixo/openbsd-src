@@ -1,4 +1,4 @@
-/*	$OpenBSD: who.c,v 1.19 2010/11/15 10:57:49 otto Exp $	*/
+/*	$OpenBSD: who.c,v 1.25 2015/10/11 23:29:56 deraadt Exp $	*/
 /*	$NetBSD: who.c,v 1.4 1994/12/07 04:28:49 jtc Exp $	*/
 
 /*
@@ -62,15 +62,26 @@ int show_quick;			/* quick, names only */
 #define HOST_WIDTH	45
 
 int hostwidth = HOST_WIDTH;
+char *mytty;
 
 int
 main(int argc, char *argv[])
 {
 	struct utmp usr;
 	FILE *ufp;
+	char *t;
 	int c;
 
 	setlocale(LC_ALL, "");
+
+	if (pledge("stdio rpath getpw", NULL) == -1)
+		err(1, "pledge");
+
+	if (mytty = ttyname(0)) {
+		/* strip any directory component */
+		if ((t = strrchr(mytty, '/')))
+			mytty = t + 1;
+	}
 
 	only_current_term = show_term = show_idle = show_labels = 0;
 	show_quick = 0;
@@ -179,21 +190,16 @@ who_am_i(FILE *ufp)
 {
 	struct utmp usr;
 	struct passwd *pw;
-	char *p;
-	char *t;
 
 	/* search through the utmp and find an entry for this tty */
-	if ((p = ttyname(0))) {
-		/* strip any directory component */
-		if ((t = strrchr(p, '/')))
-			p = t + 1;
+	if (mytty) {
 		while (fread((char *)&usr, sizeof(usr), 1, ufp) == 1)
-			if (*usr.ut_name && !strcmp(usr.ut_line, p)) {
+			if (*usr.ut_name && !strcmp(usr.ut_line, mytty)) {
 				output(&usr);
 				return;
 			}
 		/* well, at least we know what the tty is */
-		(void)strncpy(usr.ut_line, p, UT_LINESIZE);
+		(void)strncpy(usr.ut_line, mytty, UT_LINESIZE);
 	} else
 		(void)strncpy(usr.ut_line, "tty??", UT_LINESIZE);
 
@@ -283,6 +289,13 @@ file(char *name)
 	if (!(ufp = fopen(name, "r"))) {
 		err(1, "%s", name);
 		/* NOTREACHED */
+	}
+	if (show_term || show_idle) {
+		if (pledge("stdio rpath getpw", NULL) == -1)
+			err(1, "pledge");
+	} else {
+		if (pledge("stdio getpw", NULL) == -1)
+			err(1, "pledge");
 	}
 	return(ufp);
 }

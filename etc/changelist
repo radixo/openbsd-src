@@ -1,4 +1,4 @@
-#	$OpenBSD: changelist,v 1.107 2015/07/23 14:49:10 sthen Exp $
+#	$OpenBSD: changelist,v 1.109 2015/09/27 14:19:26 naddy Exp $
 #
 # List of files which the security script backs up and checks
 # for modifications.
@@ -28,6 +28,7 @@
 /etc/distfile
 /etc/doas.conf
 /etc/dvmrpd.conf
+/etc/eigrpd.conf
 /etc/ethers
 /etc/exports
 /etc/fbtab
@@ -117,6 +118,8 @@
 /etc/ssh/ssh_host_dsa_key.pub
 +/etc/ssh/ssh_host_ecdsa_key
 /etc/ssh/ssh_host_ecdsa_key.pub
++/etc/ssh/ssh_host_ed25519_key
+/etc/ssh/ssh_host_ed25519_key.pub
 +/etc/ssh/ssh_host_key
 /etc/ssh/ssh_host_key.pub
 +/etc/ssh/ssh_host_rsa_key

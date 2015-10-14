@@ -1,4 +1,4 @@
-/*	$OpenBSD: disksubr.c,v 1.92 2013/10/20 10:11:16 krw Exp $	*/
+/*	$OpenBSD: disksubr.c,v 1.94 2015/09/27 22:34:27 krw Exp $	*/
 /*	$NetBSD: disksubr.c,v 1.16 1996/04/28 20:25:59 thorpej Exp $ */
 
 /*
@@ -83,11 +83,11 @@ readdisklabel(dev_t dev, void (*strat)(struct buf *),
 #if NCD > 0
 	if (strat == cdstrategy) {
 #if defined(CD9660)
-		if ((error = iso_disklabelspoof(dev, strat, lp)) == 0)
+		if (iso_disklabelspoof(dev, strat, lp) == 0)
 			goto done;
 #endif
 #if defined(UDF)
-		if ((error = udf_disklabelspoof(dev, strat, lp)) == 0)
+		if (udf_disklabelspoof(dev, strat, lp) == 0)
 			goto done;
 #endif
 	}
@@ -100,15 +100,9 @@ readdisklabel(dev_t dev, void (*strat)(struct buf *),
 	if (spoofonly)
 		goto doslabel;
 
-	bp->b_blkno = LABELSECTOR;
-	bp->b_bcount = lp->d_secsize;
-	CLR(bp->b_flags, B_READ | B_WRITE | B_DONE);
-	SET(bp->b_flags, B_BUSY | B_READ | B_RAW);
-	(*strat)(bp);
-	if (biowait(bp)) {
-		error = bp->b_error;
+	error = readdisksector(bp, strat, lp, DL_BLKTOSEC(lp, LABELSECTOR));
+	if (error)
 		goto done;
-	}
 
 	slp = (struct sun_disklabel *)bp->b_data;
 	if (slp->sl_magic == SUN_DKMAGIC) {
@@ -228,7 +222,6 @@ sun_extended_sum(struct sun_disklabel *sl, void *end)
 
 /*
  * Given a SunOS disk label, set lp to a BSD disk label.
- *
  * The BSD label is cleared out before this is called.
  */
 static int
@@ -247,7 +240,7 @@ disklabel_sun_to_bsd(struct sun_disklabel *sl, struct disklabel *lp)
 	while (sp1 < sp2)
 		cksum ^= *sp1++;
 	if (cksum != 0)
-		return (EINVAL); /* SunOS disk label, bad checksum */
+		return (EINVAL);	/* SunOS disk label, bad checksum */
 
 	/* Format conversion. */
 	lp->d_magic = DISKMAGIC;
@@ -267,7 +260,7 @@ disklabel_sun_to_bsd(struct sun_disklabel *sl, struct disklabel *lp)
 		DL_SETDSIZE(lp, (u_int64_t)secpercyl * sl->sl_ncylinders);
 	lp->d_version = 1;
 
-	memcpy(&lp->d_uid, &sl->sl_uid, sizeof(sl->sl_uid));
+	memcpy(&lp->d_uid, &sl->sl_uid, sizeof(lp->d_uid));
 
 	lp->d_acylinders = sl->sl_acylinders;
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mesg.c,v 1.7 2007/03/15 22:59:02 jmc Exp $	*/
+/*	$OpenBSD: mesg.c,v 1.9 2015/10/12 06:00:57 deraadt Exp $	*/
 /*	$NetBSD: mesg.c,v 1.4 1994/12/23 07:16:32 jtc Exp $	*/
 
 /*
@@ -51,6 +51,9 @@ main(int argc, char *argv[])
 	struct stat sb;
 	char *tty;
 	int ch;
+
+	if (pledge("stdio rpath fattr", NULL) == -1)
+		err(1, "pledge");
 
 	while ((ch = getopt(argc, argv, "")) != -1)
 		switch (ch) {

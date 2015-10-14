@@ -1,4 +1,4 @@
-/*	$OpenBSD: cgi.c,v 1.46 2015/04/18 16:04:40 schwarze Exp $ */
+/*	$OpenBSD: cgi.c,v 1.48 2015/10/06 18:30:43 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2014, 2015 Ingo Schwarze <schwarze@usta.de>
@@ -330,13 +330,13 @@ http_decode(char *p)
 	for ( ; '\0' != *p; p++, q++) {
 		if ('%' == *p) {
 			if ('\0' == (hex[0] = *(p + 1)))
-				return(0);
+				return 0;
 			if ('\0' == (hex[1] = *(p + 2)))
-				return(0);
+				return 0;
 			if (1 != sscanf(hex, "%x", &c))
-				return(0);
+				return 0;
 			if ('\0' == c)
-				return(0);
+				return 0;
 
 			*q = (char)c;
 			p += 2;
@@ -345,7 +345,7 @@ http_decode(char *p)
 	}
 
 	*q = '\0';
-	return(1);
+	return 1;
 }
 
 static void
@@ -497,10 +497,10 @@ validate_urifrag(const char *frag)
 		if ( ! (isalnum((unsigned char)*frag) ||
 		    '-' == *frag || '.' == *frag ||
 		    '/' == *frag || '_' == *frag))
-			return(0);
+			return 0;
 		frag++;
 	}
-	return(1);
+	return 1;
 }
 
 static int
@@ -509,13 +509,13 @@ validate_manpath(const struct req *req, const char* manpath)
 	size_t	 i;
 
 	if ( ! strcmp(manpath, "mandoc"))
-		return(1);
+		return 1;
 
 	for (i = 0; i < req->psz; i++)
 		if ( ! strcmp(manpath, req->p[i]))
-			return(1);
+			return 1;
 
-	return(0);
+	return 0;
 }
 
 static int
@@ -525,8 +525,8 @@ validate_filename(const char *file)
 	if ('.' == file[0] && '/' == file[1])
 		file += 2;
 
-	return ( ! (strstr(file, "../") || strstr(file, "/..") ||
-	    (strncmp(file, "man", 3) && strncmp(file, "cat", 3))));
+	return ! (strstr(file, "../") || strstr(file, "/..") ||
+	    (strncmp(file, "man", 3) && strncmp(file, "cat", 3)));
 }
 
 static void
@@ -817,7 +817,6 @@ format(const struct req *req, const char *file)
 {
 	struct manoutput conf;
 	struct mparse	*mp;
-	struct mchars	*mchars;
 	struct roff_man	*man;
 	void		*vp;
 	int		 fd;
@@ -828,9 +827,8 @@ format(const struct req *req, const char *file)
 		return;
 	}
 
-	mchars = mchars_alloc();
-	mp = mparse_alloc(MPARSE_SO, MANDOCLEVEL_BADARG, NULL,
-	    mchars, req->q.manpath);
+	mchars_alloc();
+	mp = mparse_alloc(MPARSE_SO, MANDOCLEVEL_BADARG, NULL, req->q.manpath);
 	mparse_readfd(mp, fd, file);
 	close(fd);
 
@@ -850,11 +848,11 @@ format(const struct req *req, const char *file)
 		    req->q.manpath, file);
 		pg_error_internal();
 		mparse_free(mp);
-		mchars_free(mchars);
+		mchars_free();
 		return;
 	}
 
-	vp = html_alloc(mchars, &conf);
+	vp = html_alloc(&conf);
 
 	if (man->macroset == MACROSET_MDOC)
 		html_mdoc(vp, man);
@@ -863,7 +861,7 @@ format(const struct req *req, const char *file)
 
 	html_free(vp);
 	mparse_free(mp);
-	mchars_free(mchars);
+	mchars_free();
 	free(conf.man);
 }
 
@@ -1029,7 +1027,7 @@ main(void)
 	if (setitimer(ITIMER_VIRTUAL, &itimer, NULL) == -1) {
 		fprintf(stderr, "setitimer: %s\n", strerror(errno));
 		pg_error_internal();
-		return(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 
 	/* Scan our run-time environment. */
@@ -1041,7 +1039,7 @@ main(void)
 		fprintf(stderr, "unsafe SCRIPT_NAME \"%s\"\n",
 		    scriptname);
 		pg_error_internal();
-		return(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 
 	/*
@@ -1054,7 +1052,7 @@ main(void)
 		fprintf(stderr, "MAN_DIR: %s: %s\n",
 		    MAN_DIR, strerror(errno));
 		pg_error_internal();
-		return(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 
 	memset(&req, 0, sizeof(struct req));
@@ -1070,13 +1068,13 @@ main(void)
 	else if ( ! validate_manpath(&req, req.q.manpath)) {
 		pg_error_badrequest(
 		    "You specified an invalid manpath.");
-		return(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 
 	if ( ! (NULL == req.q.arch || validate_urifrag(req.q.arch))) {
 		pg_error_badrequest(
 		    "You specified an invalid architecture.");
-		return(EXIT_FAILURE);
+		return EXIT_FAILURE;
 	}
 
 	/* Dispatch to the three different pages. */
@@ -1101,7 +1099,7 @@ main(void)
 	for (i = 0; i < (int)req.psz; i++)
 		free(req.p[i]);
 	free(req.p);
-	return(EXIT_SUCCESS);
+	return EXIT_SUCCESS;
 }
 
 /*
