@@ -147,7 +147,7 @@ ffs_truncate(struct inode *oip, off_t length, int flags, struct ucred *cred)
 	struct fs *fs;
 	struct buf *bp;
 	int offset, size, level;
-	long count, nblocks, vflags, blocksreleased = 0;
+	long count, nblocks, blocksreleased = 0;
 	int i, aflags, error, allerror;
 	off_t osize;
 
@@ -333,8 +333,7 @@ ffs_truncate(struct inode *oip, off_t length, int flags, struct ucred *cred)
 	}
 
 	DIP_ASSIGN(oip, size, osize);
-	vflags = ((length > 0) ? V_SAVE : 0) | V_SAVEMETA;
-	allerror = vinvalbuf(ovp, vflags, cred, curproc, 0, 0);
+	allerror = vtruncbuf(ovp, lastblock + 1, 0, 0);
 
 	/*
 	 * Indirect blocks first.

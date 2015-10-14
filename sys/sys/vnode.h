@@ -597,6 +597,7 @@ void	vattr_null(struct vattr *);
 void	vdevgone(int, int, int, enum vtype);
 int	vcount(struct vnode *);
 int	vfinddev(dev_t, enum vtype, struct vnode **);
+int	vtruncbuf(struct vnode *, daddr_t, int, int);
 void	vflushbuf(struct vnode *, int);
 int	vflush(struct mount *, struct vnode *, int);
 int	vget(struct vnode *, int, struct proc *);

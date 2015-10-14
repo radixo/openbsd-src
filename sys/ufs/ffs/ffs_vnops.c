@@ -766,12 +766,7 @@ loop:
 				goto loop;
 			}
 #ifdef DIAGNOSTIC
-			/*
-			 * if wapbl we will flush the log in
-			 * ffs_wapbl_sync_vnode() and check again
-			 */
-			if (vp->v_type != VBLK &&
-			    vp->v_mount->mnt_wapbl == NULL)
+			if (vp->v_type != VBLK)
 				vprint("ffs_fsync: dirty", vp);
 #endif
 		}

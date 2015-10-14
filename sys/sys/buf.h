@@ -259,7 +259,8 @@ struct cluster_save {
 /* Flags to low-level allocation routines. */
 #define B_CLRBUF	0x01	/* Request allocated buffer be cleared. */
 #define B_SYNC		0x02	/* Do all allocations synchronously. */
-#define B_CONTIG	0x04	/* allocate file contiguously */
+#define	B_METAONLY	0x04 	/* return indirect block buffer */
+#define B_CONTIG	0x08	/* allocate file contiguously */
 
 struct cluster_info {
 	daddr_t	ci_lastr;	/* last read (read-ahead) */
