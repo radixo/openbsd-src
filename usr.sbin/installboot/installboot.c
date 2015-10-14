@@ -1,4 +1,4 @@
-/*	$OpenBSD: installboot.c,v 1.4 2014/01/19 04:14:22 jsing Exp $	*/
+/*	$OpenBSD: installboot.c,v 1.8 2015/10/12 20:52:20 krw Exp $	*/
 
 /*
  * Copyright (c) 2012, 2013 Joel Sing <jsing@openbsd.org>
@@ -86,10 +86,16 @@ main(int argc, char **argv)
 	/* Prefix stages with root, unless they were user supplied. */
 	if (verbose)
 		fprintf(stderr, "Using %s as root\n", root);
-	if (argc <= 1 && stage1 != NULL)
+	if (argc <= 1 && stage1 != NULL) {
 		stage1 = fileprefix(root, stage1);
-	if (argc <= 2 && stage2 != NULL)
+		if (stage1 == NULL)
+			exit(1);
+	}
+	if (argc <= 2 && stage2 != NULL) {
 		stage2 = fileprefix(root, stage2);
+		if (stage2 == NULL)
+			exit(1);
+	}
 
 	if ((devfd = opendev(dev, (nowrite ? O_RDONLY : O_RDWR), OPENDEV_PART,
 	    &realdev)) < 0)
@@ -103,7 +109,7 @@ main(int argc, char **argv)
 		if (stage2)
 			fprintf(stderr, ", second-stage %s", stage2);
 		fprintf(stderr, "\n");
-	} 
+	}
 
 	md_loadboot();
 

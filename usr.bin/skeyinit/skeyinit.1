@@ -1,8 +1,8 @@
-.\"	$OpenBSD: skeyinit.1,v 1.38 2014/04/23 18:24:23 ajacoutot Exp $
+.\"	$OpenBSD: skeyinit.1,v 1.40 2015/10/06 15:09:08 tim Exp $
 .\"	$NetBSD: skeyinit.1,v 1.4 1995/07/07 22:24:09 jtc Exp $
 .\"	@(#)skeyinit.1	1.1 	10/28/93
 .\"
-.Dd $Mdocdate: April 23 2014 $
+.Dd $Mdocdate: October 6 2015 $
 .Dt SKEYINIT 1
 .Os
 .Sh NAME
@@ -11,7 +11,7 @@
 .Sh SYNOPSIS
 .Nm skeyinit
 .Bk -words
-.Op Fl CDErsx
+.Op Fl DErsx
 .Op Fl a Ar auth-type
 .Op Fl n Ar count
 .Op Fl md5 | rmd160 | sha1
@@ -72,14 +72,6 @@ This option allows the authentication type to be specified, such as
 .Dq passwd
 or
 .Dq skey .
-.It Fl C
-Converts from the old-style
-.Pa /etc/skeykeys
-database to a new-style database where user records are stored in the
-.Pa /etc/skey
-directory.
-If an entry already exists in the new-style database it will not
-be overwritten.
 .It Fl D
 Disables access to the S/Key database.
 Only the superuser may use the
@@ -161,9 +153,6 @@ directory containing user entries for S/Key
 .Sh EXAMPLES
 .Bd -literal
 $ skeyinit
-Reminder - Only use this method if you are directly connected
-           or have an encrypted channel.  If you are using telnet,
-           hit return now and use skeyinit -s.
 Password: \*(Ltenter your regular password here\*(Gt
 [Updating user with md5]
 Old seed: [md5] host12377
@@ -172,7 +161,6 @@ Again secret passphrase: \*(Ltagain\*(Gt
 ID user skey is otp-md5 100 host12378
 Next login password: CITE BREW IDLE CAIN ROD DOME
 $ otp-md5 -n 3 100 host12378
-Reminder - Do not use this program while logged in via telnet.
 Enter secret passphrase: \*(Lttype your passphrase here\*(Gt
 98: WERE TUG EDDY GEAR GILL TEE
 99: NEAR HA TILT FIN LONG SNOW

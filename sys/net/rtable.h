@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtable.h,v 1.2 2015/08/20 12:39:43 mpi Exp $ */
+/*	$OpenBSD: rtable.h,v 1.5 2015/10/07 10:50:35 mpi Exp $ */
 
 /*
  * Copyright (c) 2014-2015 Martin Pieuchot
@@ -49,8 +49,12 @@
 
 #endif /* ART */
 
-void		 rtable_init(unsigned int);
-int		 rtable_attach(void **, int);
+void		 rtable_init(void);
+int		 rtable_exists(unsigned int);
+int		 rtable_add(unsigned int);
+unsigned int	 rtable_l2(unsigned int);
+void		 rtable_l2set(unsigned int, unsigned int);
+
 struct rtentry	*rtable_lookup(unsigned int, struct sockaddr *,
 		     struct sockaddr *);
 struct rtentry	*rtable_match(unsigned int, struct sockaddr *);
@@ -58,9 +62,6 @@ int		 rtable_insert(unsigned int, struct sockaddr *,
 		     struct sockaddr *, uint8_t, struct rtentry *);
 int		 rtable_delete(unsigned int, struct sockaddr *,
 		     struct sockaddr *, uint8_t, struct rtentry *);
-
-int		 rtable_setid(void **, unsigned int, sa_family_t);
-void		*rtable_get(unsigned int, sa_family_t);
 int		 rtable_walk(unsigned int, sa_family_t,
 		     int (*)(struct rtentry *, void *, unsigned int), void *);
 
@@ -69,6 +70,6 @@ struct rtentry	*rtable_mpath_match(unsigned int, struct rtentry *,
 		     struct sockaddr *, uint8_t);
 int		 rtable_mpath_conflict(unsigned int, struct sockaddr *,
 		     struct sockaddr *, struct sockaddr *, uint8_t, int);
-struct rtentry	*rtable_mpath_select(struct rtentry *, uint32_t *);
+struct rtentry	*rtable_mpath_select(struct rtentry *, uint32_t);
 void		 rtable_mpath_reprio(struct rtentry *, uint8_t);
 #endif /* _NET_RTABLE_H_ */

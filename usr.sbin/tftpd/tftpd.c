@@ -1,4 +1,4 @@
-/*	$OpenBSD: tftpd.c,v 1.28 2015/07/20 04:28:03 dlg Exp $	*/
+/*	$OpenBSD: tftpd.c,v 1.30 2015/10/06 06:03:11 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2012 David Gwynne <dlg@uq.edu.au>
@@ -57,7 +57,7 @@
  * Information Technology.
  */
 
-#include <sys/ioctl.h>
+#include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
@@ -357,6 +357,9 @@ main(int argc, char *argv[])
 
 	if (!debug && daemon(1, 0) == -1)
 		err(1, "unable to daemonize");
+
+	if (pledge("stdio rpath wpath cpath fattr inet", NULL) == -1)
+		err(1, "pledge");
 
 	event_init();
 

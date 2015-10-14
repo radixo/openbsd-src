@@ -1,4 +1,4 @@
-/*	$OpenBSD: id.c,v 1.22 2015/01/16 06:40:08 deraadt Exp $	*/
+/*	$OpenBSD: id.c,v 1.25 2015/10/05 06:43:31 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993
@@ -57,6 +57,9 @@ main(int argc, char *argv[])
 	uid_t uid;
 	gid_t gid;
 	const char *opts;
+
+	if (pledge("stdio getpw", NULL) == -1)
+		err(1, "pledge");
 
 	cflag = Gflag = gflag = nflag = pflag = rflag = uflag = 0;
 
@@ -274,7 +277,8 @@ user(struct passwd *pw)
 		if ((gr = getgrgid(gid)))
 			(void)printf("(%s)", gr->gr_name);
 		/* Skip same gid entries. */
-		while (++cnt < ngroups && gid == groups[cnt]);
+		while (++cnt < ngroups && gid == groups[cnt])
+			;
 	}
 	(void)printf("\n");
 }
@@ -307,7 +311,8 @@ group(struct passwd *pw, int nflag)
 		}
 		prefix = " ";
 		/* Skip same gid entries. */
-		while (++cnt < ngroups && gid == groups[cnt]);
+		while (++cnt < ngroups && gid == groups[cnt])
+			;
 	}
 	(void)printf("\n");
 }

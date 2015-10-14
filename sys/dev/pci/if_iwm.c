@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwm.c,v 1.47 2015/09/23 17:21:50 stsp Exp $	*/
+/*	$OpenBSD: if_iwm.c,v 1.55 2015/10/11 10:22:28 stsp Exp $	*/
 
 /*
  * Copyright (c) 2014 genua mbh <info@genua.de>
@@ -194,14 +194,6 @@ const struct iwm_rate {
 #define IWM_RIDX_MAX	(nitems(iwm_rates)-1)
 #define IWM_RIDX_IS_CCK(_i_) ((_i_) < IWM_RIDX_OFDM)
 #define IWM_RIDX_IS_OFDM(_i_) ((_i_) >= IWM_RIDX_OFDM)
-
-struct iwm_newstate_state {
-	struct task ns_wk;
-	struct ieee80211com *ns_ic;
-	enum ieee80211_state ns_nstate;
-	int ns_arg;
-	int ns_generation;
-};
 
 int	iwm_store_cscheme(struct iwm_softc *, uint8_t *, size_t);
 int	iwm_firmware_store_section(struct iwm_softc *, enum iwm_ucode_type,
@@ -406,7 +398,7 @@ struct ieee80211_node *iwm_node_alloc(struct ieee80211com *);
 void	iwm_calib_timeout(void *);
 void	iwm_setrates(struct iwm_node *);
 int	iwm_media_change(struct ifnet *);
-void	iwm_newstate_cb(void *);
+void	iwm_newstate_task(void *);
 int	iwm_newstate(struct ieee80211com *, enum ieee80211_state, int);
 void	iwm_endscan_cb(void *);
 int	iwm_init_hw(struct iwm_softc *);
@@ -1070,6 +1062,7 @@ iwm_free_rx_ring(struct iwm_softc *sc, struct iwm_rx_ring *ring)
 			    data->map->dm_mapsize, BUS_DMASYNC_POSTREAD);
 			bus_dmamap_unload(sc->sc_dmat, data->map);
 			m_freem(data->m);
+			data->m = NULL;
 		}
 		if (data->map != NULL)
 			bus_dmamap_destroy(sc->sc_dmat, data->map);
@@ -1177,6 +1170,7 @@ iwm_free_tx_ring(struct iwm_softc *sc, struct iwm_tx_ring *ring)
 			    data->map->dm_mapsize, BUS_DMASYNC_POSTWRITE);
 			bus_dmamap_unload(sc->sc_dmat, data->map);
 			m_freem(data->m);
+			data->m = NULL;
 		}
 		if (data->map != NULL)
 			bus_dmamap_destroy(sc->sc_dmat, data->map);
@@ -2803,8 +2797,10 @@ iwm_run_init_mvm_ucode(struct iwm_softc *sc, int justnvm)
 			printf("%s: failed to read nvm\n", DEVNAME(sc));
 			return error;
 		}
-		memcpy(&sc->sc_ic.ic_myaddr,
-		    &sc->sc_nvm.hw_addr, ETHER_ADDR_LEN);
+
+		if (IEEE80211_ADDR_EQ(etheranyaddr, sc->sc_ic.ic_myaddr))
+			IEEE80211_ADDR_COPY(sc->sc_ic.ic_myaddr,
+			    sc->sc_nvm.hw_addr);
 
 		sc->sc_scan_cmd_len = sizeof(struct iwm_scan_cmd)
 		    + sc->sc_capa_max_probe_len
@@ -3378,7 +3374,7 @@ iwm_send_cmd(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 	/* if the command wants an answer, busy sc_cmd_resp */
 	if (wantresp) {
 		KASSERT(!async);
-		while (sc->sc_wantresp != -1)
+		while (sc->sc_wantresp != IWM_CMD_RESP_IDLE)
 			tsleep(&sc->sc_wantresp, 0, "iwmcmdsl", 0);
 		sc->sc_wantresp = ring->qid << 16 | ring->cur;
 		DPRINTFN(12, ("wantresp is %x\n", sc->sc_wantresp));
@@ -3577,10 +3573,10 @@ iwm_mvm_send_cmd_pdu_status(struct iwm_softc *sc, uint8_t id,
 void
 iwm_free_resp(struct iwm_softc *sc, struct iwm_host_cmd *hcmd)
 {
-	KASSERT(sc->sc_wantresp != -1);
+	KASSERT(sc->sc_wantresp != IWM_CMD_RESP_IDLE);
 	KASSERT((hcmd->flags & (IWM_CMD_WANT_SKB|IWM_CMD_SYNC))
 	    == (IWM_CMD_WANT_SKB|IWM_CMD_SYNC));
-	sc->sc_wantresp = -1;
+	sc->sc_wantresp = IWM_CMD_RESP_IDLE;
 	wakeup(&sc->sc_wantresp);
 }
 
@@ -4634,7 +4630,8 @@ iwm_mvm_ack_rates(struct iwm_softc *sc, struct iwm_node *in,
 	uint8_t ofdm = 0;
 	int i;
 
-	if (IEEE80211_IS_CHAN_2GHZ(ni->ni_chan)) {
+	if (ni->ni_chan == IEEE80211_CHAN_ANYC ||
+	    IEEE80211_IS_CHAN_2GHZ(ni->ni_chan)) {
 		for (i = 0; i <= IWM_LAST_CCK_RATE; i++) {
 			cck |= (1 << i);
 			if (lowest_present_cck > i)
@@ -4998,11 +4995,6 @@ iwm_auth(struct iwm_softc *sc)
 	if (error)
 		return error;
 
-	if ((error = iwm_mvm_mac_ctxt_add(sc, in)) != 0) {
-		DPRINTF(("%s: failed to add MAC\n", DEVNAME(sc)));
-		return error;
-	}
-
 	if ((error = iwm_mvm_phy_ctxt_changed(sc, &sc->sc_phyctxt[0],
 	    in->in_ni.ni_chan, 1, 1)) != 0) {
 		DPRINTF(("%s: failed add phy ctxt\n", DEVNAME(sc)));
@@ -5265,39 +5257,29 @@ iwm_media_change(struct ifnet *ifp)
 }
 
 void
-iwm_newstate_cb(void *wk)
+iwm_newstate_task(void *psc)
 {
-	struct iwm_newstate_state *iwmns = (void *)wk;
-	struct ieee80211com *ic = iwmns->ns_ic;
-	enum ieee80211_state nstate = iwmns->ns_nstate;
-	int generation = iwmns->ns_generation;
+	struct iwm_softc *sc = (struct iwm_softc *)psc;
+	struct ieee80211com *ic = &sc->sc_ic;
+	enum ieee80211_state nstate = sc->ns_nstate;
+	enum ieee80211_state ostate = ic->ic_state;
 	struct iwm_node *in;
-	int arg = iwmns->ns_arg;
-	struct ifnet *ifp = IC2IFP(ic);
-	struct iwm_softc *sc = ifp->if_softc;
+	int arg = sc->ns_arg;
 	int error;
 
-	free(iwmns, M_DEVBUF, sizeof(*iwmns));
+	DPRINTF(("switching state %s->%s\n",
+	    ieee80211_state_name[ostate],
+	    ieee80211_state_name[nstate]));
 
-	DPRINTF(("Prepare to switch state %d->%d\n", ic->ic_state, nstate));
-	if (sc->sc_generation != generation) {
-		DPRINTF(("newstate_cb: someone pulled the plug meanwhile\n"));
-		if (nstate == IEEE80211_S_INIT) {
-			DPRINTF(("newstate_cb: nstate == IEEE80211_S_INIT: calling sc_newstate()\n"));
-			sc->sc_newstate(ic, nstate, arg);
-		}
-		return;
-	}
-
-	DPRINTF(("switching state %d->%d\n", ic->ic_state, nstate));
-
-	if (ic->ic_state == IEEE80211_S_SCAN && nstate != ic->ic_state)
+	if (ostate == IEEE80211_S_SCAN && nstate != ostate)
 		iwm_led_blink_stop(sc);
 
 	/* disable beacon filtering if we're hopping out of RUN */
-	if (ic->ic_state == IEEE80211_S_RUN && nstate != ic->ic_state) {
+	if (ostate == IEEE80211_S_RUN && nstate != ostate)
 		iwm_mvm_disable_beacon_filter(sc, (void *)ic->ic_bss);
 
+	/* Reset the device if moving out of AUTH, ASSOC, or RUN. */
+	if (ostate > IEEE80211_S_SCAN && nstate < ostate) {
 		if (((in = (void *)ic->ic_bss) != NULL))
 			in->in_assoc = 0;
 		iwm_release(sc, NULL);
@@ -5391,25 +5373,15 @@ iwm_newstate_cb(void *wk)
 int
 iwm_newstate(struct ieee80211com *ic, enum ieee80211_state nstate, int arg)
 {
-	struct iwm_newstate_state *iwmns;
 	struct ifnet *ifp = IC2IFP(ic);
 	struct iwm_softc *sc = ifp->if_softc;
 
 	timeout_del(&sc->sc_calib_to);
 
-	iwmns = malloc(sizeof(*iwmns), M_DEVBUF, M_NOWAIT);
-	if (!iwmns) {
-		DPRINTF(("%s: allocating state cb mem failed\n", DEVNAME(sc)));
-		return ENOMEM;
-	}
+	sc->ns_nstate = nstate;
+	sc->ns_arg = arg;
 
-	iwmns->ns_ic = ic;
-	iwmns->ns_nstate = nstate;
-	iwmns->ns_arg = arg;
-	iwmns->ns_generation = sc->sc_generation;
-
-	task_set(&iwmns->ns_wk, iwm_newstate_cb, iwmns);
-	task_add(sc->sc_nswq, &iwmns->ns_wk);
+	task_add(sc->sc_nswq, &sc->newstate_task);
 
 	return 0;
 }
@@ -5451,6 +5423,7 @@ int
 iwm_init_hw(struct iwm_softc *sc)
 {
 	struct ieee80211com *ic = &sc->sc_ic;
+	struct iwm_node *in = (struct iwm_node *)ic->ic_bss;
 	int error, i, qid;
 
 	if ((error = iwm_preinit(sc)) != 0)
@@ -5513,6 +5486,12 @@ iwm_init_hw(struct iwm_softc *sc)
 	for (qid = 0; qid < 4; qid++) {
 		iwm_enable_txq(sc, qid, qid);
 	}
+
+	/* Add the MAC context. */
+	if ((error = iwm_mvm_mac_ctxt_add(sc, in)) != 0) {
+		printf("%s: failed to add MAC\n", DEVNAME(sc));
+		goto error;
+ 	}
 
 	return 0;
 
@@ -5593,7 +5572,7 @@ iwm_start(struct ifnet *ifp)
 	struct ieee80211_node *ni;
 	struct ether_header *eh;
 	struct mbuf *m;
-	int ac;
+	int ac = EDCA_AC_BE; /* XXX */
 
 	if ((ifp->if_flags & (IFF_RUNNING | IFF_OACTIVE)) != IFF_RUNNING)
 		return;
@@ -5609,7 +5588,6 @@ iwm_start(struct ifnet *ifp)
 		IF_DEQUEUE(&ic->ic_mgtq, m);
 		if (m) {
 			ni = m->m_pkthdr.ph_cookie;
-			ac = 0;
 			goto sendit;
 		}
 		if (ic->ic_state != IEEE80211_S_RUN) {
@@ -5667,8 +5645,10 @@ iwm_stop(struct ifnet *ifp, int disable)
 	ic->ic_scan_lock = IEEE80211_SCAN_UNLOCKED;
 	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
 
-	if (ic->ic_state != IEEE80211_S_INIT)
-		ieee80211_new_state(ic, IEEE80211_S_INIT, -1);
+	task_del(systq, &sc->init_task);
+	task_del(sc->sc_nswq, &sc->newstate_task);
+	task_del(sc->sc_eswq, &sc->sc_eswk);
+	sc->sc_newstate(ic, IEEE80211_S_INIT, -1);
 
 	timeout_del(&sc->sc_calib_to);
 	iwm_led_blink_stop(sc);
@@ -6229,7 +6209,8 @@ iwm_intr(void *arg)
 			    i, ring->qid, ring->cur, ring->queued));
 		}
 		DPRINTF(("  rx ring: cur=%d\n", sc->rxq.cur));
-		DPRINTF(("  802.11 state %d\n", sc->sc_ic.ic_state));
+		DPRINTF(("  802.11 state %s\n",
+		    ieee80211_state_name[sc->sc_ic.ic_state]));
 #endif
 
 		printf("%s: fatal firmware error\n", DEVNAME(sc));
@@ -6338,8 +6319,12 @@ iwm_preinit(struct iwm_softc *sc)
 		return error;
 	}
 
-	if (attached)
+	if (attached) {
+		/* Update MAC in case the upper layers changed it. */
+		IEEE80211_ADDR_COPY(sc->sc_ic.ic_myaddr,
+		    ((struct arpcom *)ifp)->ac_enaddr);
 		return 0;
+	}
 
 	if ((error = iwm_start_hw(sc)) != 0) {
 		printf("%s: could not initialize hardware\n", DEVNAME(sc));
@@ -6365,9 +6350,14 @@ iwm_preinit(struct iwm_softc *sc)
 		memset(&ic->ic_sup_rates[IEEE80211_MODE_11A], 0,
 		    sizeof(ic->ic_sup_rates[IEEE80211_MODE_11A]));
 
-	/* Reattach net80211 so MAC address and channel map are picked up. */
-	ieee80211_ifdetach(ifp);
-	ieee80211_ifattach(ifp);
+	/* Configure channel information obtained from firmware. */
+	ieee80211_channel_init(ifp);
+
+	/* Configure MAC address. */
+	error = if_setlladdr(ifp, ic->ic_myaddr);
+	if (error)
+		printf("%s: could not set MAC address (error %d)\n",
+		    DEVNAME(sc), error);
 
 	ic->ic_node_alloc = iwm_node_alloc;
 
@@ -6461,7 +6451,7 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	}
 	printf(", %s\n", intrstr);
 
-	sc->sc_wantresp = -1;
+	sc->sc_wantresp = IWM_CMD_RESP_IDLE;
 
 	switch (PCI_PRODUCT(pa->pa_id)) {
 	case PCI_PRODUCT_INTEL_WL_3160_1:
@@ -6594,6 +6584,7 @@ iwm_attach(struct device *parent, struct device *self, void *aux)
 	timeout_set(&sc->sc_calib_to, iwm_calib_timeout, sc);
 	timeout_set(&sc->sc_led_blink_to, iwm_led_blink_timeout, sc);
 	task_set(&sc->init_task, iwm_init_task, sc);
+	task_set(&sc->newstate_task, iwm_newstate_task, sc);
 
 	/*
 	 * We cannot read the MAC address without loading the
@@ -6667,8 +6658,7 @@ iwm_wakeup(struct iwm_softc *sc)
 	reg = pci_conf_read(sc->sc_pct, sc->sc_pcitag, 0x40);
 	pci_conf_write(sc->sc_pct, sc->sc_pcitag, 0x40, reg & ~0xff00);
 
-	iwm_init_task(sc);
-
+	task_add(systq, &sc->init_task);
 }
 
 int

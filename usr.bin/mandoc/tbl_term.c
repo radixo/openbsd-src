@@ -1,4 +1,4 @@
-/*	$OpenBSD: tbl_term.c,v 1.27 2015/03/09 17:30:29 schwarze Exp $ */
+/*	$OpenBSD: tbl_term.c,v 1.30 2015/10/06 18:30:44 schwarze Exp $ */
 /*
  * Copyright (c) 2009, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011, 2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -45,14 +45,14 @@ static size_t
 term_tbl_strlen(const char *p, void *arg)
 {
 
-	return(term_strlen((const struct termp *)arg, p));
+	return term_strlen((const struct termp *)arg, p);
 }
 
 static size_t
 term_tbl_len(size_t sz, void *arg)
 {
 
-	return(term_len((const struct termp *)arg, sz));
+	return term_len((const struct termp *)arg, sz);
 }
 
 void
@@ -264,12 +264,10 @@ tbl_data(struct termp *tp, const struct tbl_opts *opts,
 		tbl_char(tp, ASCII_NBRSP, col->width);
 		return;
 	case TBL_DATA_HORIZ:
-		/* FALLTHROUGH */
 	case TBL_DATA_NHORIZ:
 		tbl_char(tp, '-', col->width);
 		return;
 	case TBL_DATA_NDHORIZ:
-		/* FALLTHROUGH */
 	case TBL_DATA_DHORIZ:
 		tbl_char(tp, '=', col->width);
 		return;
@@ -285,11 +283,8 @@ tbl_data(struct termp *tp, const struct tbl_opts *opts,
 		tbl_char(tp, '=', col->width);
 		break;
 	case TBL_CELL_LONG:
-		/* FALLTHROUGH */
 	case TBL_CELL_CENTRE:
-		/* FALLTHROUGH */
 	case TBL_CELL_LEFT:
-		/* FALLTHROUGH */
 	case TBL_CELL_RIGHT:
 		tbl_literal(tp, dp, col);
 		break;
@@ -301,7 +296,6 @@ tbl_data(struct termp *tp, const struct tbl_opts *opts,
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 }
 

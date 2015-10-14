@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.59 2015/09/17 14:21:33 nicm Exp $	*/
+/*	$OpenBSD: main.c,v 1.61 2015/10/10 00:10:07 deraadt Exp $	*/
 
 /*
  * startup, main loop, environments and error handling
@@ -101,6 +101,11 @@ main(int argc, char *argv[])
 	pid_t ppid;
 
 	kshname = argv[0];
+
+#ifndef MKNOD
+	if (pledge("stdio rpath wpath cpath fattr getpw proc exec tty", NULL) == -1)
+		perror("pledge");
+#endif
 
 	ainit(&aperm);		/* initialize permanent Area */
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: tree.c,v 1.22 2015/09/15 18:15:05 tedu Exp $	*/
+/*	$OpenBSD: tree.c,v 1.24 2015/09/27 05:25:00 guenther Exp $	*/
 
 /*
  * command tree climbing
@@ -348,11 +348,6 @@ tputS(char *wp, struct shf *shf)
 		}
 }
 
-/*
- * this is the _only_ way to reliably handle
- * variable args with an ANSI compiler
- */
-/* VARARGS */
 void
 fptreef(struct shf *shf, int indent, const char *fmt, ...)
 {
@@ -363,7 +358,6 @@ fptreef(struct shf *shf, int indent, const char *fmt, ...)
   va_end(va);
 }
 
-/* VARARGS */
 char *
 snptreef(char *s, int n, const char *fmt, ...)
 {
@@ -663,8 +657,7 @@ tfree(struct op *t, Area *ap)
 	if (t == NULL)
 		return;
 
-	if (t->str != NULL)
-		afree(t->str, ap);
+	afree(t->str, ap);
 
 	if (t->vars != NULL) {
 		for (w = t->vars; *w != NULL; w++)
@@ -694,12 +687,9 @@ iofree(struct ioword **iow, Area *ap)
 	struct ioword *p;
 
 	for (iop = iow; (p = *iop++) != NULL; ) {
-		if (p->name != NULL)
-			afree(p->name, ap);
-		if (p->delim != NULL)
-			afree(p->delim, ap);
-		if (p->heredoc != NULL)
-			afree(p->heredoc, ap);
+		afree(p->name, ap);
+		afree(p->delim, ap);
+		afree(p->heredoc, ap);
 		afree(p, ap);
 	}
 	afree(iow, ap);

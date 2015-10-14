@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.115 2015/09/12 11:52:23 naddy Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.121 2015/10/12 18:32:18 deraadt Exp $	*/
 /*	$KAME: ping6.c,v 1.163 2002/10/25 02:19:06 itojun Exp $	*/
 
 /*
@@ -149,12 +149,11 @@ struct payload {
 #define F_INTERFACE	0x2000
 #define F_SRCADDR	0x4000
 #define F_HOSTNAME	0x10000
-#define F_FQDNOLD	0x20000
 #define F_NIGROUP	0x40000
 #define F_SUPTYPES	0x80000
 #define F_AUD_RECV	0x200000
 #define F_AUD_MISS	0x400000
-#define F_NOUSERDATA	(F_NODEADDR | F_FQDN | F_FQDNOLD | F_SUPTYPES)
+#define F_NOUSERDATA	(F_NODEADDR | F_FQDN | F_SUPTYPES)
 u_int options;
 
 #define DUMMY_PORT	10101
@@ -245,14 +244,13 @@ main(int argc, char *argv[])
 	struct itimerval itimer;
 	struct sockaddr_in6 from;
 	struct addrinfo hints;
-	int ch, i, packlen, preload, optval, error;
+	int ch, i, maxsize, packlen, preload, optval, error;
+	socklen_t maxsizelen;
 	u_char *datap, *packet;
 	char *e, *target, *ifname = NULL, *gateway = NULL;
 	const char *errstr;
 	int ip6optlen = 0;
 	struct cmsghdr *scmsgp = NULL;
-	u_long lsockbufsize;
-	int sockbufsize = 0;
 	int usepktinfo = 0;
 	struct in6_pktinfo *pktinfo = NULL;
 	double intval;
@@ -271,7 +269,7 @@ main(int argc, char *argv[])
 	preload = 0;
 	datap = &outpack[ICMP6ECHOLEN + ICMP6ECHOTMLEN];
 	while ((ch = getopt(argc, argv,
-	    "a:b:c:dEefHg:h:I:i:l:mnNp:qS:s:tvV:wW")) != -1) {
+	    "a:c:dEefHg:h:I:i:l:mnNp:qS:s:tvV:w")) != -1) {
 		switch (ch) {
 		case 'a':
 		{
@@ -310,15 +308,6 @@ main(int argc, char *argv[])
 			}
 			break;
 		}
-		case 'b':
-			errno = 0;
-			e = NULL;
-			lsockbufsize = strtoul(optarg, &e, 10);
-			sockbufsize = lsockbufsize;
-			if (errno || !*optarg || *e ||
-			    sockbufsize != lsockbufsize)
-				errx(1, "invalid socket buffer size");
-			break;
 		case 'c':
 			npackets = strtonum(optarg, 0, INT_MAX, &errstr);
 			if (errstr)
@@ -451,10 +440,6 @@ main(int argc, char *argv[])
 			options &= ~F_NOUSERDATA;
 			options |= F_FQDN;
 			break;
-		case 'W':
-			options &= ~F_NOUSERDATA;
-			options |= F_FQDNOLD;
-			break;
 		default:
 			usage();
 			/*NOTREACHED*/
@@ -573,6 +558,24 @@ main(int argc, char *argv[])
 
 	if (!(packet = malloc(packlen)))
 		err(1, "Unable to allocate packet");
+
+	/*
+	 * When trying to send large packets, you must increase the
+	 * size of both the send and receive buffers...
+	 */
+	maxsizelen = sizeof maxsize;
+	if (getsockopt(s, SOL_SOCKET, SO_SNDBUF, &maxsize, &maxsizelen) < 0)
+		err(1, "getsockopt");
+	if (maxsize < packlen &&
+	    setsockopt(s, SOL_SOCKET, SO_SNDBUF, &packlen, sizeof(maxsize)) < 0)
+		err(1, "setsockopt");
+
+	if (getsockopt(s, SOL_SOCKET, SO_RCVBUF, &maxsize, &maxsizelen) < 0)
+		err(1, "getsockopt");
+	if (maxsize < packlen &&
+	    setsockopt(s, SOL_SOCKET, SO_RCVBUF, &packlen, sizeof(maxsize)) < 0)
+		err(1, "setsockopt");
+
 	if (!(options & F_PINGFILLED))
 		for (i = ICMP6ECHOLEN; i < packlen; ++i)
 			*datap++ = i;
@@ -608,8 +611,8 @@ main(int argc, char *argv[])
 	struct icmp6_filter filt;
 	if (!(options & F_VERBOSE)) {
 		ICMP6_FILTER_SETBLOCKALL(&filt);
-		if ((options & F_FQDN) || (options & F_FQDNOLD) ||
-		    (options & F_NODEADDR) || (options & F_SUPTYPES))
+		if ((options & F_FQDN) || (options & F_NODEADDR) ||
+		    (options & F_SUPTYPES))
 			ICMP6_FILTER_SETPASS(ICMP6_NI_REPLY, &filt);
 		else
 			ICMP6_FILTER_SETPASS(ICMP6_ECHO_REPLY, &filt);
@@ -715,29 +718,6 @@ main(int argc, char *argv[])
 		close(dummy);
 	}
 
-	if (sockbufsize) {
-		if (datalen > sockbufsize)
-			warnx("you need -b to increase socket buffer size");
-		if (setsockopt(s, SOL_SOCKET, SO_SNDBUF, &sockbufsize,
-		    (socklen_t)sizeof(sockbufsize)) < 0)
-			err(1, "setsockopt(SO_SNDBUF)");
-		if (setsockopt(s, SOL_SOCKET, SO_RCVBUF, &sockbufsize,
-		    (socklen_t)sizeof(sockbufsize)) < 0)
-			err(1, "setsockopt(SO_RCVBUF)");
-	} else {
-		if (datalen > 8 * 1024)	/*XXX*/
-			warnx("you need -b to increase socket buffer size");
-		/*
-		 * When pinging the broadcast address, you can get a lot of
-		 * answers. Doing something so evil is useful if you are trying
-		 * to stress the ethernet, or just want to fill the arp cache
-		 * to get some stuff for /etc/ethers.
-		 */
-		optval = 48 * 1024;
-		setsockopt(s, SOL_SOCKET, SO_RCVBUF, &optval,
-		    (socklen_t)sizeof(optval));
-	}
-
 	optval = 1;
 	if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVPKTINFO, &optval,
 	    (socklen_t)sizeof(optval)) < 0)
@@ -745,6 +725,14 @@ main(int argc, char *argv[])
 	if (setsockopt(s, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &optval,
 	    (socklen_t)sizeof(optval)) < 0)
 		warn("setsockopt(IPV6_RECVHOPLIMIT)"); /* XXX err? */
+
+	if (options & F_HOSTNAME) {
+		if (pledge("stdio inet dns", NULL) == -1)
+			err(1, "pledge");
+	} else {
+		if (pledge("stdio inet", NULL) == -1)
+			err(1, "pledge");
+	}
 
 	arc4random_buf(&tv64_offset, sizeof(tv64_offset));
 	arc4random_buf(&mac_key, sizeof(mac_key));
@@ -927,8 +915,6 @@ pingerlen(void)
 
 	if (options & F_FQDN)
 		l = ICMP6_NIQLEN + sizeof(dst.sin6_addr);
-	else if (options & F_FQDNOLD)
-		l = ICMP6_NIQLEN;
 	else if (options & F_NODEADDR)
 		l = ICMP6_NIQLEN + sizeof(dst.sin6_addr);
 	else if (options & F_SUPTYPES)
@@ -970,19 +956,6 @@ pinger(void)
 		memcpy(&outpack[ICMP6_NIQLEN], &dst.sin6_addr,
 		    sizeof(dst.sin6_addr));
 		cc = ICMP6_NIQLEN + sizeof(dst.sin6_addr);
-		datalen = 0;
-	} else if (options & F_FQDNOLD) {
-		/* packet format in 03 draft - no Subject data on queries */
-		icp->icmp6_type = ICMP6_NI_QUERY;
-		icp->icmp6_code = 0;	/* code field is always 0 */
-		nip->ni_qtype = htons(NI_QTYPE_FQDN);
-		nip->ni_flags = htons(0);
-
-		memcpy(nip->icmp6_ni_nonce, nonce,
-		    sizeof(nip->icmp6_ni_nonce));
-		*(u_int16_t *)nip->icmp6_ni_nonce = ntohs(seq);
-
-		cc = ICMP6_NIQLEN;
 		datalen = 0;
 	} else if (options & F_NODEADDR) {
 		icp->icmp6_type = ICMP6_NI_QUERY;
@@ -1856,9 +1829,6 @@ onint(int signo)
 {
 	summary(signo);
 
-	(void)signal(SIGINT, SIG_DFL);
-	(void)kill(getpid(), SIGINT);
-
 	if (signo)
 		_exit(nreceived ? 0 : 1);
 	else
@@ -2369,8 +2339,8 @@ usage(void)
 	(void)fprintf(stderr,
 	    "usage: ping6 [-dEefH"
 	    "m"
-	    "NnqtvWw"
-	    "] [-a addrtype] [-b bufsiz] [-c count] [-g gateway]\n\t"
+	    "Nnqtvw"
+	    "] [-a addrtype] [-c count] [-g gateway]\n\t"
 	    "[-h hoplimit] [-I interface] [-i wait] [-l preload] [-p pattern]"
 	    "\n\t[-S sourceaddr] [-s packetsize] [-V rtable] host\n");
 	exit(1);

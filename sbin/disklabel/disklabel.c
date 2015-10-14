@@ -1,4 +1,4 @@
-/*	$OpenBSD: disklabel.c,v 1.204 2015/08/20 22:02:20 deraadt Exp $	*/
+/*	$OpenBSD: disklabel.c,v 1.208 2015/10/05 12:49:58 krw Exp $	*/
 
 /*
  * Copyright (c) 1987, 1993
@@ -244,6 +244,10 @@ main(int argc, char *argv[])
 		if (argc != 1)
 			usage();
 		readlabel(f);
+
+		if (pledge("stdio", NULL) == -1)
+			err(1, "pledge");
+
 		if (tflag)
 			makedisktab(stdout, &lab);
 		else
@@ -400,20 +404,7 @@ writelabel(int f, char *boot, struct disklabel *lp)
 			return (1);
 		}
 	}
-#ifdef __vax__
-	if (lp->d_type == DTYPE_SMD && lp->d_flags & D_BADSECT) {
-		off_t alt;
-		int i;
 
-		alt = lp->d_ncylinders * lp->d_secpercyl - lp->d_nsectors;
-		for (i = 1; i < 11 && i < lp->d_nsectors; i += 2) {
-			(void)lseek(f, (alt + i) * lp->d_secsize, SEEK_SET);
-			if (!donothing)
-				if (write(f, boot, lp->d_secsize) != lp->d_secsize)
-					warn("alternate label %d write", i/2);
-		}
-	}
-#endif
 	/* Finally, write out any mount point information. */
 	if (!donothing) {
 		/* First refresh our copy of the current label to get UID. */
@@ -557,7 +548,7 @@ makebootarea(char *boot, struct disklabel *dp)
 		warnx("bootstrap: xxboot = %s", xxboot);
 
 	/*
-	 * For NUMBOOT > 0 architectures (hppa/hppa64/landisk/vax)
+	 * For NUMBOOT > 0 architectures (vax)
 	 * up to d_bbsize bytes of ``xxboot'' go in bootarea, the rest
 	 * is remembered and written later following the bootarea.
 	 */

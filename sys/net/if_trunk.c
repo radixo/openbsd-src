@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_trunk.c,v 1.115 2015/09/24 14:01:20 mikeb Exp $	*/
+/*	$OpenBSD: if_trunk.c,v 1.120 2015/10/08 11:39:59 dlg Exp $	*/
 
 /*
  * Copyright (c) 2005, 2006, 2007 Reyk Floeter <reyk@openbsd.org>
@@ -24,6 +24,7 @@
 #include <sys/socket.h>
 #include <sys/sockio.h>
 #include <sys/systm.h>
+#include <sys/task.h>
 #include <sys/timeout.h>
 
 #include <crypto/siphash.h>
@@ -156,8 +157,7 @@ trunk_clone_create(struct if_clone *ifc, int unit)
 	struct ifnet *ifp;
 	int i, error = 0;
 
-	if ((tr = malloc(sizeof(struct trunk_softc),
-	    M_DEVBUF, M_NOWAIT|M_ZERO)) == NULL)
+	if ((tr = malloc(sizeof *tr, M_DEVBUF, M_NOWAIT|M_ZERO)) == NULL)
 		return (ENOMEM);
 
 	tr->tr_unit = unit;
@@ -166,7 +166,7 @@ trunk_clone_create(struct if_clone *ifc, int unit)
 		if (trunk_protos[i].ti_proto == TRUNK_PROTO_DEFAULT) {
 			tr->tr_proto = trunk_protos[i].ti_proto;
 			if ((error = trunk_protos[i].ti_attach(tr)) != 0) {
-				free(tr, M_DEVBUF, 0);
+				free(tr, M_DEVBUF, sizeof *tr);
 				return (error);
 			}
 			break;
@@ -231,7 +231,7 @@ trunk_clone_destroy(struct ifnet *ifp)
 	if_detach(ifp);
 
 	SLIST_REMOVE(&trunk_list, tr, trunk_softc, tr_entries);
-	free(tr, M_DEVBUF, 0);
+	free(tr, M_DEVBUF, sizeof *tr);
 
 	splx(s);
 
@@ -323,8 +323,7 @@ trunk_port_create(struct trunk_softc *tr, struct ifnet *ifp)
 	if ((error = ifpromisc(ifp, 1)) != 0)
 		return (error);
 
-	if ((tp = malloc(sizeof(struct trunk_port),
-	    M_DEVBUF, M_NOWAIT|M_ZERO)) == NULL)
+	if ((tp = malloc(sizeof *tp, M_DEVBUF, M_NOWAIT|M_ZERO)) == NULL)
 		return (ENOMEM);
 
 	/* Check if port is a stacked trunk */
@@ -333,7 +332,7 @@ trunk_port_create(struct trunk_softc *tr, struct ifnet *ifp)
 			tp->tp_flags |= TRUNK_PORT_STACK;
 			if (trunk_port_checkstacking(tr_ptr) >=
 			    TRUNK_MAX_STACKING) {
-				free(tp, M_DEVBUF, 0);
+				free(tp, M_DEVBUF, sizeof *tp);
 				return (E2BIG);
 			}
 		}
@@ -343,7 +342,6 @@ trunk_port_create(struct trunk_softc *tr, struct ifnet *ifp)
 	tp->tp_iftype = ifp->if_type;
 	ifp->if_type = IFT_IEEE8023ADLAG;
 
-	ifp->if_tp = (caddr_t)tp;
 	tp->tp_ioctl = ifp->if_ioctl;
 	ifp->if_ioctl = trunk_port_ioctl;
 
@@ -362,13 +360,13 @@ trunk_port_create(struct trunk_softc *tr, struct ifnet *ifp)
 		trunk_lladdr(&tr->tr_ac, tp->tp_lladdr);
 	}
 
-	/* Update link layer address for this port */
-	trunk_port_lladdr(tp,
-	    ((struct arpcom *)(tr->tr_primary->tp_if))->ac_enaddr);
-
 	/* Insert into the list of ports */
 	SLIST_INSERT_HEAD(&tr->tr_ports, tp, tp_entries);
 	tr->tr_count++;
+
+	/* Update link layer address for this port */
+	trunk_port_lladdr(tp,
+	    ((struct arpcom *)(tr->tr_primary->tp_if))->ac_enaddr);
 
 	/* Update trunk capabilities */
 	tr->tr_capabilities = trunk_capabilities(tr);
@@ -437,7 +435,6 @@ trunk_port_destroy(struct trunk_port *tp)
 
 	ifp->if_ioctl = tp->tp_ioctl;
 	ifp->if_output = tp->tp_output;
-	ifp->if_tp = NULL;
 
 	hook_disestablish(ifp->if_linkstatehooks, tp->lh_cookie);
 	hook_disestablish(ifp->if_detachhooks, tp->dh_cookie);
@@ -468,7 +465,7 @@ trunk_port_destroy(struct trunk_port *tp)
 	/* Reset the port lladdr */
 	trunk_port_lladdr(tp, tp->tp_lladdr);
 
-	free(tp, M_DEVBUF, 0);
+	free(tp, M_DEVBUF, sizeof *tp);
 
 	/* Update trunk capabilities */
 	tr->tr_capabilities = trunk_capabilities(tr);
@@ -488,7 +485,7 @@ trunk_port_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 
 	/* Should be checked by the caller */
 	if (ifp->if_type != IFT_IEEE8023ADLAG ||
-	    (tp = (struct trunk_port *)ifp->if_tp) == NULL ||
+	    (tp = trunk_port_get(NULL, ifp)) == NULL ||
 	    (tr = (struct trunk_softc *)tp->tp_trunk) == NULL) {
 		error = EINVAL;
 		goto fallback;
@@ -972,6 +969,9 @@ trunk_hashmbuf(struct mbuf *m, SIPHASH_KEY *key)
 #endif
 	SIPHASH_CTX ctx;
 
+	if (m->m_pkthdr.flowid & M_FLOWID_VALID)
+		return (m->m_pkthdr.flowid & M_FLOWID_MASK);
+
 	SipHash24_Init(&ctx, key);
 	off = sizeof(*eh);
 	if (m->m_len < off)
@@ -1070,8 +1070,8 @@ trunk_input(struct ifnet *ifp, struct mbuf *m, void *cookie)
 	if (ifp->if_type != IFT_IEEE8023ADLAG)
 		goto bad;
 
-	if ((tp = (struct trunk_port *)ifp->if_tp) == NULL ||
-	    (tr = (struct trunk_softc *)tp->tp_trunk) == NULL)
+	tp = (struct trunk_port *)cookie;
+	if ((tr = (struct trunk_softc *)tp->tp_trunk) == NULL)
 		goto bad;
 
 	trifp = &tr->tr_ac.ac_if;
@@ -1419,8 +1419,8 @@ int
 trunk_lb_detach(struct trunk_softc *tr)
 {
 	struct trunk_lb *lb = (struct trunk_lb *)tr->tr_psc;
-	if (lb != NULL)
-		free(lb, M_DEVBUF, 0);
+
+	free(lb, M_DEVBUF, sizeof *lb);
 	return (0);
 }
 

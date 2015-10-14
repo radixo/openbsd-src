@@ -1,4 +1,4 @@
-/*	$OpenBSD: kdump.c,v 1.104 2015/09/07 15:38:45 guenther Exp $	*/
+/*	$OpenBSD: kdump.c,v 1.114 2015/10/10 19:19:46 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1988, 1993
@@ -72,7 +72,7 @@
 #include "extern.h"
 
 int timestamp, decimal, iohex, fancy = 1, maxdata = INT_MAX;
-int needtid, tail;
+int needtid, tail, basecol;
 char *tracefile = DEF_TRACEFILE;
 struct ktr_header ktr_header;
 pid_t pid_opt = -1;
@@ -90,7 +90,7 @@ pid_t pid_opt = -1;
 #define SYSVSEM
 #define SYSVMSG
 #define SYSVSHM
-#define LFS
+#define ACCOUNTING
 #include <kern/syscalls.c>
 
 #include <compat/linux/linux_syscalls.c>
@@ -101,7 +101,7 @@ pid_t pid_opt = -1;
 #undef SYSVSEM
 #undef SYSVMSG
 #undef SYSVSHM
-#undef LFS
+#undef ACCOUNTING
 
 struct emulation {
 	char *name;		/* Emulation name */
@@ -147,6 +147,7 @@ static void ktrsyscall(struct ktr_syscall *, size_t);
 static const char *kresolvsysctl(int, const int *);
 static void ktrsysret(struct ktr_sysret *, size_t);
 static void ktruser(struct ktr_user *, size_t);
+static void ktrexec(const char*, size_t);
 static void setemul(const char *);
 static void usage(void);
 static void ioctldecode(int);
@@ -240,11 +241,15 @@ main(int argc, char *argv[])
 	if (argc > optind)
 		usage();
 
+	if (pledge("stdio rpath getpw", NULL) == -1)
+		err(1, "pledge");
+
 	m = malloc(size = 1025);
 	if (m == NULL)
 		err(1, NULL);
 	if (!freopen(tracefile, "r", stdin))
 		err(1, "%s", tracefile);
+
 	if (fread_tail(&ktr_header, sizeof(struct ktr_header), 1) == 0 ||
 	    ktr_header.ktr_type != htobe32(KTR_START))
 		errx(1, "%s: not a dump", tracefile);
@@ -300,6 +305,10 @@ main(int argc, char *argv[])
 			break;
 		case KTR_USER:
 			ktruser(m, ktrlen);
+			break;
+		case KTR_EXECARGS:
+		case KTR_EXECENV:
+			ktrexec(m, ktrlen);
 			break;
 		}
 		if (tail)
@@ -384,26 +393,32 @@ dumpheader(struct ktr_header *kth)
 	case KTR_USER:
 		type = "USER";
 		break;
+	case KTR_EXECARGS:
+		type = "ARGS";
+		break;
+	case KTR_EXECENV:
+		type = "ENV ";
+		break;
 	default:
 		(void)snprintf(unknown, sizeof unknown, "UNKNOWN(%d)",
 		    kth->ktr_type);
 		type = unknown;
 	}
 
-	(void)printf("%6ld", (long)kth->ktr_pid);
+	basecol = printf("%6ld", (long)kth->ktr_pid);
 	if (needtid)
-		(void)printf("/%-7ld", (long)kth->ktr_tid);
-	(void)printf(" %-8.*s ", MAXCOMLEN, kth->ktr_comm);
+		basecol += printf("/%-7ld", (long)kth->ktr_tid);
+	basecol += printf(" %-8.*s ", MAXCOMLEN, kth->ktr_comm);
 	if (timestamp) {
 		if (timestamp == 2) {
 			timespecsub(&kth->ktr_time, &prevtime, &temp);
 			prevtime = kth->ktr_time;
 		} else
 			temp = kth->ktr_time;
-		printf("%lld.%06ld ", (long long)temp.tv_sec,
+		basecol += printf("%lld.%06ld ", (long long)temp.tv_sec,
 		    temp.tv_nsec / 1000);
 	}
-	(void)printf("%s  ", type);
+	basecol += printf("%s  ", type);
 }
 
 /*
@@ -1199,6 +1214,52 @@ ktremul(char *cp, size_t len)
 	setemul(name);
 }
 
+void
+showbufc(int col, unsigned char *dp, size_t datalen)
+{
+	int i, j;
+	int width, bpl;
+	unsigned char visbuf[5], *cp, c;
+
+	putchar('"');
+	col++;
+	for (; datalen > 0; datalen--, dp++) {
+		(void)vis(visbuf, *dp, VIS_CSTYLE, *(dp+1));
+		cp = visbuf;
+
+		/*
+		 * Keep track of printables and
+		 * space chars (like fold(1)).
+		 */
+		if (col == 0) {
+			(void)putchar('\t');
+			col = 8;
+		}
+		switch (*cp) {
+		case '\n':
+			col = 0;
+			(void)putchar('\n');
+			continue;
+		case '\t':
+			width = 8 - (col&07);
+			break;
+		default:
+			width = strlen(cp);
+		}
+		if (col + width > (screenwidth-2)) {
+			(void)printf("\\\n\t");
+			col = 8;
+		}
+		col += width;
+		do {
+			(void)putchar(*cp++);
+		} while (*cp);
+	}
+	if (col == 0)
+		(void)printf("       ");
+	(void)printf("\"\n");
+}
+
 static void
 showbuf(unsigned char *dp, size_t datalen)
 {
@@ -1248,43 +1309,9 @@ showbuf(unsigned char *dp, size_t datalen)
 		}
 		return;
 	}
-	(void)printf("       \"");
-	col = 8;
-	for (; datalen > 0; datalen--, dp++) {
-		(void)vis(visbuf, *dp, VIS_CSTYLE, *(dp+1));
-		cp = visbuf;
 
-		/*
-		 * Keep track of printables and
-		 * space chars (like fold(1)).
-		 */
-		if (col == 0) {
-			(void)putchar('\t');
-			col = 8;
-		}
-		switch (*cp) {
-		case '\n':
-			col = 0;
-			(void)putchar('\n');
-			continue;
-		case '\t':
-			width = 8 - (col&07);
-			break;
-		default:
-			width = strlen(cp);
-		}
-		if (col + width > (screenwidth-2)) {
-			(void)printf("\\\n\t");
-			col = 8;
-		}
-		col += width;
-		do {
-			(void)putchar(*cp++);
-		} while (*cp);
-	}
-	if (col == 0)
-		(void)printf("       ");
-	(void)printf("\"\n");
+	(void)printf("       ");
+	showbufc(7, dp, datalen);
 }
 
 static void
@@ -1377,13 +1404,36 @@ ktruser(struct ktr_user *usr, size_t len)
 }
 
 static void
+ktrexec(const char *ptr, size_t len)
+{
+	char buf[sizeof("[2147483648] = ")];
+	int i, col;
+	size_t l;
+
+	putchar('\n');
+	i = 0;
+	while (len > 0) {
+		l = strnlen(ptr, len);
+		col = printf("\t[%d] = ", i++);
+		col += 7;	/* tab expands from 1 to 8 columns */
+		showbufc(col, (unsigned char *)ptr, l);
+		if (l == len) {
+			printf("\tunterminated argument\n");
+			break;
+		}
+		len -= l + 1;
+		ptr += l + 1;
+	}
+}
+
+static void
 usage(void)
 {
 
 	extern char *__progname;
 	fprintf(stderr, "usage: %s "
 	    "[-dHlnRTXx] [-e emulation] [-f file] [-m maxdata] [-p pid]\n"
-	    "%*s[-t [ceinstuw]]\n",
+	    "%*s[-t [ceinstuxX+]]\n",
 	    __progname, (int)(sizeof("usage: ") + strlen(__progname)), "");
 	exit(1);
 }
@@ -1422,7 +1472,7 @@ ioctldecode(int cmd)
 		*dir++ = 'R';
 	*dir = '\0';
 
-	printf("_IO%s('%c',%lu",
+	printf("_IO%s('%c',%d",
 	    dirbuf, (int)((cmd >> 8) & 0xff), cmd & 0xff);
 	if ((cmd & IOC_VOID) == 0)
 		printf(decimal ? ",%u)" : ",%#x)", (cmd >> 16) & 0xff);

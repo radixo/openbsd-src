@@ -1,4 +1,4 @@
-/*	$OpenBSD: comsat.c,v 1.39 2015/04/18 18:28:37 deraadt Exp $	*/
+/*	$OpenBSD$	*/
 
 /*
  * Copyright (c) 1980, 1993
@@ -52,6 +52,7 @@
 #include <unistd.h>
 #include <utmp.h>
 #include <vis.h>
+#include <err.h>
 
 int	debug = 0;
 #define	dsyslog	if (debug) syslog
@@ -89,6 +90,10 @@ main(int argc, char *argv[])
 		    "comsat: getsockname: %s.\n", strerror(errno));
 		exit(1);
 	}
+
+	if (pledge("stdio rpath wpath proc tty", NULL) == -1)
+		err(1, "pledge");
+
 	openlog("comsat", LOG_PID, LOG_DAEMON);
 	if (chdir(_PATH_MAILDIR)) {
 		syslog(LOG_ERR, "chdir: %s: %m", _PATH_MAILDIR);
@@ -275,14 +280,7 @@ jkfprintf(FILE *tp, char name[], off_t offset)
 	char visout[5], *s2;
 	FILE *fi;
 	int linecnt, charcnt, inheader;
-	struct passwd *p;
 	char line[BUFSIZ];
-
-	/* Set effective uid to user in case mail drop is on nfs */
-	if ((p = getpwnam(name)) != NULL) {
-		(void) seteuid(p->pw_uid);
-		(void) setuid(p->pw_uid);
-	}
 
 	if ((fi = fopen(name, "r")) == NULL)
 		return;

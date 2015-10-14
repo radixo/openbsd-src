@@ -1,4 +1,4 @@
-/*	$OpenBSD: diff3prog.c,v 1.14 2014/12/01 06:36:32 deraadt Exp $	*/
+/*	$OpenBSD: diff3prog.c,v 1.16 2015/10/05 13:30:30 deraadt Exp $	*/
 
 /*
  * Copyright (C) Caldera International Inc.  2001-2002.
@@ -144,6 +144,9 @@ int
 main(int argc, char **argv)
 {
 	int ch, i, m, n;
+
+	if (pledge("stdio rpath", NULL) == -1)
+		err(1, "pledge");
 
 	eflag = 0;
 	oflag = 0;

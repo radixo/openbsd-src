@@ -1,4 +1,4 @@
-/*	$OpenBSD: proto.h,v 1.35 2013/09/04 15:49:19 millert Exp $	*/
+/*	$OpenBSD: proto.h,v 1.37 2015/10/06 21:19:06 nicm Exp $	*/
 
 /*
  * prototypes for PD-KSH
@@ -146,13 +146,6 @@ int	j_njobs(void);
 void	j_notify(void);
 pid_t	j_async(void);
 int	j_stopped_running(void);
-/* lex.c */
-int	yylex(int);
-void	yyerror(const char *, ...)
-	    __attribute__((__noreturn__, __format__ (printf, 1, 2)));
-Source * pushs(int, Area *);
-void	set_prompt(int, Source *);
-void	pprompt(const char *, int);
 /* mail.c */
 void	mcheck(void);
 void	mcset(long);
@@ -205,15 +198,6 @@ void	set_current_wd(char *);
 /* syn.c */
 void	initkeywords(void);
 struct op * compile(Source *);
-/* table.c */
-unsigned int	hash(const char *);
-void		ktinit(struct table *, Area *, int);
-struct tbl *	ktsearch(struct table *, const char *, unsigned int);
-struct tbl *	ktenter(struct table *, const char *, unsigned int);
-void		ktdelete(struct tbl *);
-void		ktwalk(struct tstate *, struct table *);
-struct tbl *	ktnext(struct tstate *);
-struct tbl **	ktsort(struct table *);
 /* trace.c */
 /* trap.c */
 void	inittraps(void);
@@ -232,14 +216,6 @@ int	block_pipe(void);
 void	restore_pipe(int);
 int	setsig(Trap *, sig_t, int);
 void	setexecsig(Trap *, int);
-/* tree.c */
-void	fptreef(struct shf *, int, const char *, ...);
-char *	snptreef(char *, int, const char *, ...);
-struct op *	tcopy(struct op *, Area *);
-char *	wdcopy(const char *, Area *);
-char *	wdscan(const char *, int);
-char *	wdstrip(const char *);
-void	tfree(struct op *, Area *);
 /* var.c */
 void	newblock(void);
 void	popblock(void);

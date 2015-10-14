@@ -1,4 +1,4 @@
-/*	$OpenBSD: lex.c,v 1.54 2015/09/18 07:28:24 nicm Exp $	*/
+/*	$OpenBSD: lex.c,v 1.58 2015/10/09 19:49:08 millert Exp $	*/
 
 /*
  * lexical analysis and source input
@@ -8,6 +8,25 @@
 #include <libgen.h>
 #include <ctype.h>
 
+
+/*
+ * states while lexing word
+ */
+#define	SINVALID	-1	/* invalid state */
+#define	SBASE	0		/* outside any lexical constructs */
+#define	SWORD	1		/* implicit quoting for substitute() */
+#define	SLETPAREN 2		/* inside (( )), implicit quoting */
+#define	SSQUOTE	3		/* inside '' */
+#define	SDQUOTE	4		/* inside "" */
+#define	SBRACE	5		/* inside ${} */
+#define	SCSPAREN 6		/* inside $() */
+#define	SBQUOTE	7		/* inside `` */
+#define	SASPAREN 8		/* inside $(( )) */
+#define SHEREDELIM 9		/* parsing <<,<<- delimiter */
+#define SHEREDQUOTE 10		/* parsing " in <<,<<- delimiter */
+#define SPATTERN 11		/* parsing *(...|...) pattern (*+?@!) */
+#define STBRACE 12		/* parsing ${..[#%]..} */
+#define	SBRACEQ	13		/* inside "${}" */
 
 /* Structure to keep track of the lexing state and the various pieces of info
  * needed for each particular state.
@@ -70,6 +89,15 @@ int		promptlen(const char *cp, const char **spp);
 static int backslash_skip;
 static int ignore_backslash_newline;
 
+Source *source;		/* yyparse/yylex source */
+YYSTYPE	yylval;		/* result from yylex */
+struct ioword *heres[HERES], **herep;
+char	ident[IDENT+1];
+
+char  **history;	/* saved commands */
+char  **histptr;	/* last history item */
+int	histsize;	/* history size */
+
 /* optimized getsc_bn() */
 #define getsc()		(*source->str != '\0' && *source->str != '\\' \
 			 && !backslash_skip ? *source->str++ : getsc_bn())
@@ -113,7 +141,7 @@ yylex(int cf)
 
 
   Again:
-	states[0].ls_state = -1;
+	states[0].ls_state = SINVALID;
 	states[0].ls_info.base = NULL;
 	statep = &states[1];
 	state_info.base = states;
@@ -163,6 +191,9 @@ yylex(int cf)
 			if (Flag(FCSHHISTORY) && (source->flags & SF_TTY) &&
 			    c == '!') {
 				char **replace = NULL;
+				int get, i;
+				char match[200], *str = match;
+				size_t mlen;
 
 				c2 = getsc();
 				if (c2 == '\0' || c2 == ' ' || c2 == '\t')
@@ -171,8 +202,7 @@ yylex(int cf)
 					replace = hist_get_newest(0);
 				else if (isdigit(c2) || c2 == '-' ||
 				    isalpha(c2)) {
-					int get = !isalpha(c2);
-					char match[200], *str = match;
+					get = !isalpha(c2);
 
 					*str++ = c2;
 					do {
@@ -216,8 +246,12 @@ yylex(int cf)
 					s->u.freeme = NULL;
 					source = s;
 					continue;
-				} else
-					ungetsc(c2);
+				} else {
+					/* restore what followed the '!' */
+					mlen = strlen(match);
+					for (i = mlen-1; i >= 0; i--)
+						ungetsc(match[i]);
+				}
 			}
 			if (c == '[' && (cf & (VARASN|ARRAYVAR))) {
 				*wp = EOS; /* temporary */

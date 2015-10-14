@@ -1,4 +1,4 @@
-/*	$OpenBSD: tail.c,v 1.16 2008/11/13 18:33:03 landry Exp $	*/
+/*	$OpenBSD: tail.c,v 1.18 2015/10/07 03:49:41 deraadt Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993
@@ -60,6 +60,9 @@ main(int argc, char *argv[])
 	enum STYLE style;
 	int ch, first;
 	char *p;
+
+	if (pledge("stdio rpath", NULL) == -1)
+		err(1, "pledge");
 
 	/*
 	 * Tail's options are weird.  First, -n10 is the same as -n-10, not
@@ -171,6 +174,9 @@ main(int argc, char *argv[])
 			(void)fclose(fp);
 		}
 	else {
+		if (pledge("stdio", NULL) == -1)
+			err(1, "pledge");
+
 		fname = "stdin";
 		is_stdin = 1;
 

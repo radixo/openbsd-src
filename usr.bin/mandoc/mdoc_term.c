@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_term.c,v 1.224 2015/09/14 12:57:30 schwarze Exp $ */
+/*	$OpenBSD: mdoc_term.c,v 1.228 2015/10/12 00:07:27 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010, 2012-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -533,7 +533,7 @@ a2width(const struct termp *p, const char *v)
 		SCALE_HS_INIT(&su, term_strlen(p, v));
 		su.scale /= term_strlen(p, "0");
 	}
-	return(term_hspan(p, &su) / 24);
+	return term_hspan(p, &su) / 24;
 }
 
 /*
@@ -597,7 +597,7 @@ termp_ll_pre(DECL_ARGS)
 {
 
 	term_setwidth(p, n->nchild ? n->child->string : NULL);
-	return(0);
+	return 0;
 }
 
 static int
@@ -611,7 +611,7 @@ termp_it_pre(DECL_ARGS)
 
 	if (n->type == ROFFT_BLOCK) {
 		print_bvspace(p, n->parent->parent, n);
-		return(1);
+		return 1;
 	}
 
 	bl = n->parent->parent->parent;
@@ -623,11 +623,8 @@ termp_it_pre(DECL_ARGS)
 
 	switch (type) {
 	case LIST_bullet:
-		/* FALLTHROUGH */
 	case LIST_dash:
-		/* FALLTHROUGH */
 	case LIST_hyphen:
-		/* FALLTHROUGH */
 	case LIST_enum:
 		width = term_len(p, 2);
 		break;
@@ -635,7 +632,6 @@ termp_it_pre(DECL_ARGS)
 		width = term_len(p, 8);
 		break;
 	case LIST_column:
-		/* FALLTHROUGH */
 	case LIST_tag:
 		width = term_len(p, 10);
 		break;
@@ -760,16 +756,13 @@ termp_it_pre(DECL_ARGS)
 
 	switch (type) {
 	case LIST_enum:
+	case LIST_bullet:
+	case LIST_dash:
+	case LIST_hyphen:
 		/*
 		 * Weird special case.
 		 * Some very narrow lists actually hang.
 		 */
-		/* FALLTHROUGH */
-	case LIST_bullet:
-		/* FALLTHROUGH */
-	case LIST_dash:
-		/* FALLTHROUGH */
-	case LIST_hyphen:
 		if (width <= (int)term_len(p, 2))
 			p->flags |= TERMP_HANG;
 		if (n->type != ROFFT_HEAD)
@@ -852,13 +845,9 @@ termp_it_pre(DECL_ARGS)
 			break;
 		/* FALLTHROUGH */
 	case LIST_bullet:
-		/* FALLTHROUGH */
 	case LIST_dash:
-		/* FALLTHROUGH */
 	case LIST_enum:
-		/* FALLTHROUGH */
 	case LIST_hyphen:
-		/* FALLTHROUGH */
 	case LIST_tag:
 		if (n->type == ROFFT_HEAD)
 			p->rmargin = p->offset + width;
@@ -894,10 +883,9 @@ termp_it_pre(DECL_ARGS)
 			term_fontpop(p);
 			break;
 		case LIST_dash:
-			/* FALLTHROUGH */
 		case LIST_hyphen:
 			term_fontpush(p, TERMFONT_BOLD);
-			term_word(p, "\\(hy");
+			term_word(p, "-");
 			term_fontpop(p);
 			break;
 		case LIST_enum:
@@ -916,26 +904,22 @@ termp_it_pre(DECL_ARGS)
 
 	switch (type) {
 	case LIST_bullet:
-		/* FALLTHROUGH */
 	case LIST_item:
-		/* FALLTHROUGH */
 	case LIST_dash:
-		/* FALLTHROUGH */
 	case LIST_hyphen:
-		/* FALLTHROUGH */
 	case LIST_enum:
 		if (n->type == ROFFT_HEAD)
-			return(0);
+			return 0;
 		break;
 	case LIST_column:
 		if (n->type == ROFFT_HEAD)
-			return(0);
+			return 0;
 		break;
 	default:
 		break;
 	}
 
-	return(1);
+	return 1;
 }
 
 static void
@@ -950,9 +934,7 @@ termp_it_post(DECL_ARGS)
 
 	switch (type) {
 	case LIST_item:
-		/* FALLTHROUGH */
 	case LIST_diag:
-		/* FALLTHROUGH */
 	case LIST_inset:
 		if (n->type == ROFFT_BODY)
 			term_newln(p);
@@ -984,12 +966,12 @@ termp_nm_pre(DECL_ARGS)
 
 	if (n->type == ROFFT_BLOCK) {
 		p->flags |= TERMP_PREKEEP;
-		return(1);
+		return 1;
 	}
 
 	if (n->type == ROFFT_BODY) {
 		if (NULL == n->child)
-			return(0);
+			return 0;
 		p->flags |= TERMP_NOSPACE;
 		cp = NULL;
 		if (n->prev->child != NULL)
@@ -1000,11 +982,11 @@ termp_nm_pre(DECL_ARGS)
 			p->offset += term_len(p, 6);
 		else
 			p->offset += term_len(p, 1) + term_strlen(p, cp);
-		return(1);
+		return 1;
 	}
 
 	if (NULL == n->child && NULL == meta->name)
-		return(0);
+		return 0;
 
 	if (n->type == ROFFT_HEAD)
 		synopsis_pre(p, n->parent);
@@ -1029,7 +1011,7 @@ termp_nm_pre(DECL_ARGS)
 	term_fontpush(p, TERMFONT_BOLD);
 	if (NULL == n->child)
 		term_word(p, meta->name);
-	return(1);
+	return 1;
 }
 
 static void
@@ -1061,7 +1043,7 @@ termp_fl_pre(DECL_ARGS)
 	     n->next->flags & MDOC_LINE)))
 		p->flags |= TERMP_NOSPACE;
 
-	return(1);
+	return 1;
 }
 
 static int
@@ -1072,7 +1054,7 @@ termp__a_pre(DECL_ARGS)
 		if (NULL == n->next || MDOC__A != n->next->tok)
 			term_word(p, "and");
 
-	return(1);
+	return 1;
 }
 
 static int
@@ -1082,12 +1064,12 @@ termp_an_pre(DECL_ARGS)
 	if (n->norm->An.auth == AUTH_split) {
 		p->flags &= ~TERMP_NOSPLIT;
 		p->flags |= TERMP_SPLIT;
-		return(0);
+		return 0;
 	}
 	if (n->norm->An.auth == AUTH_nosplit) {
 		p->flags &= ~TERMP_SPLIT;
 		p->flags |= TERMP_NOSPLIT;
-		return(0);
+		return 0;
 	}
 
 	if (p->flags & TERMP_SPLIT)
@@ -1096,7 +1078,7 @@ termp_an_pre(DECL_ARGS)
 	if (n->sec == SEC_AUTHORS && ! (p->flags & TERMP_NOSPLIT))
 		p->flags |= TERMP_SPLIT;
 
-	return(1);
+	return 1;
 }
 
 static int
@@ -1105,7 +1087,7 @@ termp_ns_pre(DECL_ARGS)
 
 	if ( ! (MDOC_LINE & n->flags))
 		p->flags |= TERMP_NOSPACE;
-	return(1);
+	return 1;
 }
 
 static int
@@ -1113,10 +1095,10 @@ termp_rs_pre(DECL_ARGS)
 {
 
 	if (SEC_SEE_ALSO != n->sec)
-		return(1);
+		return 1;
 	if (n->type == ROFFT_BLOCK && n->prev != NULL)
 		term_vspace(p);
-	return(1);
+	return 1;
 }
 
 static int
@@ -1169,7 +1151,7 @@ termp_rv_pre(DECL_ARGS)
 	term_word(p, "is set to indicate the error.");
 	p->flags |= TERMP_SENTENCE;
 
-	return(0);
+	return 0;
 }
 
 static int
@@ -1203,7 +1185,7 @@ termp_ex_pre(DECL_ARGS)
 	term_word(p, "on success, and\\~>0 if an error occurs.");
 
 	p->flags |= TERMP_SENTENCE;
-	return(0);
+	return 0;
 }
 
 static int
@@ -1212,14 +1194,14 @@ termp_nd_pre(DECL_ARGS)
 
 	if (n->type == ROFFT_BODY)
 		term_word(p, "\\(en");
-	return(1);
+	return 1;
 }
 
 static int
 termp_bl_pre(DECL_ARGS)
 {
 
-	return(n->type != ROFFT_HEAD);
+	return n->type != ROFFT_HEAD;
 }
 
 static void
@@ -1235,13 +1217,13 @@ termp_xr_pre(DECL_ARGS)
 {
 
 	if (NULL == (n = n->child))
-		return(0);
+		return 0;
 
 	assert(n->type == ROFFT_TEXT);
 	term_word(p, n->string);
 
 	if (NULL == (n = n->next))
-		return(0);
+		return 0;
 
 	p->flags |= TERMP_NOSPACE;
 	term_word(p, "(");
@@ -1253,7 +1235,7 @@ termp_xr_pre(DECL_ARGS)
 	p->flags |= TERMP_NOSPACE;
 	term_word(p, ")");
 
-	return(0);
+	return 0;
 }
 
 /*
@@ -1291,13 +1273,9 @@ synopsis_pre(struct termp *p, const struct roff_node *n)
 	 */
 	switch (n->prev->tok) {
 	case MDOC_Fd:
-		/* FALLTHROUGH */
 	case MDOC_Fn:
-		/* FALLTHROUGH */
 	case MDOC_Fo:
-		/* FALLTHROUGH */
 	case MDOC_In:
-		/* FALLTHROUGH */
 	case MDOC_Vt:
 		term_vspace(p);
 		break;
@@ -1319,14 +1297,14 @@ termp_vt_pre(DECL_ARGS)
 
 	if (n->type == ROFFT_ELEM) {
 		synopsis_pre(p, n);
-		return(termp_under_pre(p, pair, meta, n));
+		return termp_under_pre(p, pair, meta, n);
 	} else if (n->type == ROFFT_BLOCK) {
 		synopsis_pre(p, n);
-		return(1);
+		return 1;
 	} else if (n->type == ROFFT_HEAD)
-		return(0);
+		return 0;
 
-	return(termp_under_pre(p, pair, meta, n));
+	return termp_under_pre(p, pair, meta, n);
 }
 
 static int
@@ -1335,7 +1313,7 @@ termp_bold_pre(DECL_ARGS)
 
 	termp_tag_pre(p, pair, meta, n);
 	term_fontpush(p, TERMFONT_BOLD);
-	return(1);
+	return 1;
 }
 
 static int
@@ -1343,7 +1321,7 @@ termp_fd_pre(DECL_ARGS)
 {
 
 	synopsis_pre(p, n);
-	return(termp_bold_pre(p, pair, meta, n));
+	return termp_bold_pre(p, pair, meta, n);
 }
 
 static void
@@ -1388,7 +1366,7 @@ termp_sh_pre(DECL_ARGS)
 	default:
 		break;
 	}
-	return(1);
+	return 1;
 }
 
 static void
@@ -1414,7 +1392,7 @@ termp_bt_pre(DECL_ARGS)
 
 	term_word(p, "is currently in beta test.");
 	p->flags |= TERMP_SENTENCE;
-	return(0);
+	return 0;
 }
 
 static void
@@ -1431,7 +1409,7 @@ termp_ud_pre(DECL_ARGS)
 
 	term_word(p, "currently under development.");
 	p->flags |= TERMP_SENTENCE;
-	return(0);
+	return 0;
 }
 
 static int
@@ -1439,10 +1417,10 @@ termp_d1_pre(DECL_ARGS)
 {
 
 	if (n->type != ROFFT_BLOCK)
-		return(1);
+		return 1;
 	term_newln(p);
 	p->offset += term_len(p, p->defindent + 1);
-	return(1);
+	return 1;
 }
 
 static int
@@ -1452,7 +1430,7 @@ termp_ft_pre(DECL_ARGS)
 	/* NB: MDOC_LINE does not effect this! */
 	synopsis_pre(p, n);
 	term_fontpush(p, TERMFONT_UNDER);
-	return(1);
+	return 1;
 }
 
 static int
@@ -1466,7 +1444,7 @@ termp_fn_pre(DECL_ARGS)
 	synopsis_pre(p, n);
 
 	if (NULL == (n = n->child))
-		return(0);
+		return 0;
 
 	if (pretty) {
 		rmargin = p->rmargin;
@@ -1516,7 +1494,7 @@ termp_fn_pre(DECL_ARGS)
 		term_flushln(p);
 	}
 
-	return(0);
+	return 0;
 }
 
 static int
@@ -1526,7 +1504,7 @@ termp_fa_pre(DECL_ARGS)
 
 	if (n->parent->tok != MDOC_Fo) {
 		term_fontpush(p, TERMFONT_UNDER);
-		return(1);
+		return 1;
 	}
 
 	for (nn = n->child; nn; nn = nn->next) {
@@ -1541,7 +1519,7 @@ termp_fa_pre(DECL_ARGS)
 		}
 	}
 
-	return(0);
+	return 0;
 }
 
 static int
@@ -1553,9 +1531,9 @@ termp_bd_pre(DECL_ARGS)
 
 	if (n->type == ROFFT_BLOCK) {
 		print_bvspace(p, n, n);
-		return(1);
+		return 1;
 	} else if (n->type == ROFFT_HEAD)
-		return(0);
+		return 0;
 
 	/* Handle the -offset argument. */
 
@@ -1585,7 +1563,7 @@ termp_bd_pre(DECL_ARGS)
 	if (DISP_literal != n->norm->Bd.type &&
 	    DISP_unfilled != n->norm->Bd.type &&
 	    DISP_centered != n->norm->Bd.type)
-		return(1);
+		return 1;
 
 	tabwidth = p->tabwidth;
 	if (DISP_literal == n->norm->Bd.type)
@@ -1615,19 +1593,12 @@ termp_bd_pre(DECL_ARGS)
 		 */
 		switch (nn->tok) {
 		case MDOC_Sm:
-			/* FALLTHROUGH */
 		case MDOC_br:
-			/* FALLTHROUGH */
 		case MDOC_sp:
-			/* FALLTHROUGH */
 		case MDOC_Bl:
-			/* FALLTHROUGH */
 		case MDOC_D1:
-			/* FALLTHROUGH */
 		case MDOC_Dl:
-			/* FALLTHROUGH */
 		case MDOC_Lp:
-			/* FALLTHROUGH */
 		case MDOC_Pp:
 			continue;
 		default:
@@ -1643,7 +1614,7 @@ termp_bd_pre(DECL_ARGS)
 	p->tabwidth = tabwidth;
 	p->rmargin = rm;
 	p->maxrmargin = rmax;
-	return(0);
+	return 0;
 }
 
 static void
@@ -1678,7 +1649,7 @@ termp_bx_pre(DECL_ARGS)
 		term_word(p, "BSD");
 	} else {
 		term_word(p, "BSD");
-		return(0);
+		return 0;
 	}
 
 	if (NULL != (n = n->next)) {
@@ -1688,7 +1659,7 @@ termp_bx_pre(DECL_ARGS)
 		term_word(p, n->string);
 	}
 
-	return(0);
+	return 0;
 }
 
 static int
@@ -1719,7 +1690,6 @@ termp_xx_pre(DECL_ARGS)
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 
 	term_word(p, pp);
@@ -1729,7 +1699,7 @@ termp_xx_pre(DECL_ARGS)
 		term_word(p, n->child->string);
 		p->flags = flags;
 	}
-	return(0);
+	return 0;
 }
 
 static void
@@ -1761,7 +1731,7 @@ termp_ss_pre(DECL_ARGS)
 		break;
 	}
 
-	return(1);
+	return 1;
 }
 
 static void
@@ -1778,7 +1748,7 @@ termp_cd_pre(DECL_ARGS)
 
 	synopsis_pre(p, n);
 	term_fontpush(p, TERMFONT_BOLD);
-	return(1);
+	return 1;
 }
 
 static int
@@ -1797,7 +1767,7 @@ termp_in_pre(DECL_ARGS)
 	}
 
 	p->flags |= TERMP_NOSPACE;
-	return(1);
+	return 1;
 }
 
 static void
@@ -1846,14 +1816,14 @@ termp_sp_pre(DECL_ARGS)
 		for (i = 0; i < len; i++)
 			term_vspace(p);
 
-	return(0);
+	return 0;
 }
 
 static int
 termp_skip_pre(DECL_ARGS)
 {
 
-	return(0);
+	return 0;
 }
 
 static int
@@ -1861,66 +1831,54 @@ termp_quote_pre(DECL_ARGS)
 {
 
 	if (n->type != ROFFT_BODY && n->type != ROFFT_ELEM)
-		return(1);
+		return 1;
 
 	switch (n->tok) {
 	case MDOC_Ao:
-		/* FALLTHROUGH */
 	case MDOC_Aq:
 		term_word(p, n->nchild == 1 &&
 		    n->child->tok == MDOC_Mt ? "<" : "\\(la");
 		break;
 	case MDOC_Bro:
-		/* FALLTHROUGH */
 	case MDOC_Brq:
 		term_word(p, "{");
 		break;
 	case MDOC_Oo:
-		/* FALLTHROUGH */
 	case MDOC_Op:
-		/* FALLTHROUGH */
 	case MDOC_Bo:
-		/* FALLTHROUGH */
 	case MDOC_Bq:
 		term_word(p, "[");
 		break;
 	case MDOC_Do:
-		/* FALLTHROUGH */
 	case MDOC_Dq:
 		term_word(p, "\\(Lq");
 		break;
 	case MDOC_En:
 		if (NULL == n->norm->Es ||
 		    NULL == n->norm->Es->child)
-			return(1);
+			return 1;
 		term_word(p, n->norm->Es->child->string);
 		break;
 	case MDOC_Po:
-		/* FALLTHROUGH */
 	case MDOC_Pq:
 		term_word(p, "(");
 		break;
 	case MDOC__T:
-		/* FALLTHROUGH */
 	case MDOC_Qo:
-		/* FALLTHROUGH */
 	case MDOC_Qq:
 		term_word(p, "\"");
 		break;
 	case MDOC_Ql:
-		/* FALLTHROUGH */
 	case MDOC_So:
-		/* FALLTHROUGH */
 	case MDOC_Sq:
 		term_word(p, "\\(oq");
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 
 	p->flags |= TERMP_NOSPACE;
-	return(1);
+	return 1;
 }
 
 static void
@@ -1934,27 +1892,21 @@ termp_quote_post(DECL_ARGS)
 
 	switch (n->tok) {
 	case MDOC_Ao:
-		/* FALLTHROUGH */
 	case MDOC_Aq:
 		term_word(p, n->nchild == 1 &&
 		    n->child->tok == MDOC_Mt ? ">" : "\\(ra");
 		break;
 	case MDOC_Bro:
-		/* FALLTHROUGH */
 	case MDOC_Brq:
 		term_word(p, "}");
 		break;
 	case MDOC_Oo:
-		/* FALLTHROUGH */
 	case MDOC_Op:
-		/* FALLTHROUGH */
 	case MDOC_Bo:
-		/* FALLTHROUGH */
 	case MDOC_Bq:
 		term_word(p, "]");
 		break;
 	case MDOC_Do:
-		/* FALLTHROUGH */
 	case MDOC_Dq:
 		term_word(p, "\\(Rq");
 		break;
@@ -1967,27 +1919,21 @@ termp_quote_post(DECL_ARGS)
 			term_word(p, n->norm->Es->child->next->string);
 		break;
 	case MDOC_Po:
-		/* FALLTHROUGH */
 	case MDOC_Pq:
 		term_word(p, ")");
 		break;
 	case MDOC__T:
-		/* FALLTHROUGH */
 	case MDOC_Qo:
-		/* FALLTHROUGH */
 	case MDOC_Qq:
 		term_word(p, "\"");
 		break;
 	case MDOC_Ql:
-		/* FALLTHROUGH */
 	case MDOC_So:
-		/* FALLTHROUGH */
 	case MDOC_Sq:
 		term_word(p, "\\(cq");
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 }
 
@@ -1996,7 +1942,7 @@ termp_eo_pre(DECL_ARGS)
 {
 
 	if (n->type != ROFFT_BODY)
-		return(1);
+		return 1;
 
 	if (n->end == ENDBODY_NOT &&
 	    n->parent->head->child == NULL &&
@@ -2008,7 +1954,7 @@ termp_eo_pre(DECL_ARGS)
 	     (n->parent->tail != NULL && n->parent->tail->child != NULL)))
 		p->flags |= TERMP_NOSPACE;
 
-	return(1);
+	return 1;
 }
 
 static void
@@ -2045,7 +1991,7 @@ termp_fo_pre(DECL_ARGS)
 
 	if (n->type == ROFFT_BLOCK) {
 		synopsis_pre(p, n);
-		return(1);
+		return 1;
 	} else if (n->type == ROFFT_BODY) {
 		if (pretty) {
 			rmargin = p->rmargin;
@@ -2063,18 +2009,18 @@ termp_fo_pre(DECL_ARGS)
 			p->offset = p->rmargin;
 			p->rmargin = rmargin;
 		}
-		return(1);
+		return 1;
 	}
 
 	if (NULL == n->child)
-		return(0);
+		return 0;
 
 	/* XXX: we drop non-initial arguments as per groff. */
 
 	assert(n->child->string);
 	term_fontpush(p, TERMFONT_BOLD);
 	term_word(p, n->child->string);
-	return(0);
+	return 0;
 }
 
 static void
@@ -2099,9 +2045,9 @@ termp_bf_pre(DECL_ARGS)
 {
 
 	if (n->type == ROFFT_HEAD)
-		return(0);
+		return 0;
 	else if (n->type != ROFFT_BODY)
-		return(1);
+		return 1;
 
 	if (FONT_Em == n->norm->Bf.font)
 		term_fontpush(p, TERMFONT_UNDER);
@@ -2110,7 +2056,7 @@ termp_bf_pre(DECL_ARGS)
 	else
 		term_fontpush(p, TERMFONT_NONE);
 
-	return(1);
+	return 1;
 }
 
 static int
@@ -2127,7 +2073,7 @@ termp_sm_pre(DECL_ARGS)
 	if (p->col && ! (TERMP_NONOSPACE & p->flags))
 		p->flags &= ~TERMP_NOSPACE;
 
-	return(0);
+	return 0;
 }
 
 static int
@@ -2137,7 +2083,7 @@ termp_ap_pre(DECL_ARGS)
 	p->flags |= TERMP_NOSPACE;
 	term_word(p, "'");
 	p->flags |= TERMP_NOSPACE;
-	return(1);
+	return 1;
 }
 
 static void
@@ -2172,7 +2118,7 @@ termp_li_pre(DECL_ARGS)
 {
 
 	term_fontpush(p, TERMFONT_NONE);
-	return(1);
+	return 1;
 }
 
 static int
@@ -2181,7 +2127,7 @@ termp_lk_pre(DECL_ARGS)
 	const struct roff_node *link, *descr;
 
 	if (NULL == (link = n->child))
-		return(0);
+		return 0;
 
 	if (NULL != (descr = link->next)) {
 		term_fontpush(p, TERMFONT_UNDER);
@@ -2198,7 +2144,7 @@ termp_lk_pre(DECL_ARGS)
 	term_word(p, link->string);
 	term_fontpop(p);
 
-	return(0);
+	return 0;
 }
 
 static int
@@ -2209,17 +2155,16 @@ termp_bk_pre(DECL_ARGS)
 	case ROFFT_BLOCK:
 		break;
 	case ROFFT_HEAD:
-		return(0);
+		return 0;
 	case ROFFT_BODY:
 		if (n->parent->args || 0 == n->prev->nchild)
 			p->flags |= TERMP_PREKEEP;
 		break;
 	default:
 		abort();
-		/* NOTREACHED */
 	}
 
-	return(1);
+	return 1;
 }
 
 static void
@@ -2255,10 +2200,10 @@ termp__t_pre(DECL_ARGS)
 	 */
 	if (n->parent && MDOC_Rs == n->parent->tok &&
 	    n->parent->norm->Rs.quote_T)
-		return(termp_quote_pre(p, pair, meta, n));
+		return termp_quote_pre(p, pair, meta, n);
 
 	term_fontpush(p, TERMFONT_UNDER);
-	return(1);
+	return 1;
 }
 
 static int
@@ -2266,7 +2211,7 @@ termp_under_pre(DECL_ARGS)
 {
 
 	term_fontpush(p, TERMFONT_UNDER);
-	return(1);
+	return 1;
 }
 
 static int
@@ -2278,7 +2223,7 @@ termp_er_pre(DECL_ARGS)
 	     (n->parent->tok == MDOC_Bq &&
 	      n->parent->parent->parent->tok == MDOC_It)))
 		tag_put(n->child->string, 1, p->line);
-	return(1);
+	return 1;
 }
 
 static int
@@ -2293,5 +2238,5 @@ termp_tag_pre(DECL_ARGS)
 	      n->parent->parent->prev == NULL &&
 	      n->parent->parent->parent->tok == MDOC_It)))
 		tag_put(n->child->string, 1, p->line);
-	return(1);
+	return 1;
 }

@@ -1,4 +1,4 @@
-/*	$OpenBSD: skeyinit.c,v 1.57 2015/04/18 18:28:38 deraadt Exp $	*/
+/*	$OpenBSD: skeyinit.c,v 1.60 2015/10/06 15:09:08 tim Exp $	*/
 
 /* OpenBSD S/Key (skeyinit.c)
  *
@@ -41,42 +41,33 @@
 void	usage(void);
 void	secure_mode(int *, char *, char *, size_t, char *, size_t);
 void	normal_mode(char *, int, char *, char *);
-void	convert_db(void);
 void	enable_db(int);
 
 int
 main(int argc, char **argv)
 {
-	int     rval, i, l, n, defaultsetup, rmkey, hexmode, enable, convert;
+	int     rval, i, l, n, defaultsetup, rmkey, hexmode, enable;
 	char	hostname[HOST_NAME_MAX+1];
 	char	seed[SKEY_MAX_SEED_LEN + 1];
 	char    buf[256], key[SKEY_BINKEY_SIZE], filename[PATH_MAX], *ht;
 	char    lastc, me[UT_NAMESIZE + 1], *p, *auth_type;
 	const char *errstr;
-	u_int32_t noise;
 	struct skey skey;
 	struct passwd *pp;
 
-	n = rmkey = hexmode = enable = convert = 0;
+	n = rmkey = hexmode = enable = 0;
 	defaultsetup = 1;
 	ht = auth_type = NULL;
 
-	/* Build up a default seed based on the hostname and some noise */
+	/* Build up a default seed based on the hostname and some randomness */
 	if (gethostname(hostname, sizeof(hostname)) < 0)
 		err(1, "gethostname");
 	for (i = 0, p = seed; hostname[i] && i < SKEY_NAMELEN; i++) {
-		if (isalpha((unsigned char)hostname[i])) {
-			if (isupper((unsigned char)hostname[i]))
-				hostname[i] = tolower((unsigned char)hostname[i]);
-			*p++ = hostname[i];
-		} else if (isdigit((unsigned char)hostname[i]))
-			*p++ = hostname[i];
+		if (isalnum((unsigned char)hostname[i]))
+			*p++ = tolower((unsigned char)hostname[i]);
 	}
-	noise = arc4random();
-	for (i = 0; i < 5; i++) {
-		*p++ = (noise % 10) + '0';
-		noise /= 10;
-	}
+	for (i = 0; i < 5; i++)
+		*p++ = arc4random_uniform(10) + '0';
 	*p = '\0';
 
 	if ((pp = getpwuid(getuid())) == NULL)
@@ -114,9 +105,6 @@ main(int argc, char **argv)
 					errx(1, "count must be > 0 and < %d",
 					     SKEY_MAX_SEQ);
 				break;
-			case 'C':
-				convert = 1;
-				break;
 			case 'D':
 				enable = -1;
 				break;
@@ -138,16 +126,12 @@ main(int argc, char **argv)
 	argv += i;
 	argc -= i;
 
-	if (argc > 1 || (enable && convert) || (enable && argc) ||
-	    (convert && argc))
+	if (argc > 1 || (enable && argc))
 		usage();
 
-	/* Handle -C, -D, and -E */
-	if (convert || enable) {
-		if (convert)
-			convert_db();
-		else
-			enable_db(enable);
+	/* Handle -D and -E */
+	if (enable) {
+		enable_db(enable);
 		exit(0);
 	}
 
@@ -193,12 +177,6 @@ main(int argc, char **argv)
 		}
 		break;
 	}
-
-	if (defaultsetup)
-		fputs("Reminder - Only use this method if you are directly "
-		    "connected\n           or have an encrypted channel.  If "
-		    "you are using telnet,\n           hit return now and use "
-		    "skeyinit -s.\n", stderr);
 
 	if (getuid() != 0) {
 		if ((pp = pw_dup(pp)) == NULL)
@@ -442,7 +420,7 @@ normal_mode(char *username, int n, char *key, char *seed)
 
 		/* Crunch seed and passphrase into starting key */
 		nn = keycrunch(key, seed, passwd);
-		memset(passwd, 0, sizeof(passwd));
+		explicit_bzero(passwd, sizeof(passwd));
 		if (nn != 0)
 			err(2, "key crunch failed");
 
@@ -452,7 +430,7 @@ normal_mode(char *username, int n, char *key, char *seed)
 
 		/* Crunch seed and passphrase into starting key */
 		nn = keycrunch(key2, seed, passwd);
-		memset(passwd, 0, sizeof(passwd));
+		explicit_bzero(passwd, sizeof(passwd));
 		if (nn != 0)
 			err(2, "key crunch failed");
 
@@ -485,82 +463,12 @@ enable_db(int op)
 	}
 }
 
-#define _PATH_SKEYKEYS	"/etc/skeykeys"
-void
-convert_db(void)
-{
-	struct passwd *pp;
-	uid_t uid;
-	FILE *keyfile;
-	FILE *newfile;
-	char buf[256], *logname, *hashtype, *seed, *val, *cp;
-	char filename[PATH_MAX];
-	const char *errstr;
-	int fd, n;
-
-	if ((keyfile = fopen(_PATH_SKEYKEYS, "r")) == NULL)
-		err(1, "can't open %s", _PATH_SKEYKEYS);
-	if (flock(fileno(keyfile), LOCK_EX) != 0)
-		err(1, "can't lock %s", _PATH_SKEYKEYS);
-	enable_db(1);
-
-	/*
-	 * Loop over each entry in _PATH_SKEYKEYS, creating a file
-	 * in _PATH_SKEYDIR for each one.
-	 */
-	while (fgets(buf, sizeof(buf), keyfile) != NULL) {
-		if (buf[0] == '#')
-			continue;
-		if ((logname = strtok(buf, " \t")) == NULL)
-			continue;
-		if ((cp = strtok(NULL, " \t")) == NULL)
-			continue;
-		if (!isalpha((unsigned char)*cp))
-			continue;
-		hashtype = cp;
-		if ((cp = strtok(NULL, " \t")) == NULL)
-			continue;
-		n = strtonum(cp, 0, SKEY_MAX_SEQ, &errstr);
-		if (errstr)
-			continue;
-		if ((seed = strtok(NULL, " \t")) == NULL)
-			continue;
-		if ((val = strtok(NULL, " \t")) == NULL)
-			continue;
-
-		if ((pp = getpwnam(logname)) != NULL)
-			uid = pp->pw_uid;
-		else
-			uid = 0;
-
-		/* Now write the new-style record. */
-		if (snprintf(filename, sizeof(filename), "%s/%s", _PATH_SKEYDIR,
-		    logname) >= sizeof(filename)) {
-			warnc(ENAMETOOLONG, "%s", logname);
-			continue;
-		}
-		fd = open(filename, O_RDWR | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
-		if (fd == -1 || flock(fd, LOCK_EX) != 0 ||
-		    (newfile = fdopen(fd, "r+")) == NULL) {
-			warn("%s", logname);
-			continue;
-		}
-		(void)fprintf(newfile, "%s\n%s\n%04d\n%s\n%s\n", logname,
-			    hashtype, n, seed, val);
-		(void)fchown(fileno(newfile), uid, -1);
-		(void)fclose(newfile);
-	}
-	printf("%s has been populated.  NOTE: %s has *not* been removed.\n"
-	    "It should be removed once you have verified that the new keys "
-	    "work.\n", _PATH_SKEYDIR, _PATH_SKEYKEYS);
-}
-
 void
 usage(void)
 {
 	extern char *__progname;
 
-	(void)fprintf(stderr, "usage: %s [-CDErsx] [-a auth-type] [-n count]"
+	(void)fprintf(stderr, "usage: %s [-DErsx] [-a auth-type] [-n count]"
 	    "\n\t[-md5 | -rmd160 | -sha1] [user]\n", __progname);
 	exit(1);
 }

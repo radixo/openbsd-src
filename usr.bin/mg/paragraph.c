@@ -1,4 +1,4 @@
-/*	$OpenBSD: paragraph.c,v 1.38 2015/09/24 07:07:59 lum Exp $	*/
+/*	$OpenBSD: paragraph.c,v 1.40 2015/09/26 15:03:15 lum Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -142,6 +142,9 @@ fillpara(int f, int n)
 	struct line	*eopline;	/* pointer to line just past EOP	*/
 	char	 wbuf[MAXWORD];	/* buffer for current word		*/
 
+	if (n == 0)
+		return (TRUE);
+
 	undo_boundary_enable(FFRAND, 0);
 
 	/* record the pointer to the line just past the EOP */
@@ -267,6 +270,9 @@ killpara(int f, int n)
 {
 	int	lineno, status;
 
+	if (n == 0)
+		return (TRUE);
+
 	if (findpara() == FALSE)
 		return (TRUE);
 
@@ -298,6 +304,9 @@ markpara(int f, int n)
 {
 	int i = 0;
 
+	if (n == 0)
+		return (TRUE);
+
 	clearmark(FFARG, 0);
 
 	if (findpara() == FALSE)
@@ -310,6 +319,51 @@ markpara(int f, int n)
 	curwp->w_marko = curwp->w_doto;
 
 	(void)gotobop(FFRAND, i);
+
+	return (TRUE);
+}
+
+/*
+ * Transpose the current paragraph with the following paragraph. If invoked
+ * multiple times, transpose to the n'th paragraph. If invoked between 
+ * paragraphs, move to the previous paragraph, then continue.
+ */
+/* ARGSUSED */
+int
+transposepara(int f, int n)
+{
+	int	i = 0, status;
+	char	flg;
+
+	if (n == 0)
+		return (TRUE);
+
+	/* find a paragraph, set mark, then goto the end */
+	gotobop(FFRAND, 1);
+	curwp->w_markp = curwp->w_dotp;
+	curwp->w_marko = curwp->w_doto;
+	(void)gotoeop(FFRAND, 1);
+
+	/* take a note of buffer flags - we may need them */
+	flg = curbp->b_flag;	
+
+	/* clean out kill buffer then kill region */
+	kdelete();
+	if ((status = killregion(FFRAND, 1)) != TRUE)
+		return (status);
+
+	/* 
+	 * Now step through n paragraphs. If we reach the end of buffer,
+	 * stop and paste the killed region back, then display a message.
+	 */
+	if (do_gotoeop(FFRAND, n, &i) == FALSE) {
+		ewprintf("Cannot transpose paragraph, end of buffer reached.");
+		(void)gotobop(FFRAND, i);
+		(void)yank(FFRAND, 1);
+		curbp->b_flag = flg;	
+		return (FALSE);
+	}
+	(void)yank(FFRAND, 1);
 
 	return (TRUE);
 }

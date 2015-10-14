@@ -1,4 +1,4 @@
-/*	$OpenBSD: csplit.c,v 1.4 2012/03/04 04:05:15 fgsch Exp $	*/
+/*	$OpenBSD: csplit.c,v 1.7 2015/10/09 01:37:07 deraadt Exp $	*/
 /*	$FreeBSD: src/usr.bin/csplit/csplit.c,v 1.9 2004/03/22 11:15:03 tjr Exp $	*/
 
 /*-
@@ -102,6 +102,9 @@ main(int argc, char *argv[])
 	FILE *ofp;
 
 	setlocale(LC_ALL, "");
+
+	if (pledge("stdio rpath wpath cpath", NULL) == -1)
+		err(1, "pledge");
 
 	kflag = sflag = 0;
 	prefix = "xx";

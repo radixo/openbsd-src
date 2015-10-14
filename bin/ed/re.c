@@ -1,4 +1,4 @@
-/*	$OpenBSD: re.c,v 1.12 2015/01/16 06:39:32 deraadt Exp $	*/
+/*	$OpenBSD: re.c,v 1.15 2015/10/09 20:27:28 tobias Exp $	*/
 /*	$NetBSD: re.c,v 1.14 1995/03/21 09:04:48 cgd Exp $	*/
 
 /* re.c: This file contains the regular expression interface routines for
@@ -31,17 +31,19 @@
 
 #include "ed.h"
 
+static char *extract_pattern(int);
+static char *parse_char_class(char *);
 
 extern int patlock;
 
-char errmsg[PATH_MAX + 40] = "";
 
 /* get_compiled_pattern: return pointer to compiled pattern from command
    buffer */
-pattern_t *
+regex_t *
 get_compiled_pattern(void)
 {
-	static pattern_t *exp = NULL;
+	static regex_t *exp = NULL;
+	char errbuf[128] = "";
 
 	char *exps;
 	char delimiter;
@@ -59,14 +61,15 @@ get_compiled_pattern(void)
 	/* buffer alloc'd && not reserved */
 	if (exp && !patlock)
 		regfree(exp);
-	else if ((exp = malloc(sizeof(pattern_t))) == NULL) {
+	else if ((exp = malloc(sizeof(regex_t))) == NULL) {
 		perror(NULL);
 		seterrmsg("out of memory");
 		return NULL;
 	}
 	patlock = 0;
 	if ((n = regcomp(exp, exps, 0)) != 0) {
-		regerror(n, exp, errmsg, sizeof errmsg);
+		regerror(n, exp, errbuf, sizeof errbuf);
+		seterrmsg(errbuf);
 		free(exp);
 		return exp = NULL;
 	}
@@ -76,7 +79,7 @@ get_compiled_pattern(void)
 
 /* extract_pattern: copy a pattern string from the command buffer; return
    pointer to the copy */
-char *
+static char *
 extract_pattern(int delimiter)
 {
 	static char *lhbuf = NULL;	/* buffer */
@@ -112,7 +115,7 @@ extract_pattern(int delimiter)
 
 
 /* parse_char_class: expand a POSIX character class */
-char *
+static char *
 parse_char_class(char *s)
 {
 	int c, d;

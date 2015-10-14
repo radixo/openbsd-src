@@ -1,4 +1,4 @@
-/*	$OpenBSD: printenv.c,v 1.5 2003/06/10 22:20:49 deraadt Exp $	*/
+/*	$OpenBSD: printenv.c,v 1.7 2015/10/07 06:35:19 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1987 Regents of the University of California.
@@ -32,6 +32,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
+#include <unistd.h>
+#include <err.h>
 
 /*
  * printenv
@@ -45,6 +47,9 @@ main(int argc, char *argv[])
 	extern char **environ;
 	char *cp, **ep;
 	int len;
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	if (argc < 2) {
 		for (ep = environ; *ep; ep++)

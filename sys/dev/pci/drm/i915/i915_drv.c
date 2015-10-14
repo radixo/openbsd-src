@@ -1,4 +1,4 @@
-/* $OpenBSD: i915_drv.c,v 1.85 2015/06/26 15:22:23 kettenis Exp $ */
+/* $OpenBSD: i915_drv.c,v 1.92 2015/09/28 06:47:23 kettenis Exp $ */
 /*
  * Copyright (c) 2008-2009 Owain G. Ainsworth <oga@openbsd.org>
  *
@@ -158,7 +158,7 @@ module_param_named(disable_power_well, i915_disable_power_well, int, 0600);
 MODULE_PARM_DESC(disable_power_well,
 		 "Disable the power well when possible (default: true)");
 
-int i915_enable_ips __read_mostly = 1;
+int i915_enable_ips __read_mostly = 0;
 module_param_named(enable_ips, i915_enable_ips, int, 0600);
 MODULE_PARM_DESC(enable_ips, "Enable IPS (default: true)");
 
@@ -198,6 +198,7 @@ void	intel_gtt_chipset_setup(struct drm_device *);
 
 /* i915_dma.c */
 void	intel_setup_mchbar(struct drm_device *);
+void	intel_teardown_mchbar(struct drm_device *);
 int	i915_load_modeset_init(struct drm_device *);
 
 #undef INTEL_VGA_DEVICE
@@ -208,16 +209,6 @@ int	i915_load_modeset_init(struct drm_device *);
 	.device = id,				\
 	.subvendor = PCI_ANY_ID,		\
 	.subdevice = PCI_ANY_ID,		\
-	.driver_data = (unsigned long) info }
-
-#undef INTEL_QUANTA_VGA_DEVICE
-#define INTEL_QUANTA_VGA_DEVICE(info) {		\
-	.class = PCI_CLASS_DISPLAY << 16,	\
-	.class_mask = 0xff0000,			\
-	.vendor = 0x8086,			\
-	.device = 0x16a,			\
-	.subvendor = 0x152d,			\
-	.subdevice = 0x8990,			\
 	.driver_data = (unsigned long) info }
 
 static const struct intel_device_info intel_i830_info = {
@@ -445,7 +436,6 @@ static const struct intel_device_info intel_broadwell_m_info = {
 	INTEL_IRONLAKE_M_IDS(&intel_ironlake_m_info),	\
 	INTEL_SNB_D_IDS(&intel_sandybridge_d_info),	\
 	INTEL_SNB_M_IDS(&intel_sandybridge_m_info),	\
-	INTEL_IVB_Q_IDS(&intel_ivybridge_q_info), /* must be first IVB */ \
 	INTEL_IVB_M_IDS(&intel_ivybridge_m_info),	\
 	INTEL_IVB_D_IDS(&intel_ivybridge_d_info),	\
 	INTEL_HSW_D_IDS(&intel_haswell_d_info), \
@@ -486,7 +476,7 @@ static struct drm_driver_info inteldrm_driver = {
 	.patchlevel = DRIVER_PATCHLEVEL,
 
 	.flags			= DRIVER_AGP | DRIVER_AGP_REQUIRE |
-				    DRIVER_MTRR | DRIVER_IRQ | DRIVER_GEM |
+				    DRIVER_HAVE_IRQ | DRIVER_GEM |
 				    DRIVER_MODESET,
 };
 
@@ -589,10 +579,8 @@ bool i915_semaphore_is_enabled(struct drm_device *dev)
 		return false;
 
 	/* Until we get further testing... */
-	if (IS_GEN8(dev)) {
-		WARN_ON(!i915_preliminary_hw_support);
+	if (IS_GEN8(dev))
 		return false;
-	}
 
 	if (i915_semaphores >= 0)
 		return i915_semaphores;
@@ -978,6 +966,7 @@ int inteldrm_load_font(void *, void *, struct wsdisplay_font *);
 int inteldrm_list_font(void *, struct wsdisplay_font *);
 int inteldrm_getchar(void *, int, int, struct wsdisplay_charcell *);
 void inteldrm_burner(void *, u_int, u_int);
+void inteldrm_burner_cb(void *);
 
 struct wsscreen_descr inteldrm_stdscreen = {
 	"std",
@@ -1152,19 +1141,32 @@ void
 inteldrm_burner(void *v, u_int on, u_int flags)
 {
 	struct inteldrm_softc *dev_priv = v;
-	struct drm_fb_helper *helper = &dev_priv->fbdev->helper;
-	int dpms_mode;
+
+	task_del(systq, &dev_priv->burner_task);
 
 	if (on)
-		dpms_mode = DRM_MODE_DPMS_ON;
+		dev_priv->burner_dpms_mode = DRM_MODE_DPMS_ON;
 	else {
 		if (flags & WSDISPLAY_BURN_VBLANK)
-			dpms_mode = DRM_MODE_DPMS_OFF;
+			dev_priv->burner_dpms_mode = DRM_MODE_DPMS_OFF;
 		else
-			dpms_mode = DRM_MODE_DPMS_STANDBY;
+			dev_priv->burner_dpms_mode = DRM_MODE_DPMS_STANDBY;
 	}
 
-	drm_fb_helper_dpms(helper, dpms_mode);
+	/*
+	 * Setting the DPMS mode may sleep while waiting for the display
+	 * to come back on so hand things off to a taskq.
+	 */
+	task_add(systq, &dev_priv->burner_task);
+}
+
+void
+inteldrm_burner_cb(void *arg1)
+{
+	struct inteldrm_softc *dev_priv = arg1;
+	struct drm_fb_helper *helper = &dev_priv->fbdev->helper;
+
+	drm_fb_helper_dpms(helper, dev_priv->burner_dpms_mode);
 }
 
 int
@@ -1179,22 +1181,20 @@ inteldrm_intr(void *arg)
 void
 inteldrm_attach(struct device *parent, struct device *self, void *aux)
 {
-	struct inteldrm_softc	*dev_priv = (struct inteldrm_softc *)self;
-	struct vga_pci_softc	*vga_sc = (struct vga_pci_softc *)parent;
-	struct pci_attach_args	*pa = aux;
-	struct vga_pci_bar	*bar;
-	struct drm_device	*dev;
-	const struct drm_pcidev	*id_entry;
-	int			 i;
-	uint16_t		 pci_device;
+	struct inteldrm_softc *dev_priv = (struct inteldrm_softc *)self;
+	struct vga_pci_softc *vga_sc = (struct vga_pci_softc *)parent;
+	struct pci_attach_args *pa = aux;
+	struct rasops_info *ri = &dev_priv->ro;
+	struct wsemuldisplaydev_attach_args aa;
+	extern int wsdisplay_console_initted;
+	struct vga_pci_bar *bar;
+	struct drm_device *dev;
 	const struct intel_device_info *info;
 	int ret = 0, mmio_bar, mmio_size;
 	uint32_t aperture_size;
+	int i;
 
-	id_entry = drm_find_description(PCI_VENDOR(pa->pa_id),
-	    PCI_PRODUCT(pa->pa_id), pciidlist);
-	pci_device = PCI_PRODUCT(pa->pa_id);
-	info = i915_get_device_id(pci_device);
+	info = i915_get_device_id(PCI_PRODUCT(pa->pa_id));
 	KASSERT(info->gen != 0);
 
 	dev_priv->info = info;
@@ -1232,7 +1232,6 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 	intel_display_crc_init(dev);
 
 	i915_dump_device_info(dev_priv);
-#endif
 
 	/* Not all pre-production machines fall into this category, only the
 	 * very first ones. Almost everything should work, except for maybe
@@ -1242,7 +1241,6 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 		DRM_INFO("This is an early pre-production Haswell machine. "
 			 "It may not be fully functional.\n");
 
-#ifdef __linux__
 	if (i915_get_bridge_dev(dev)) {
 		ret = -EIO;
 		goto free_priv;
@@ -1265,14 +1263,16 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 	/* we need to use this api for now due to sharing with intagp */
 	bar = vga_pci_bar_info(vga_sc, mmio_bar);
 	if (bar == NULL) {
-		printf(": can't get BAR info\n");
-		return;
+		printf("%s: can't get BAR info\n",
+		    dev_priv->sc_dev.dv_xname);
+		goto free_priv;
 	}
 
 	dev_priv->regs = vga_pci_bar_map(vga_sc, bar->addr, mmio_size, 0);
 	if (dev_priv->regs == NULL) {
-		printf(": can't map mmio space\n");
-		return;
+		printf("%s: can't map mmio space\n",
+		    dev_priv->sc_dev.dv_xname);
+		goto free_priv;
 	}
 
 	intel_uncore_early_sanitize(dev);
@@ -1357,21 +1357,12 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 	 * so there is no point in running more than one instance of the
 	 * workqueue at any time.  Use an ordered one.
 	 */
-#ifdef __linux__
 	dev_priv->wq = alloc_ordered_workqueue("i915", 0);
 	if (dev_priv->wq == NULL) {
 		DRM_ERROR("Failed to create our workqueue.\n");
 		ret = -ENOMEM;
 		goto out_mtrrfree;
 	}
-#else
-	dev_priv->wq = (struct workqueue_struct *)
-	    taskq_create("intelrel", 1, IPL_TTY, 0);
-	if (dev_priv->wq == NULL) {
-		printf(": couldn't create taskq\n");
-		goto out_mtrrfree;
-	}
-#endif
 
 	intel_irq_init(dev);
 	intel_uncore_sanitize(dev);
@@ -1399,20 +1390,22 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 	if (IS_I945G(dev) || IS_I945GM(dev))
 		pa->pa_flags &= ~PCI_FLAGS_MSI_ENABLED;
 
-	if (pci_intr_map(pa, &dev_priv->ih) != 0) {
-		printf(": couldn't map interrupt\n");
-		return;
+	if (pci_intr_map_msi(pa, &dev_priv->ih) != 0 &&
+	    pci_intr_map(pa, &dev_priv->ih) != 0) {
+		printf("%s: couldn't map interrupt\n",
+		    dev_priv->sc_dev.dv_xname);
+		goto out_gem_unload;
 	}
 
-	/*
-	 * set up interrupt handler, note that we don't switch the interrupt
-	 * on until the X server talks to us, kms will change this.
-	 */
+	printf("%s: %s\n", dev_priv->sc_dev.dv_xname,
+	    pci_intr_string(dev_priv->pc, dev_priv->ih));
+
 	dev_priv->irqh = pci_intr_establish(dev_priv->pc, dev_priv->ih,
 	    IPL_TTY, inteldrm_intr, dev_priv, dev_priv->sc_dev.dv_xname);
 	if (dev_priv->irqh == NULL) {
-		printf(": couldn't  establish interrupt\n");
-		return;
+		printf("%s: couldn't establish interrupt\n",
+		    dev_priv->sc_dev.dv_xname);
+		goto out_gem_unload;
 	}
 
 	dev_priv->num_plane = 1;
@@ -1455,14 +1448,12 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 
 	intel_init_runtime_pm(dev_priv);
 
-#if 1
-{
-	extern int wsdisplay_console_initted;
-	struct wsemuldisplaydev_attach_args aa;
-	struct rasops_info *ri = &dev_priv->ro;
-
+	/* Check if we managed to set up a framebuffer. */
 	if (ri->ri_bits == NULL)
 		return;
+
+	printf("%s: %dx%d\n", dev_priv->sc_dev.dv_xname,
+	    ri->ri_width, ri->ri_height);
 
 	intel_fbdev_restore_mode(dev);
 
@@ -1471,6 +1462,7 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 	rasops_init(ri, 160, 160);
 
 	task_set(&dev_priv->switchtask, inteldrm_doswitch, dev_priv);
+	task_set(&dev_priv->burner_task, inteldrm_burner_cb, dev_priv);
 
 	inteldrm_stdscreen.capabilities = ri->ri_caps;
 	inteldrm_stdscreen.nrows = ri->ri_rows;
@@ -1494,17 +1486,46 @@ inteldrm_attach(struct device *parent, struct device *self, void *aux)
 		aa.console = 1;
 	}
 
-	printf("%s: %dx%d\n", dev_priv->sc_dev.dv_xname, ri->ri_width, ri->ri_height);
-
 	vga_sc->sc_type = -1;
 	config_found(parent, &aa, wsemuldisplaydevprint);
-}
-#endif
+	return;
 
 out_power_well:
+	intel_power_domains_remove(dev);
+	drm_vblank_cleanup(dev);
 out_gem_unload:
+#ifdef notyet
+	if (dev_priv->mm.inactive_shrinker.scan_objects)
+		unregister_shrinker(&dev_priv->mm.inactive_shrinker);
+#endif
+
+	if (dev_priv->irqh)
+		pci_intr_disestablish(dev_priv->pc, dev_priv->irqh);
+
+	list_del(&dev_priv->gtt.base.global_link);
+	drm_mm_takedown(&dev_priv->gtt.base.mm);
+	dev_priv->gtt.base.cleanup(&dev_priv->gtt.base);
+
+	intel_teardown_gmbus(dev);
+	intel_teardown_mchbar(dev);
+#ifdef notyet
+	pm_qos_remove_request(&dev_priv->pm_qos);
+#endif
+	destroy_workqueue(dev_priv->wq);
 out_mtrrfree:
+#ifdef __linux__
+	arch_phys_wc_del(dev_priv->gtt.mtrr);
+	io_mapping_free(dev_priv->gtt.mappable);
+#endif
 out_regs:
+	intel_uncore_fini(dev);
+#ifdef __linux__
+	pci_iounmap(dev->pdev, dev_priv->regs);
+#else
+	vga_pci_bar_unmap(dev_priv->regs);
+#endif
+free_priv:
+	dev->dev_private = NULL;
 	return;
 }
 
@@ -1622,7 +1643,7 @@ i915_alloc_ifp(struct inteldrm_softc *dev_priv, struct pci_attach_args *bpa)
 
 nope:
 	dev_priv->ifp.i9xx.bsh = 0;
-	printf(": no ifp ");
+	printf("%s: no ifp\n", dev_priv->sc_dev.dv_xname);
 }
 
 void
@@ -1659,7 +1680,7 @@ i965_alloc_ifp(struct inteldrm_softc *dev_priv, struct pci_attach_args *bpa)
 
 nope:
 	dev_priv->ifp.i9xx.bsh = 0;
-	printf(": no ifp ");
+	printf("%s: no ifp\n", dev_priv->sc_dev.dv_xname);
 }
 
 void
@@ -1672,7 +1693,8 @@ intel_gtt_chipset_setup(struct drm_device *dev)
 		return;
 
 	if (pci_find_device(&bpa, inteldrm_gmch_match) == 0) {
-		printf(": can't find GMCH\n");
+		printf("%s: can't find GMCH\n",
+		    dev_priv->sc_dev.dv_xname);
 		return;
 	}
 
