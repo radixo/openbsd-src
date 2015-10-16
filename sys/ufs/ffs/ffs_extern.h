@@ -171,6 +171,7 @@ void ffs_wapbl_blkalloc(struct fs *, struct vnode *, daddr_t, int);
 
 void ffs_wapbl_sync_metadata(struct mount *, daddr_t *, int *, int);
 void ffs_wapbl_abort_sync_metadata(struct mount *, daddr_t *, int *, int);
+void ffs_wapbl_blkfree(struct fs *, struct vnode *, daddr_t, long);
 
 /*
  * Soft dependency function prototypes.

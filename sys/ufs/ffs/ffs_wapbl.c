@@ -172,8 +172,8 @@ ffs_wapbl_sync_metadata(struct mount *mp, daddr_t *deallocblks,
 		 * blkfree errors are unreported, might silently fail
 		 * if it cannot read the cylinder group block
 		 */
-		ffs_blkfree(VTOI(ump->um_devvp),
-		    dbtofsb(fs, deallocblks[i]), dealloclens[i]);
+		ffs_wapbl_blkfree(fs, ump->um_devvp, dbtofsb(fs, deallocblks[i]),
+		    dealloclens[i]);
 	}
 
 	fs->fs_fmod = 0;

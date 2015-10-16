@@ -75,6 +75,9 @@ daddr_t		ffs_hashalloc(struct inode *, int, daddr_t, int, int,
                     daddr_t (*)(struct inode *, int, daddr_t, int, int));
 daddr_t		ffs_nodealloccg(struct inode *, int, daddr_t, int, int);
 daddr_t		ffs_mapsearch(struct fs *, struct cg *, daddr_t, int);
+void		ffs_blkfree_subr(struct fs *, struct vnode *,
+		    struct inode *, daddr_t bno, long size);
+
 
 int ffs1_reallocblks(void *);
 #ifdef FFS2
@@ -313,7 +316,7 @@ ffs_realloccg(struct inode *ip, daddr_t lbprev, daddr_t bpref, int osize,
 		    fsbtodb(fs, bprev), osize);
 	} else {
 		if (!DOINGSOFTDEP(ITOV(ip)))
-		    ffs_blkfree(ip, bprev, (long)osize);
+			ffs_blkfree(ip, bprev, (long)osize);
 	}
 	if (nsize < request) {
 		if (ip->i_ump->um_mountp->mnt_wapbl &&
@@ -787,8 +790,8 @@ ffs2_reallocblks(void *v)
 			    buflist->bs_children[i]->b_blkno, fs->fs_bsize);
 		} else {
 			if (!DOINGSOFTDEP(vp))
-			    ffs_blkfree(ip, dbtofsb(fs,
-			        buflist->bs_children[i]->b_blkno), fs->fs_bsize);
+				ffs_blkfree(ip, dbtofsb(fs,
+			            buflist->bs_children[i]->b_blkno), fs->fs_bsize);
 		}
 		buflist->bs_children[i]->b_blkno = fsbtodb(fs, blkno);
 #ifdef DIAGNOSTIC
@@ -2018,6 +2021,19 @@ ffs_blkalloc_ump(struct ufsmount *ump, daddr_t bno, long size)
 	return 0;
 }
 
+void
+ffs_wapbl_blkfree(struct fs *fs, struct vnode *devvp, daddr_t bno,
+    long size)
+{
+	ffs_blkfree_subr(fs, devvp, NULL, bno, size);
+}
+
+void
+ffs_blkfree(struct inode *ip, daddr_t bno, long size)
+{
+	ffs_blkfree_subr(NULL, NULL, ip, bno, size);
+}
+
 /*
  * Free a block or fragment.
  *
@@ -2026,29 +2042,44 @@ ffs_blkalloc_ump(struct ufsmount *ump, daddr_t bno, long size)
  * block reassembly is checked.
  */
 void
-ffs_blkfree(struct inode *ip, daddr_t bno, long size)
+ffs_blkfree_subr(struct fs *fs, struct vnode *devvp, struct inode *ip,
+    daddr_t bno, long size)
 {
-	struct fs *fs;
 	struct cg *cgp;
 	struct buf *bp;
 	daddr_t blkno;
 	int i, cg, blk, frags, bbase;
 
-	fs = ip->i_fs;
+	KASSERT((fs != NULL && devvp != NULL) ^ (ip != NULL));
+
+	if (fs == NULL) {
+		fs = ip->i_fs;
+		devvp = ip->i_devvp;
+	}
+	
 	if ((u_int)size > fs->fs_bsize || fragoff(fs, size) != 0 ||
 	    fragnum(fs, bno) + numfrags(fs, size) > fs->fs_frag) {
-		printf("dev = 0x%x, bsize = %d, size = %ld, fs = %s\n",
-		    ip->i_dev, fs->fs_bsize, size, fs->fs_fsmnt);
+		if (ip == NULL)
+			printf("bsize = %d, size = %ld, fs = %s\n",
+			    fs->fs_bsize, size, fs->fs_fsmnt);
+		else
+			printf("dev = 0x%x, bsize = %d, size = %ld, fs = %s\n",
+			    ip->i_dev, fs->fs_bsize, size, fs->fs_fsmnt);
 		panic("ffs_blkfree: bad size");
 	}
 	cg = dtog(fs, bno);
 	if ((u_int)bno >= fs->fs_size) {
-		printf("bad block %lld, ino %u\n", (long long)bno,
-		    ip->i_number);
-		ffs_fserr(fs, DIP(ip, uid), "bad block");
+		if (ip == NULL) {
+			printf("bad block %lld\n", (long long)bno);
+			ffs_fserr(fs, 0, "bad block");
+		} else {
+			printf("bad block %lld, ino %u\n", (long long)bno,
+			    ip->i_number);
+			ffs_fserr(fs, DIP(ip, uid), "bad block");
+		}
 		return;
 	}
-	if (!(bp = ffs_cgread(fs, ip->i_devvp, cg)))
+	if (!(bp = ffs_cgread(fs, devvp, cg)))
 		return;
 
 	cgp = (struct cg *)bp->b_data;
@@ -2058,8 +2089,12 @@ ffs_blkfree(struct inode *ip, daddr_t bno, long size)
 	if (size == fs->fs_bsize) {
 		blkno = fragstoblks(fs, bno);
 		if (!ffs_isfreeblock(fs, cg_blksfree(cgp), blkno)) {
-			printf("dev = 0x%x, block = %lld, fs = %s\n",
-			    ip->i_dev, (long long)bno, fs->fs_fsmnt);
+			if (ip == NULL)
+				printf("block = %lld, fs = %s\n",
+				    (long long)bno, fs->fs_fsmnt);
+			else
+				printf("dev = 0x%x, block = %lld, fs = %s\n",
+				    ip->i_dev, (long long)bno, fs->fs_fsmnt);
 			panic("ffs_blkfree: freeing free block");
 		}
 		ffs_setblock(fs, cg_blksfree(cgp), blkno);
@@ -2087,9 +2122,13 @@ ffs_blkfree(struct inode *ip, daddr_t bno, long size)
 		frags = numfrags(fs, size);
 		for (i = 0; i < frags; i++) {
 			if (isset(cg_blksfree(cgp), bno + i)) {
-				printf("dev = 0x%x, block = %lld, fs = %s\n",
-				    ip->i_dev, (long long)(bno + i),
-				    fs->fs_fsmnt);
+				if (ip == NULL)
+					printf("block = %lld, fs = %s\n",
+					    (long long)(bno + i), fs->fs_fsmnt);
+				else
+					printf("dev = 0x%x, block = %lld, fs = %s\n",
+					    ip->i_dev, (long long)(bno + i),
+					    fs->fs_fsmnt);
 				panic("ffs_blkfree: freeing free frag");
 			}
 			setbit(cg_blksfree(cgp), bno + i);
