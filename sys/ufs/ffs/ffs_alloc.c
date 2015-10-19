@@ -2211,7 +2211,7 @@ ffs_freefile(struct inode *pip, ufsino_t ino, mode_t mode)
 	}
 	clrbit(cg_inosused(cgp), ino);
 	UFS_WAPBL_UNREGISTER_INODE(pip->i_ump->um_mountp,
-	    ino + cg + fs->fs_ipg, mode);
+	    ino + cg * fs->fs_ipg, mode);
 	if (ino < cgp->cg_irotor)
 		cgp->cg_irotor = ino;
 	cgp->cg_cs.cs_nifree++;
