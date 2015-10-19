@@ -1,4 +1,4 @@
-/*	$OpenBSD: sdiff.c,v 1.32 2015/02/05 12:59:58 millert Exp $ */
+/*	$OpenBSD: sdiff.c,v 1.34 2015/10/15 23:06:46 deraadt Exp $ */
 
 /*
  * Written by Raymond Lai <ray@cyth.net>.

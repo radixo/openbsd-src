@@ -1,8 +1,10 @@
-/*	$OpenBSD: syn.c,v 1.33 2015/09/18 07:28:24 nicm Exp $	*/
+/*	$OpenBSD: syn.c,v 1.35 2015/10/15 22:53:50 mmcc Exp $	*/
 
 /*
  * shell parser (C version)
  */
+
+#include <string.h>
 
 #include "sh.h"
 #include "c_test.h"
@@ -78,9 +80,9 @@ pipeline(int cf)
 			if ((p = get_command(CONTIN)) == NULL)
 				syntaxerr(NULL);
 			if (tl == NULL)
-				t = tl = block(TPIPE, t, p, NOWORDS);
+				t = tl = block(TPIPE, t, p, NULL);
 			else
-				tl = tl->right = block(TPIPE, tl->right, p, NOWORDS);
+				tl = tl->right = block(TPIPE, tl->right, p, NULL);
 		}
 		reject = true;
 	}
@@ -98,7 +100,7 @@ andor(void)
 		while ((c = token(0)) == LOGAND || c == LOGOR) {
 			if ((p = pipeline(CONTIN)) == NULL)
 				syntaxerr(NULL);
-			t = block(c == LOGAND? TAND: TOR, t, p, NOWORDS);
+			t = block(c == LOGAND? TAND: TOR, t, p, NULL);
 		}
 		reject = true;
 	}
@@ -126,15 +128,15 @@ c_list(int multi)
 			break;
 		else if (c == '&' || c == COPROC)
 			p = block(c == '&' ? TASYNC : TCOPROC,
-				  p, NOBLOCK, NOWORDS);
+				  p, NULL, NULL);
 		else if (c != ';')
 			have_sep = 0;
 		if (!t)
 			t = p;
 		else if (!tl)
-			t = tl = block(TLIST, t, p, NOWORDS);
+			t = tl = block(TLIST, t, p, NULL);
 		else
-			tl = tl->right = block(TLIST, tl->right, p, NOWORDS);
+			tl = tl->right = block(TLIST, tl->right, p, NULL);
 		if (!have_sep)
 			break;
 	}
@@ -183,7 +185,7 @@ nested(int type, int smark, int emark)
 	t = c_list(true);
 	musthave(emark, KEYWORD|ALIAS);
 	nesting_pop(&old_nesting);
-	return (block(type, t, NOBLOCK, NOWORDS));
+	return (block(type, t, NULL, NULL));
 }
 
 static struct op *
@@ -356,7 +358,7 @@ get_command(int cf)
 		t = pipeline(0);
 		if (t == NULL)
 			syntaxerr(NULL);
-		t = block(TBANG, NOBLOCK, t, NOWORDS);
+		t = block(TBANG, NULL, t, NULL);
 		break;
 
 	case TIME:
@@ -367,7 +369,7 @@ get_command(int cf)
 			t->str[0] = '\0'; /* TF_* flags */
 			t->str[1] = '\0';
 		}
-		t = block(TTIME, t, NOBLOCK, NOWORDS);
+		t = block(TTIME, t, NULL, NULL);
 		break;
 
 	case FUNCTION:

@@ -1,4 +1,4 @@
-/*	$OpenBSD: mdoc_argv.c,v 1.60 2015/04/19 13:59:37 schwarze Exp $ */
+/*	$OpenBSD: mdoc_argv.c,v 1.62 2015/10/15 22:45:07 schwarze Exp $ */
 /*
  * Copyright (c) 2008, 2009, 2010, 2011 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -445,98 +445,75 @@ static enum margserr
 args(struct roff_man *mdoc, int line, int *pos,
 		char *buf, enum argsflag fl, char **v)
 {
-	char		*p, *pp;
+	char		*p;
 	int		 pairs;
-	enum margserr	 rc;
 
-	if ('\0' == buf[*pos]) {
-		if (MDOC_PPHRASE & mdoc->flags)
-			return ARGS_EOLN;
-		/*
-		 * If we're not in a partial phrase and the flag for
-		 * being a phrase literal is still set, the punctuation
-		 * is unterminated.
-		 */
-		if (MDOC_PHRASELIT & mdoc->flags)
+	if (buf[*pos] == '\0') {
+		if (mdoc->flags & MDOC_PHRASELIT &&
+		    ! (mdoc->flags & MDOC_PHRASE)) {
 			mandoc_msg(MANDOCERR_ARG_QUOTE,
 			    mdoc->parse, line, *pos, NULL);
-
-		mdoc->flags &= ~MDOC_PHRASELIT;
+			mdoc->flags &= ~MDOC_PHRASELIT;
+		}
 		return ARGS_EOLN;
 	}
 
-	*v = &buf[*pos];
+	*v = buf + *pos;
 
-	if (ARGSFL_DELIM == fl)
-		if (args_checkpunct(buf, *pos))
-			return ARGS_PUNCT;
+	if (fl == ARGSFL_DELIM && args_checkpunct(buf, *pos))
+		return ARGS_PUNCT;
 
 	/*
-	 * First handle TABSEP items, restricted to `Bl -column'.  This
-	 * ignores conventional token parsing and instead uses tabs or
-	 * `Ta' macros to separate phrases.  Phrases are parsed again
-	 * for arguments at a later phase.
+	 * Tabs in `It' lines in `Bl -column' can't be escaped.
+	 * Phrases are reparsed for `Ta' and other macros later.
 	 */
 
-	if (ARGSFL_TABSEP == fl) {
-		/* Scan ahead to tab (can't be escaped). */
-		p = strchr(*v, '\t');
-		pp = NULL;
+	if (fl == ARGSFL_TABSEP) {
+		if ((p = strchr(*v, '\t')) != NULL) {
 
-		/* Scan ahead to unescaped `Ta'. */
-		if ( ! (MDOC_PHRASELIT & mdoc->flags))
-			for (pp = *v; ; pp++) {
-				if (NULL == (pp = strstr(pp, "Ta")))
-					break;
-				if (pp > *v && ' ' != *(pp - 1))
-					continue;
-				if (' ' == *(pp + 2) || '\0' == *(pp + 2))
-					break;
-			}
+			/*
+			 * Words right before and right after
+			 * tab characters are not parsed,
+			 * unless there is a blank in between.
+			 */
 
-		/* By default, assume a phrase. */
-		rc = ARGS_PHRASE;
+			if (p[-1] != ' ')
+				mdoc->flags |= MDOC_PHRASEQL;
+			if (p[1] != ' ')
+				mdoc->flags |= MDOC_PHRASEQN;
 
-		/*
-		 * Adjust new-buffer position to be beyond delimiter
-		 * mark (e.g., Ta -> end + 2).
-		 */
-		if (p && pp) {
-			*pos += pp < p ? 2 : 1;
-			rc = pp < p ? ARGS_PHRASE : ARGS_PPHRASE;
-			p = pp < p ? pp : p;
-		} else if (p && ! pp) {
-			rc = ARGS_PPHRASE;
-			*pos += 1;
-		} else if (pp && ! p) {
-			p = pp;
-			*pos += 2;
+			/*
+			 * One or more blanks after a tab cause
+			 * one leading blank in the next column.
+			 * So skip all but one of them.
+			 */
+
+			*pos += (int)(p - *v) + 1;
+			while (buf[*pos] == ' ' && buf[*pos + 1] == ' ')
+				(*pos)++;
+
+			/*
+			 * A tab at the end of an input line
+			 * switches to the next column.
+			 */
+
+			if (buf[*pos] == '\0' || buf[*pos + 1] == '\0')
+				mdoc->flags |= MDOC_PHRASEQN;
 		} else {
-			rc = ARGS_PEND;
-			p = strchr(*v, 0);
+			p = strchr(*v, '\0');
+			if (p[-1] == ' ')
+				mandoc_msg(MANDOCERR_SPACE_EOL,
+				    mdoc->parse, line, *pos, NULL);
+			*pos += (int)(p - *v);
 		}
 
-		/* Whitespace check for eoln case... */
-		if ('\0' == *p && ' ' == *(p - 1))
-			mandoc_msg(MANDOCERR_SPACE_EOL, mdoc->parse,
-			    line, *pos, NULL);
+		/* Skip any trailing blank characters. */
+		while (p > *v && p[-1] == ' ' &&
+		    (p - 1 == *v || p[-2] != '\\'))
+			p--;
+		*p = '\0';
 
-		*pos += (int)(p - *v);
-
-		/* Strip delimiter's preceding whitespace. */
-		pp = p - 1;
-		while (pp > *v && ' ' == *pp) {
-			if (pp > *v && '\\' == *(pp - 1))
-				break;
-			pp--;
-		}
-		*(pp + 1) = 0;
-
-		/* Strip delimiter's proceeding whitespace. */
-		for (pp = &buf[*pos]; ' ' == *pp; pp++, (*pos)++)
-			/* Skip ahead. */ ;
-
-		return rc;
+		return ARGS_PHRASE;
 	}
 
 	/*
@@ -547,11 +524,11 @@ args(struct roff_man *mdoc, int line, int *pos,
 	 * Whitespace is NOT involved in literal termination.
 	 */
 
-	if (MDOC_PHRASELIT & mdoc->flags || '\"' == buf[*pos]) {
-		if ( ! (MDOC_PHRASELIT & mdoc->flags))
+	if (mdoc->flags & MDOC_PHRASELIT || buf[*pos] == '\"') {
+		if ( ! (mdoc->flags & MDOC_PHRASELIT))
 			*v = &buf[++(*pos)];
 
-		if (MDOC_PPHRASE & mdoc->flags)
+		if (mdoc->flags & MDOC_PHRASE)
 			mdoc->flags |= MDOC_PHRASELIT;
 
 		pairs = 0;
@@ -571,11 +548,10 @@ args(struct roff_man *mdoc, int line, int *pos,
 		if (pairs)
 			buf[*pos - pairs] = '\0';
 
-		if ('\0' == buf[*pos]) {
-			if (MDOC_PPHRASE & mdoc->flags)
-				return ARGS_QWORD;
-			mandoc_msg(MANDOCERR_ARG_QUOTE,
-			    mdoc->parse, line, *pos, NULL);
+		if (buf[*pos] == '\0') {
+			if ( ! (mdoc->flags & MDOC_PHRASE))
+				mandoc_msg(MANDOCERR_ARG_QUOTE,
+				    mdoc->parse, line, *pos, NULL);
 			return ARGS_QWORD;
 		}
 
@@ -598,6 +574,15 @@ args(struct roff_man *mdoc, int line, int *pos,
 	p = &buf[*pos];
 	*v = mandoc_getarg(mdoc->parse, &p, line, pos);
 
+	/*
+	 * After parsing the last word in this phrase,
+	 * tell lookup() whether or not to interpret it.
+	 */
+
+	if (*p == '\0' && mdoc->flags & MDOC_PHRASEQL) {
+		mdoc->flags &= ~MDOC_PHRASEQL;
+		mdoc->flags |= MDOC_PHRASEQF;
+	}
 	return ARGS_WORD;
 }
 

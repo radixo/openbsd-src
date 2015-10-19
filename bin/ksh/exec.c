@@ -1,13 +1,17 @@
-/*	$OpenBSD: exec.c,v 1.56 2015/09/18 07:28:24 nicm Exp $	*/
+/*	$OpenBSD: exec.c,v 1.60 2015/10/19 02:15:45 mmcc Exp $	*/
 
 /*
  * execute command tree
  */
 
+#include <sys/stat.h>
+
+#include <ctype.h>
+#include <paths.h>
+#include <string.h>
+
 #include "sh.h"
 #include "c_test.h"
-#include <ctype.h>
-#include <sys/stat.h>
 
 /* Does ps4 get parameter substitutions done? */
 # define PS4_SUBSTITUTE(s)	substitute((s), 0)
@@ -688,11 +692,11 @@ scriptexec(struct op *tp, char **ap)
 {
 	char *shell;
 
-	shell = str_val(global(EXECSHELL_STR));
+	shell = str_val(global("EXECSHELL"));
 	if (shell && *shell)
 		shell = search(shell, path, X_OK, NULL);
 	if (!shell || !*shell)
-		shell = EXECSHELL;
+		shell = _PATH_BSHELL;
 
 	*tp->args-- = tp->str;
 	*tp->args = shell;

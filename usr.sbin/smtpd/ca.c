@@ -1,4 +1,4 @@
-/*	$OpenBSD: ca.c,v 1.14 2015/01/20 17:37:54 deraadt Exp $	*/
+/*	$OpenBSD: ca.c,v 1.16 2015/10/14 21:05:31 gilles Exp $	*/
 
 /*
  * Copyright (c) 2014 Reyk Floeter <reyk@openbsd.org>
@@ -22,15 +22,14 @@
 #include <sys/socket.h>
 #include <sys/tree.h>
 
-#include <signal.h>
-#include <string.h>
-#include <limits.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <limits.h>
-#include <imsg.h>
-#include <pwd.h>
 #include <err.h>
+#include <imsg.h>
+#include <limits.h>
+#include <pwd.h>
+#include <signal.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
 
 #include <openssl/ssl.h>
 #include <openssl/pem.h>
@@ -186,18 +185,14 @@ ca_verify_cb(int ok, X509_STORE_CTX *ctx)
 	case X509_V_OK:
 		break;
         case X509_V_ERR_UNABLE_TO_GET_ISSUER_CERT:
-		log_warnx("warn: unable to get issuer cert");
 		break;
         case X509_V_ERR_CERT_NOT_YET_VALID:
         case X509_V_ERR_ERROR_IN_CERT_NOT_BEFORE_FIELD:
-		log_warnx("warn: certificate not yet valid");
 		break;
         case X509_V_ERR_CERT_HAS_EXPIRED:
         case X509_V_ERR_ERROR_IN_CERT_NOT_AFTER_FIELD:
-		log_warnx("warn: certificate has expired");
 		break;
         case X509_V_ERR_NO_EXPLICIT_POLICY:
-		log_warnx("warn: no explicit policy");
 		break;
 	}
 	return ok;

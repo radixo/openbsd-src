@@ -1,4 +1,4 @@
-/* $OpenBSD: pkcs12.c,v 1.4 2015/09/11 14:30:23 bcook Exp $ */
+/* $OpenBSD: pkcs12.c,v 1.6 2015/10/17 07:51:10 semarie Exp $ */
 /* Written by Dr Stephen N Henson (steve@openssl.org) for the OpenSSL
  * project.
  */
@@ -125,8 +125,10 @@ pkcs12_main(int argc, char **argv)
 	char *CApath = NULL, *CAfile = NULL;
 
 	if (single_execution) {
-		if (pledge("stdio rpath wpath cpath", NULL) == -1)
+		if (pledge("stdio rpath wpath cpath tty", NULL) == -1) {
 			perror("pledge");
+			exit(1);
+		}
 	}
 
 	cert_pbe = NID_pbe_WithSHA1And40BitRC2_CBC;

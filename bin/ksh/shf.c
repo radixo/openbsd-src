@@ -1,12 +1,15 @@
-/*	$OpenBSD: shf.c,v 1.21 2015/09/17 14:21:33 nicm Exp $	*/
+/*	$OpenBSD: shf.c,v 1.24 2015/10/19 14:03:21 mmcc Exp $	*/
 
 /*
  *  Shell file I/O routines
  */
 
-#include "sh.h"
 #include <sys/stat.h>
 
+#include <limits.h>
+#include <string.h>
+
+#include "sh.h"
 
 /* flags to shf_emptybuf() */
 #define EB_READSW	0x01	/* about to switch to reading */

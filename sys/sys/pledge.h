@@ -1,4 +1,4 @@
-/*	$OpenBSD: tame.h,v 1.13 2015/10/08 17:29:43 deraadt Exp $	*/
+/*	$OpenBSD: pledge.h,v 1.6 2015/10/18 00:04:43 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -27,13 +27,13 @@
 #define PLEDGE_SELF	0x00000001	/* operate on own pid */
 #define PLEDGE_RW		0x00000002	/* basic io operations */
 #define PLEDGE_MALLOC	0x00000004	/* enough for malloc */
-#define PLEDGE_DNSPATH	0x00000008	/* access to DNS pathnames */
+#define PLEDGE_DNS	0x00000008	/* DNS services */
 #define PLEDGE_RPATH	0x00000010	/* allow open for read */
 #define PLEDGE_WPATH	0x00000020	/* allow open for write */
 #define PLEDGE_TMPPATH	0x00000040	/* for mk*temp() */
 #define PLEDGE_INET	0x00000080	/* AF_INET/AF_INET6 sockets */
 #define PLEDGE_UNIX	0x00000100	/* AF_UNIX sockets */
-// reuse, old CMSG	0x00000200
+#define PLEDGE_ID	0x00000200	/* allow setuid, setgid, etc */
 #define PLEDGE_IOCTL	0x00000400	/* Select ioctl */
 #define PLEDGE_GETPW	0x00000800	/* YP enables if ypbind.lock */
 #define PLEDGE_PROC	0x00001000	/* fork, waitpid, etc */
@@ -46,6 +46,7 @@
 #define PLEDGE_EXEC	0x00080000	/* execve, child is free of pledge */
 #define PLEDGE_ROUTE	0x00100000	/* routing lookups */
 #define PLEDGE_MCAST	0x00200000	/* multicast joins */
+#define PLEDGE_FLOCK	0x00400000	/* file locking */
 
 #define PLEDGE_ABORT	0x08000000	/* SIGABRT instead of SIGKILL */
 
@@ -53,7 +54,6 @@
  * Not user settable. Should be moved to a seperate variable */
 #define PLEDGE_USERSET	0x0fffffff
 #define PLEDGE_YP_ACTIVE	0x10000000	/* YP use detected and allowed */
-#define PLEDGE_DNS_ACTIVE	0x20000000	/* DNS use detected and allowed */
 
 int	pledge_check(struct proc *, int);
 int	pledge_fail(struct proc *, int, int);
@@ -61,18 +61,18 @@ int	pledge_namei(struct proc *, char *);
 void	pledge_aftersyscall(struct proc *, int, int);
 
 struct mbuf;
-int	pledge_cmsg_send(struct proc *p, struct mbuf *control);
-int	pledge_cmsg_recv(struct proc *p, struct mbuf *control);
+int	pledge_sendfd_check(struct proc *p, struct file *);
+int	pledge_recvfd_check(struct proc *p, struct file *);
 int	pledge_sysctl_check(struct proc *p, int namelen, int *name, void *new);
+int	pledge_chown_check(struct proc *p, uid_t, gid_t);
 int	pledge_adjtime_check(struct proc *p, const void *v);
-int	pledge_recvfrom_check(struct proc *p, void *from);
-int	pledge_sendto_check(struct proc *p, const void *to);
-int	pledge_bind_check(struct proc *p, const void *v);
-int	pledge_connect_check(struct proc *p);
+int	pledge_recvit_check(struct proc *p, const void *from);
+int	pledge_sendit_check(struct proc *p, const void *to);
 int	pledge_socket_check(struct proc *p, int domain);
 int	pledge_setsockopt_check(struct proc *p, int level, int optname);
 int	pledge_dns_check(struct proc *p, in_port_t port);
 int	pledge_ioctl_check(struct proc *p, long com, void *);
+int	pledge_flock_check(struct proc *p);
 
 #define PLEDGE_MAXPATHS	8192
 

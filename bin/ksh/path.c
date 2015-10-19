@@ -1,7 +1,10 @@
-/*	$OpenBSD: path.c,v 1.14 2015/09/15 18:15:05 tedu Exp $	*/
+/*	$OpenBSD: path.c,v 1.16 2015/10/19 02:15:45 mmcc Exp $	*/
+
+#include <sys/stat.h>
+
+#include <string.h>
 
 #include "sh.h"
-#include <sys/stat.h>
 
 /*
  *	Contains a routine to search a : separated list of

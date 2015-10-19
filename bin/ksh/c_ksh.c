@@ -1,13 +1,15 @@
-/*	$OpenBSD: c_ksh.c,v 1.42 2015/09/22 21:50:40 millert Exp $	*/
+/*	$OpenBSD: c_ksh.c,v 1.44 2015/10/19 02:15:45 mmcc Exp $	*/
 
 /*
  * built-in Korn commands: c_*
  */
 
-#include "sh.h"
 #include <sys/stat.h>
-#include <ctype.h>
 
+#include <ctype.h>
+#include <string.h>
+
+#include "sh.h"
 
 int
 c_cd(char **wp)

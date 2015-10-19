@@ -1,9 +1,13 @@
-/*	$OpenBSD: var.c,v 1.49 2015/09/18 07:28:24 nicm Exp $	*/
+/*	$OpenBSD: var.c,v 1.52 2015/10/19 14:03:21 mmcc Exp $	*/
+
+#include <sys/stat.h>
+
+#include <ctype.h>
+#include <limits.h>
+#include <string.h>
+#include <time.h>
 
 #include "sh.h"
-#include <time.h>
-#include <sys/stat.h>
-#include <ctype.h>
 
 /*
  * Variables
