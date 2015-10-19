@@ -1,8 +1,12 @@
-/*	$OpenBSD: table.c,v 1.18 2015/09/18 07:28:24 nicm Exp $	*/
+/*	$OpenBSD: table.c,v 1.21 2015/10/19 14:42:16 mmcc Exp $	*/
 
 /*
  * dynamic hashed associative table for commands and variables
  */
+
+#include <limits.h>
+#include <stddef.h>
+#include <string.h>
 
 #include "sh.h"
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: inetd.c,v 1.142 2014/10/29 03:33:14 dlg Exp $	*/
+/*	$OpenBSD: inetd.c,v 1.145 2015/10/19 11:51:17 jca Exp $	*/
 
 /*
  * Copyright (c) 1983,1991 The Regents of the University of California.
@@ -134,6 +134,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 
+#include <err.h>
 #include <errno.h>
 #include <ctype.h>
 #include <signal.h>
@@ -295,9 +296,7 @@ int
 main(int argc, char *argv[])
 {
 	int ch;
-	extern char *optarg;
-	extern int optind;
-	
+
 	while ((ch = getopt(argc, argv, "dR:")) != -1)
 		switch (ch) {
 		case 'd':
@@ -346,6 +345,9 @@ main(int argc, char *argv[])
 		if (uid == 0)
 			(void) setlogin("");
 	}
+
+	if (pledge("stdio rpath getpw dns inet proc exec id abort", NULL) == -1)
+		err(1, "pledge");
 
 	if (uid == 0) {
 		gid_t gid = getgid();
@@ -1770,6 +1772,10 @@ spawn(int ctrl, short events, void *xsep)
 		sleep(1);
 		return;
 	}
+
+	if (pledge("stdio rpath getpw inet proc exec id abort", NULL) == -1)
+		err(1, "pledge");
+
 	if (pid && sep->se_wait) {
 		sep->se_wait = pid;
 		event_del(&sep->se_event);

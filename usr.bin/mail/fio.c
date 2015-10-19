@@ -1,4 +1,4 @@
-/*	$OpenBSD: fio.c,v 1.33 2014/01/17 18:42:30 okan Exp $	*/
+/*	$OpenBSD: fio.c,v 1.35 2015/10/16 17:56:07 mmcc Exp $	*/
 /*	$NetBSD: fio.c,v 1.8 1997/07/07 22:57:55 phil Exp $	*/
 
 /*
@@ -142,7 +142,7 @@ setptr(FILE *ibuf, off_t offset)
 		} else if (inhead) {
 			for (cp = linebuf, cp2 = "status";; cp++) {
 				if ((c = (unsigned char)*cp2++) == 0) {
-					while (isspace(*cp++))
+					while (isspace((unsigned char)*cp++))
 						;
 					if (cp[-1] != ':')
 						break;
@@ -278,10 +278,9 @@ makemessage(FILE *f, int omsgCount)
 	struct message *nmessage;
 
 	size = (msgCount + 1) * sizeof(struct message);
-	nmessage = (struct message *)realloc(message, size);
+	nmessage = realloc(message, size);
 	if (nmessage == 0)
-		errx(1, "Insufficient memory for %d messages",
-		    msgCount);
+		err(1, "realloc");
 	if (omsgCount == 0 || message == NULL)
 		dot = nmessage;
 	else

@@ -60,7 +60,6 @@
 ./etc/examples/exports
 ./etc/examples/ftpchroot
 ./etc/examples/hostapd.conf
-./etc/examples/hosts.lpd
 ./etc/examples/httpd.conf
 ./etc/examples/ifstated.conf
 ./etc/examples/iked.conf
@@ -2368,6 +2367,7 @@
 ./usr/sbin/rbootd
 ./usr/sbin/rcctl
 ./usr/sbin/rdate
+./usr/sbin/rebound
 ./usr/sbin/relayctl
 ./usr/sbin/relayd
 ./usr/sbin/repquota

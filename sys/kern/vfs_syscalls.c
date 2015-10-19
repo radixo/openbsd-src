@@ -1,4 +1,4 @@
-/*	$OpenBSD: vfs_syscalls.c,v 1.228 2015/10/06 14:39:07 deraadt Exp $	*/
+/*	$OpenBSD: vfs_syscalls.c,v 1.230 2015/10/14 14:24:03 deraadt Exp $	*/
 /*	$NetBSD: vfs_syscalls.c,v 1.71 1996/04/23 10:29:02 mycroft Exp $	*/
 
 /*
@@ -49,6 +49,7 @@
 #include <sys/vnode.h>
 #include <sys/mount.h>
 #include <sys/proc.h>
+#include <sys/pledge.h>
 #include <sys/uio.h>
 #include <sys/malloc.h>
 #include <sys/pool.h>
@@ -858,6 +859,12 @@ doopenat(struct proc *p, int fd, const char *path, int oflags, mode_t mode,
 	}
 	if (oflags & O_CREAT)
 		p->p_pledgenote |= TMN_CPATH;
+
+	if (oflags & (O_EXLOCK | O_SHLOCK)) {
+		error = pledge_flock_check(p);
+		if (error != 0)
+			return (error);
+	}
 
 	fdplock(fdp);
 
@@ -2102,12 +2109,8 @@ dofchownat(struct proc *p, int fd, const char *path, uid_t uid, gid_t gid,
 	if (vp->v_mount->mnt_flag & MNT_RDONLY)
 		error = EROFS;
 	else {
-		if ((p->p_p->ps_flags & PS_PLEDGE) &&
-		    ((uid != -1 && uid != p->p_ucred->cr_uid) ||
-		     (gid != -1 && gid != p->p_ucred->cr_gid))) {
-			error = EPERM;
+		if ((error = pledge_chown_check(p, uid, gid)))
 			goto out;
-		}
 		if ((uid != -1 || gid != -1) &&
 		    (suser(p, 0) || suid_clear)) {
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);
@@ -2158,12 +2161,8 @@ sys_lchown(struct proc *p, void *v, register_t *retval)
 	if (vp->v_mount->mnt_flag & MNT_RDONLY)
 		error = EROFS;
 	else {
-		if ((p->p_p->ps_flags & PS_PLEDGE) &&
-		    ((uid != -1 && uid != p->p_ucred->cr_uid) ||
-		     (gid != -1 && gid != p->p_ucred->cr_gid))) {
-			error = EPERM;
+		if ((error = pledge_chown_check(p, uid, gid)))
 			goto out;
-		}
 		if ((uid != -1 || gid != -1) &&
 		    (suser(p, 0) || suid_clear)) {
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);
@@ -2212,12 +2211,8 @@ sys_fchown(struct proc *p, void *v, register_t *retval)
 	if (vp->v_mount->mnt_flag & MNT_RDONLY)
 		error = EROFS;
 	else {
-		if ((p->p_p->ps_flags & PS_PLEDGE) &&
-		    ((uid != -1 && uid != p->p_ucred->cr_uid) ||
-		     (gid != -1 && gid != p->p_ucred->cr_gid))) {
-			error = EPERM;
+		if ((error = pledge_chown_check(p, uid, gid)))
 			goto out;
-		}
 		if ((uid != -1 || gid != -1) &&
 		    (suser(p, 0) || suid_clear)) {
 			error = VOP_GETATTR(vp, &vattr, p->p_ucred, p);

@@ -1,7 +1,7 @@
 #ifndef _LST_H_
 #define _LST_H_
 
-/*	$OpenBSD: lst.h,v 1.28 2010/07/19 19:30:37 espie Exp $ */
+/*	$OpenBSD: lst.h,v 1.30 2015/10/14 13:50:22 espie Exp $ */
 /*	$NetBSD: lst.h,v 1.7 1996/11/06 17:59:12 christos Exp $ */
 
 /*
@@ -59,8 +59,7 @@ struct ListNode_ {
 #endif
 
 typedef void (*SimpleProc)(void *);
-typedef int (*FindProc)(void *, void *);
-typedef int (*ForEachNodeWhileProc)(LstNode, void *);
+typedef bool (*FindProc)(void *, void *);
 typedef int (*FindProcConst)(void *, const void *);
 typedef void (*ForEachProc)(void *, void *);
 typedef void *(*DuplicateProc)(void *);
@@ -129,8 +128,6 @@ extern LstNode		Lst_Member(Lst, void *);
 /* Apply a function to elements of a lst starting from a certain point.  */
 extern void		Lst_ForEachFrom(LstNode, ForEachProc, void *);
 extern void		Lst_Every(Lst, SimpleProc);
-
-extern void		Lst_ForEachNodeWhile(Lst, ForEachNodeWhileProc, void *);
 
 extern bool		Lst_AddNew(Lst, void *);
 /*
