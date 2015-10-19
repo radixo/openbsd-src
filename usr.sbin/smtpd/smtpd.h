@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpd.h,v 1.475 2015/09/07 15:36:53 gilles Exp $	*/
+/*	$OpenBSD: smtpd.h,v 1.477 2015/10/14 22:16:38 gilles Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -48,7 +48,7 @@
 #ifndef SMTPD_NAME
 #define	SMTPD_NAME		 "OpenSMTPD"
 #endif
-#define	SMTPD_VERSION		 "5.4.4"
+#define	SMTPD_VERSION		 "5.4.6"
 #define SMTPD_SESSION_TIMEOUT	 300
 #define SMTPD_BACKLOG		 5
 
@@ -1398,6 +1398,7 @@ int bsnprintf(char *, size_t, const char *, ...)
 int mkdirs(char *, mode_t);
 int safe_fclose(FILE *);
 int hostname_match(const char *, const char *);
+int mailaddr_match(const struct mailaddr *, const struct mailaddr *);
 int valid_localpart(const char *);
 int valid_domainpart(const char *);
 int secure_file(int, char *, char *, uid_t, int);

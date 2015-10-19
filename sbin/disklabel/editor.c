@@ -1,4 +1,4 @@
-/*	$OpenBSD: editor.c,v 1.295 2015/05/08 12:15:50 sthen Exp $	*/
+/*	$OpenBSD: editor.c,v 1.297 2015/10/15 19:31:15 miod Exp $	*/
 
 /*
  * Copyright (c) 1997-2000 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -46,10 +46,6 @@
 /* flags for getuint64() */
 #define	DO_CONVERSIONS	0x00000001
 #define	DO_ROUNDING	0x00000002
-
-#ifndef NUMBOOT
-#define NUMBOOT 0
-#endif
 
 /* structure to describe a portion of a disk */
 struct diskchunk {
@@ -385,7 +381,7 @@ editor(int f)
 			} while (arg && tolower((unsigned char)*arg) != 'y' &&
 			    tolower((unsigned char)*arg) != 'n');
 			if (arg && tolower((unsigned char)*arg) == 'y') {
-				if (writelabel(f, bootarea, &newlab) == 0) {
+				if (writelabel(f, &newlab) == 0) {
 					newlab = lab; /* lab now has UID info */
 					goto done;
 				}
@@ -471,7 +467,7 @@ editor(int f)
 			}
 
 			/* Write label to disk. */
-			if (writelabel(f, bootarea, &newlab) != 0)
+			if (writelabel(f, &newlab) != 0)
 				warnx("unable to write label");
 			else {
 				dflag = aflag = 0;
@@ -1751,15 +1747,6 @@ find_bounds(struct disklabel *lp)
 			    " portion of the disk.\nYou can use the 'b'"
 			    " command to change this.\n\n", starting_sector,
 			    ending_sector);
-	} else {
-#if NUMBOOT > 0 
-		/* Boot blocks take up the first cylinder */
-		starting_sector = lp->d_secpercyl;
-		if (verbose)
-			printf("Reserving the first data cylinder for boot"
-			    " blocks.\nYou can use the 'b' command to change"
-			    " this.\n\n");
-#endif
 	}
 }
 

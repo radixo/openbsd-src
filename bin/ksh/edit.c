@@ -1,4 +1,4 @@
-/*	$OpenBSD: edit.c,v 1.45 2015/09/26 23:49:37 nicm Exp $	*/
+/*	$OpenBSD: edit.c,v 1.47 2015/10/19 02:15:45 mmcc Exp $	*/
 
 /*
  * Command line editing - common code
@@ -8,13 +8,16 @@
 #include "config.h"
 #ifdef EDIT
 
-#include "sh.h"
-#include "tty.h"
-#include "edit.h"
 #include <sys/ioctl.h>
+#include <sys/stat.h>
+
 #include <ctype.h>
 #include <libgen.h>
-#include <sys/stat.h>
+#include <string.h>
+
+#include "sh.h"
+#include "edit.h"
+#include "tty.h"
 
 X_chars edchars;
 

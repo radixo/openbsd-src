@@ -1,4 +1,4 @@
-/*	$OpenBSD: sh.h,v 1.36 2015/09/14 09:42:33 nicm Exp $	*/
+/*	$OpenBSD: sh.h,v 1.43 2015/10/19 14:42:16 mmcc Exp $	*/
 
 /*
  * Public Domain Bourne/Korn shell
@@ -14,19 +14,14 @@
 #include <sys/types.h>
 #include <setjmp.h>
 #include <stdbool.h>
-#include <stddef.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <string.h>
 #include <stdarg.h>
 
 #include <errno.h>
 #include <fcntl.h>
-#include <limits.h>
 
 #include <signal.h>
-
-#include <paths.h>
 
 /* end of common headers */
 
@@ -38,9 +33,6 @@
 # define EXTERN extern
 # define EXTERN_DEFINED
 #endif
-
-#define EXECSHELL	_PATH_BSHELL
-#define EXECSHELL_STR	"EXECSHELL"
 
 #define	NELEM(a) (sizeof(a) / sizeof((a)[0]))
 #define	sizeofN(type, n) (sizeof(type) * (n))
@@ -62,14 +54,14 @@
 #define	LINE	2048		/* input line size */
 #define	PATH	1024		/* pathname size (todo: PATH_MAX/pathconf()) */
 
-EXTERN	const char *kshname;	/* $0 */
-EXTERN	pid_t	kshpid;		/* $$, shell pid */
-EXTERN	pid_t	procpid;	/* pid of executing process */
-EXTERN	uid_t	ksheuid;	/* effective uid of shell */
-EXTERN	int	exstat;		/* exit status */
-EXTERN	int	subst_exstat;	/* exit status of last $(..)/`..` */
-EXTERN	const char *safe_prompt; /* safe prompt if PS1 substitution fails */
-EXTERN	char	username[];	/* username for \u prompt expansion */
+extern	const char *kshname;	/* $0 */
+extern	pid_t	kshpid;		/* $$, shell pid */
+extern	pid_t	procpid;	/* pid of executing process */
+extern	uid_t	ksheuid;	/* effective uid of shell */
+extern	int	exstat;		/* exit status */
+extern	int	subst_exstat;	/* exit status of last $(..)/`..` */
+extern	const char *safe_prompt; /* safe prompt if PS1 substitution fails */
+extern	char	username[];	/* username for \u prompt expansion */
 
 /*
  * Area-based allocation built on malloc/free
@@ -78,7 +70,7 @@ typedef struct Area {
 	struct link *freelist;	/* free list */
 } Area;
 
-EXTERN	Area	aperm;		/* permanent object space */
+extern	Area	aperm;		/* permanent object space */
 #define	APERM	&aperm
 #define	ATEMP	&e->area
 
@@ -95,7 +87,7 @@ EXTERN	Area	aperm;		/* permanent object space */
 /*
  * parsing & execution environment
  */
-EXTERN	struct env {
+struct env {
 	short	type;			/* environment type - see below */
 	short	flags;			/* EF_* */
 	Area	area;			/* temporary allocation area */
@@ -104,7 +96,8 @@ EXTERN	struct env {
 	struct	env *oenv;		/* link to previous environment */
 	sigjmp_buf jbuf;		/* long jump back to env creator */
 	struct temp *temps;		/* temp files */
-} *e;
+};
+extern	struct env	*e;
 
 /* struct env.type values */
 #define	E_NONE	0		/* dummy environment */
@@ -208,7 +201,7 @@ enum sh_flag {
 
 #define Flag(f)	(shell_flags[(int) (f)])
 
-EXTERN	char shell_flags [FNFLAGS];
+extern	char shell_flags[FNFLAGS];
 
 EXTERN	char	null [] I__("");	/* null value for variable */
 

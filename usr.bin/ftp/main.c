@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.101 2015/02/22 14:55:41 jsing Exp $	*/
+/*	$OpenBSD: main.c,v 1.103 2015/10/16 05:35:19 doug Exp $	*/
 /*	$NetBSD: main.c,v 1.24 1997/08/18 10:20:26 lukem Exp $	*/
 
 /*
@@ -442,6 +442,28 @@ main(volatile int argc, char *argv[])
 
 	if (argc > 0) {
 		if (isurl(argv[0])) {
+			if (pipeout) {
+#ifndef SMALL
+				if (pledge("stdio rpath dns tty inet fattr",
+				    NULL) == -1)
+					err(1, "pledge");
+#else
+				if (pledge("stdio rpath dns tty inet proc exec fattr",
+				    NULL) == -1)
+					err(1, "pledge");
+#endif
+			} else {
+#ifndef SMALL
+				if (pledge("stdio rpath wpath cpath dns tty inet fattr",
+				    NULL) == -1)
+					err(1, "pledge");
+#else
+				if (pledge("stdio rpath wpath cpath dns tty inet proc exec fattr",
+				    NULL) == -1)
+					err(1, "pledge");
+#endif
+			}
+
 			rval = auto_fetch(argc, argv, outfile);
 			if (rval >= 0)		/* -1 == connected and cd-ed */
 				exit(rval);

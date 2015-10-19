@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.61 2015/10/10 00:10:07 deraadt Exp $	*/
+/*	$OpenBSD: main.c,v 1.68 2015/10/19 14:01:37 mmcc Exp $	*/
 
 /*
  * startup, main loop, environments and error handling
@@ -6,9 +6,13 @@
 
 #define	EXTERN				/* define EXTERNs in sh.h */
 
-#include "sh.h"
 #include <sys/stat.h>
+
+#include <paths.h>
 #include <pwd.h>
+#include <string.h>
+
+#include "sh.h"
 
 extern char **environ;
 
@@ -20,6 +24,20 @@ static void	reclaim(void);
 static void	remove_temps(struct temp *tp);
 static int	is_restricted(char *name);
 static void	init_username(void);
+
+const char *kshname;
+pid_t	kshpid;
+pid_t	procpid;
+uid_t	ksheuid;
+int	exstat;
+int	subst_exstat;
+const char *safe_prompt;
+
+Area	aperm;
+
+struct env	*e;
+
+char	shell_flags[FNFLAGS];
 
 /*
  * shell initialization
@@ -103,7 +121,8 @@ main(int argc, char *argv[])
 	kshname = argv[0];
 
 #ifndef MKNOD
-	if (pledge("stdio rpath wpath cpath fattr getpw proc exec tty", NULL) == -1)
+	if (pledge("stdio rpath wpath cpath fattr flock getpw proc exec tty",
+	    NULL) == -1)
 		perror("pledge");
 #endif
 

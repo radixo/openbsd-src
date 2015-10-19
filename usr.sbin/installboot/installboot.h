@@ -1,4 +1,4 @@
-/*	$OpenBSD: installboot.h,v 1.6 2015/10/12 20:52:20 krw Exp $	*/
+/*	$OpenBSD: installboot.h,v 1.9 2015/10/15 04:41:09 deraadt Exp $	*/
 /*
  * Copyright (c) 2012, 2013 Joel Sing <jsing@openbsd.org>
  *
@@ -15,6 +15,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <stdlib.h>
+
 extern int nowrite;
 extern int stages;
 extern int verbose;
@@ -24,11 +26,12 @@ extern char *stage1;
 extern char *stage2;
 
 #ifdef BOOTSTRAP
-void	bootstrap(int, char *, char *);
+void	bootstrap(int, char *, char *, unsigned int);
 #endif
 
 int	filecopy(const char *, const char *);
 char	*fileprefix(const char *, const char *);
+u_int32_t crc32(const u_char *, const u_int32_t);
 
 void	md_init(void);
 void	md_loadboot(void);

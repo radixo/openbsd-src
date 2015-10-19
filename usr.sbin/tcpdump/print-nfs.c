@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-nfs.c,v 1.18 2014/08/14 12:44:44 mpi Exp $	*/
+/*	$OpenBSD: print-nfs.c,v 1.19 2015/01/16 06:40:21 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997
@@ -381,9 +381,11 @@ parsefn(register const u_int32_t *dp)
 	cp = (u_char *)dp;
 	/* Update 32-bit pointer (NFS filenames padded to 32-bit boundaries) */
 	dp += ((len + 3) & ~3) / sizeof(*dp);
-	/* XXX seems like we should be checking the length */
 	putchar('"');
-	(void) fn_printn(cp, len, NULL);
+	if (fn_printn(cp, len, snapend)) {
+		putchar('"');
+		goto trunc;
+	}
 	putchar('"');
 
 	return (dp);

@@ -1,4 +1,4 @@
-/*	$OpenBSD: privsep.c,v 1.54 2015/07/07 17:53:04 bluhm Exp $	*/
+/*	$OpenBSD: privsep.c,v 1.57 2015/10/16 16:10:10 bluhm Exp $	*/
 
 /*
  * Copyright (c) 2003 Anil Madhavapeddy <anil@recoil.org>
@@ -144,6 +144,10 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 		return 0;
 	}
 
+	if (pledge("stdio rpath wpath cpath inet dns getpw sendfd id proc exec",
+	    NULL) == -1)
+		err(1, "pledge priv");
+
 	if (!Debug) {
 		close(lockfd);
 		dup2(nullfd, STDIN_FILENO);
@@ -212,7 +216,7 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			break;
 		switch (cmd) {
 		case PRIV_OPEN_TTY:
-			dprintf("[priv]: msg PRIV_OPEN_TTY received\n");
+			logdebug("[priv]: msg PRIV_OPEN_TTY received\n");
 			/* Expecting: length, path */
 			must_read(socks[0], &path_len, sizeof(size_t));
 			if (path_len == 0 || path_len > sizeof(path))
@@ -230,7 +234,7 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 
 		case PRIV_OPEN_LOG:
 		case PRIV_OPEN_PIPE:
-			dprintf("[priv]: msg PRIV_OPEN_%s received\n",
+			logdebug("[priv]: msg PRIV_OPEN_%s received\n",
 			    cmd == PRIV_OPEN_PIPE ? "PIPE" : "LOG");
 			/* Expecting: length, path */
 			must_read(socks[0], &path_len, sizeof(size_t));
@@ -255,7 +259,7 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			break;
 
 		case PRIV_OPEN_UTMP:
-			dprintf("[priv]: msg PRIV_OPEN_UTMP received\n");
+			logdebug("[priv]: msg PRIV_OPEN_UTMP received\n");
 			fd = open(_PATH_UTMP, O_RDONLY|O_NONBLOCK, 0);
 			send_fd(socks[0], fd);
 			if (fd < 0)
@@ -265,7 +269,7 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			break;
 
 		case PRIV_OPEN_CONFIG:
-			dprintf("[priv]: msg PRIV_OPEN_CONFIG received\n");
+			logdebug("[priv]: msg PRIV_OPEN_CONFIG received\n");
 			stat(config_file, &cf_info);
 			fd = open(config_file, O_RDONLY|O_NONBLOCK, 0);
 			send_fd(socks[0], fd);
@@ -276,12 +280,12 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			break;
 
 		case PRIV_CONFIG_MODIFIED:
-			dprintf("[priv]: msg PRIV_CONFIG_MODIFIED received\n");
+			logdebug("[priv]: msg PRIV_CONFIG_MODIFIED received\n");
 			if (stat(config_file, &cf_stat) < 0 ||
 			    timespeccmp(&cf_info.st_mtimespec,
 			    &cf_stat.st_mtimespec, <) ||
 			    cf_info.st_size != cf_stat.st_size) {
-				dprintf("config file modified: restarting\n");
+				logdebug("config file modified: restarting\n");
 				restart = result = 1;
 				must_write(socks[0], &result, sizeof(int));
 			} else {
@@ -291,12 +295,13 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			break;
 
 		case PRIV_DONE_CONFIG_PARSE:
-			dprintf("[priv]: msg PRIV_DONE_CONFIG_PARSE received\n");
+			logdebug("[priv]: msg PRIV_DONE_CONFIG_PARSE "
+			    "received\n");
 			increase_state(STATE_RUNNING);
 			break;
 
 		case PRIV_GETADDRINFO:
-			dprintf("[priv]: msg PRIV_GETADDRINFO received\n");
+			logdebug("[priv]: msg PRIV_GETADDRINFO received\n");
 			/* Expecting: len, proto, len, host, len, serv */
 			must_read(socks[0], &protoname_len, sizeof(size_t));
 			if (protoname_len == 0 ||
@@ -362,7 +367,7 @@ priv_init(char *conf, int numeric, int lockfd, int nullfd, char *argv[])
 			break;
 
 		case PRIV_GETNAMEINFO:
-			dprintf("[priv]: msg PRIV_GETNAMEINFO received\n");
+			logdebug("[priv]: msg PRIV_GETNAMEINFO received\n");
 			if (!allow_getnameinfo)
 				errx(1, "rejected attempt to getnameinfo");
 			/* Expecting: length, sockaddr */

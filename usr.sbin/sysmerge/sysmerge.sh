@@ -1,6 +1,6 @@
 #!/bin/ksh -
 #
-# $OpenBSD: sysmerge.sh,v 1.213 2015/10/12 18:25:16 ajacoutot Exp $
+# $OpenBSD: sysmerge.sh,v 1.215 2015/10/16 19:55:39 ajacoutot Exp $
 #
 # Copyright (c) 2008-2014 Antoine Jacoutot <ajacoutot@openbsd.org>
 # Copyright (c) 1998-2003 Douglas Barton <DougB@FreeBSD.org>
@@ -81,7 +81,8 @@ sm_rotate_bak() {
 	done
 	rm -rf ${_BKPDIR}.4
 	[[ -d ${_BKPDIR} ]] && mv ${_BKPDIR} ${_BKPDIR}.0
-	install -d ${_BKPDIR} || return
+	# make sure this function is only run _once_ per sysmerge invocation
+	unset -f sm_rotate_bak
 }
 
 # get pkg @sample information
@@ -314,7 +315,9 @@ sm_install() {
 	fi
 
 	if [[ -f ${TARGET} ]]; then
-		sm_rotate_bak || return
+		if typeset -f sm_rotate_bak >/dev/null; then
+			sm_rotate_bak || return
+		fi
 		mkdir -p ${_BKPDIR}/${_instdir} || return
 		cp -p ${TARGET} ${_BKPDIR}/${_instdir} || return
 	fi
@@ -613,7 +616,7 @@ shift $(( OPTIND -1 ))
 # global constants
 _BKPDIR=/var/sysmerge/backups
 _RELINT=$(uname -r | tr -d '.') || exit 1
-_TMPROOT=$(mktemp -d -p ${TMPDIR:=/tmp} sysmerge.XXXXXXXXXX) || exit 1
+_TMPROOT=$(mktemp -d -p /tmp sysmerge.XXXXXXXXXX) || exit 1
 readonly _BKPDIR _RELINT _TMPROOT
 
 [[ -z ${VISUAL} ]] && EDITOR=${EDITOR:=/usr/bin/vi} || EDITOR=${VISUAL}
