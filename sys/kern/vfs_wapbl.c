@@ -200,18 +200,17 @@ int wapbl_debug_print = WAPBL_DEBUG_PRINT;
 struct wapbl *wapbl_debug_wl;
 #endif
 
-static int wapbl_write_commit(struct wapbl *wl, off_t head, off_t tail);
-static int wapbl_write_blocks(struct wapbl *wl, off_t *offp);
-static int wapbl_write_revocations(struct wapbl *wl, off_t *offp);
-static int wapbl_write_inodes(struct wapbl *wl, off_t *offp);
+int	 wapbl_write_commit(struct wapbl *, off_t, off_t);
+int	 wapbl_write_blocks(struct wapbl *, off_t *);
+int	 wapbl_write_revocations(struct wapbl *, off_t *);
+int	 wapbl_write_inodes(struct wapbl *, off_t *);
 #endif /* _KERNEL */
 
-static int wapbl_replay_process(struct wapbl_replay *wr, off_t, off_t);
+static int		 wapbl_replay_process(struct wapbl_replay *, off_t,
+			    off_t);
 
-static inline size_t wapbl_space_free(size_t avail, off_t head,
-	off_t tail);
-static inline size_t wapbl_space_used(size_t avail, off_t head,
-	off_t tail);
+static inline size_t	 wapbl_space_free(size_t, off_t, off_t);
+static inline size_t	 wapbl_space_used(size_t, off_t, off_t);
 
 #ifdef _KERNEL
 
@@ -226,20 +225,21 @@ struct wapbl_ino {
 	mode_t wi_mode;
 };
 
-static void wapbl_inodetrk_init(struct wapbl *wl, u_int size);
-static void wapbl_inodetrk_free(struct wapbl *wl);
-static struct wapbl_ino *wapbl_inodetrk_get(struct wapbl *wl, ino_t ino);
+void			 wapbl_inodetrk_init(struct wapbl *, u_int);
+void			 wapbl_inodetrk_free(struct wapbl *);
+struct wapbl_ino	*wapbl_inodetrk_get(struct wapbl *, ino_t);
 
-static size_t wapbl_transaction_len(struct wapbl *wl);
-static inline size_t wapbl_transaction_inodes_len(struct wapbl *wl);
+size_t			 wapbl_transaction_len(struct wapbl *);
+inline size_t		 wapbl_transaction_inodes_len(struct wapbl *);
 
 #if 0
-int wapbl_replay_verify(struct wapbl_replay *, struct vnode *);
+int			 wapbl_replay_verify(struct wapbl_replay *,
+			    struct vnode *);
 #endif
 
-static int wapbl_replay_isopen1(struct wapbl_replay *);
+int			 wapbl_replay_isopen1(struct wapbl_replay *);
 
-static int wapbl_bbusy(struct buf *, int, struct mutex *);
+int			 wapbl_bbusy(struct buf *, int, struct mutex *);
 
 /*
  * This is useful for debugging.  If set, the log will
@@ -1850,7 +1850,7 @@ wapbl_register_deallocation(struct wapbl *wl, daddr_t blk, int len)
 
 /****************************************************************/
 
-static void
+void
 wapbl_inodetrk_init(struct wapbl *wl, u_int size)
 {
 
@@ -1861,7 +1861,7 @@ wapbl_inodetrk_init(struct wapbl *wl, u_int size)
 	}
 }
 
-static void
+void
 wapbl_inodetrk_free(struct wapbl *wl)
 {
 
@@ -1873,7 +1873,7 @@ wapbl_inodetrk_free(struct wapbl *wl)
 	}
 }
 
-static struct wapbl_ino *
+struct wapbl_ino *
 wapbl_inodetrk_get(struct wapbl *wl, ino_t ino)
 {
 	struct wapbl_ino_head *wih;
@@ -1936,7 +1936,7 @@ wapbl_unregister_inode(struct wapbl *wl, ino_t ino, mode_t mode)
 
 /****************************************************************/
 
-static inline size_t
+inline size_t
 wapbl_transaction_inodes_len(struct wapbl *wl)
 {
 	int blocklen = 1<<wl->wl_log_dev_bshift;
@@ -1953,7 +1953,7 @@ wapbl_transaction_inodes_len(struct wapbl *wl)
 
 
 /* Calculate amount of space a transaction will take on disk */
-static size_t
+size_t
 wapbl_transaction_len(struct wapbl *wl)
 {
 	int blocklen = 1<<wl->wl_log_dev_bshift;
@@ -2020,7 +2020,7 @@ wapbl_cache_sync(struct wapbl *wl, const char *msg)
  * of wapbl_write_commit.  This is ok since this routine
  * is only invoked from wapbl_flush
  */
-static int
+int
 wapbl_write_commit(struct wapbl *wl, off_t head, off_t tail)
 {
 	struct wapbl_wc_header *wc = wl->wl_wc_header;
@@ -2094,7 +2094,7 @@ wapbl_write_commit(struct wapbl *wl, off_t head, off_t tail)
 }
 
 /* Returns new offset value */
-static int
+int
 wapbl_write_blocks(struct wapbl *wl, off_t *offp)
 {
 	struct wapbl_wc_blocklist *wc =
@@ -2183,7 +2183,7 @@ wapbl_write_blocks(struct wapbl *wl, off_t *offp)
 	return 0;
 }
 
-static int
+int
 wapbl_write_revocations(struct wapbl *wl, off_t *offp)
 {
 	struct wapbl_wc_blocklist *wc =
@@ -2224,7 +2224,7 @@ wapbl_write_revocations(struct wapbl *wl, off_t *offp)
 	return 0;
 }
 
-static int
+int
 wapbl_write_inodes(struct wapbl *wl, off_t *offp)
 {
 	struct wapbl_wc_inodelist *wc =

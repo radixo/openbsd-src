@@ -2021,12 +2021,14 @@ ffs_blkalloc_ump(struct ufsmount *ump, daddr_t bno, long size)
 	return 0;
 }
 
+#ifdef WAPBL
 void
 ffs_wapbl_blkfree(struct fs *fs, struct vnode *devvp, daddr_t bno,
     long size)
 {
 	ffs_blkfree_subr(fs, devvp, NULL, bno, size);
 }
+#endif /* WAPBL */
 
 void
 ffs_blkfree(struct inode *ip, daddr_t bno, long size)
