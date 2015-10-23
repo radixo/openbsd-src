@@ -1,10 +1,8 @@
-/*	$OpenBSD: main.c,v 1.68 2015/10/19 14:01:37 mmcc Exp $	*/
+/*	$OpenBSD: main.c,v 1.70 2015/10/21 14:30:43 mmcc Exp $	*/
 
 /*
  * startup, main loop, environments and error handling
  */
-
-#define	EXTERN				/* define EXTERNs in sh.h */
 
 #include <sys/stat.h>
 
@@ -38,6 +36,37 @@ Area	aperm;
 struct env	*e;
 
 char	shell_flags[FNFLAGS];
+
+char	null[] = "";
+
+int shl_stdout_ok;
+
+unsigned int	ksh_tmout;
+enum tmout_enum	ksh_tmout_state = TMOUT_EXECUTING;
+
+int	really_exit;
+
+int ifs0 = ' ';
+
+volatile sig_atomic_t	trap;
+volatile sig_atomic_t	intrsig;
+volatile sig_atomic_t	fatal_trap;
+
+Getopt	builtin_opt;
+Getopt	user_opt;
+
+struct coproc	coproc;
+sigset_t	sm_default, sm_sigchld;
+
+char	*builtin_argv0;
+int	 builtin_flag;
+
+char	*current_wd;
+int	 current_wd_size;
+
+#ifdef EDIT
+int	x_cols = 80;
+#endif /* EDIT */
 
 /*
  * shell initialization

@@ -1,4 +1,4 @@
-# $OpenBSD: Makefile,v 1.12 2014/08/27 10:28:57 reyk Exp $
+# $OpenBSD: Makefile,v 1.14 2015/10/22 15:14:27 reyk Exp $
 
 PROG=		iked
 SRCS=		ca.c chap_ms.c config.c control.c crypto.c dh.c \
@@ -31,3 +31,6 @@ eap_map.c: genmap.sh eap.h
 ${PROG} beforedepend: ${GENERATED}
 
 .include <bsd.prog.mk>
+
+# Don't compile iked as static binary by default
+LDSTATIC=

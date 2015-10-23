@@ -1,4 +1,4 @@
-/*	$OpenBSD: socket.h,v 1.87 2015/01/21 02:23:14 guenther Exp $	*/
+/*	$OpenBSD: socket.h,v 1.89 2015/10/20 18:04:03 deraadt Exp $	*/
 /*	$NetBSD: socket.h,v 1.14 1996/02/09 18:25:36 christos Exp $	*/
 
 /*
@@ -78,10 +78,11 @@ typedef	__sa_family_t	sa_family_t;	/* sockaddr address family type */
 #if __BSD_VISIBLE
 #define	SOCK_CLOEXEC		0x8000	/* set FD_CLOEXEC */
 #define	SOCK_NONBLOCK		0x4000	/* set O_NONBLOCK */
-#endif
 #ifdef _KERNEL
 #define	SOCK_NONBLOCK_INHERIT	0x2000	/* inherit O_NONBLOCK from listener */
 #endif
+#define	SOCK_DNS		0x1000	/* set SS_DNS */
+#endif /* __BSD_VISIBLE */
 
 /*
  * Option flags per-socket.
@@ -349,7 +350,8 @@ struct sockpeercred {
 #define NET_RT_IFLIST	3		/* survey interface list */
 #define	NET_RT_STATS	4		/* routing table statistics */
 #define	NET_RT_TABLE	5
-#define	NET_RT_MAXID	6
+#define	NET_RT_IFNAMES	6
+#define	NET_RT_MAXID	7
 
 #define CTL_NET_RT_NAMES { \
 	{ 0, 0 }, \
@@ -358,6 +360,7 @@ struct sockpeercred {
 	{ "iflist", CTLTYPE_STRUCT }, \
 	{ "stats", CTLTYPE_STRUCT }, \
 	{ "table", CTLTYPE_STRUCT }, \
+	{ "ifnames", CTLTYPE_STRUCT }, \
 }
 
 /*
