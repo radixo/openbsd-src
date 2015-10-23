@@ -1,4 +1,4 @@
-#	$OpenBSD: Makefile,v 1.245 2015/09/13 12:13:34 kettenis Exp $
+#	$OpenBSD: Makefile,v 1.247 2015/10/21 08:48:12 mpi Exp $
 #	$NetBSD: Makefile,v 1.4 1996/01/09 03:23:01 thorpej Exp $
 
 #	Makefile for section 9 (kernel function and variable) manual pages.
@@ -267,7 +267,7 @@ MLINKS+=microtime.9 getmicrotime.9 microtime.9 microuptime.9 \
 	microtime.9 getnanouptime.9 microtime.9 bintime.9 \
 	microtime.9 binuptime.9
 MLINKS+=ml_init.9 ml_enqueue.9 ml_init.9 ml_dequeue.9 ml_init.9 ml_requeue.9 \
-	ml_init.9 ml_dechain.9 \
+	ml_init.9 ml_enlist.9 ml_init.9 ml_dechain.9 \
 	ml_init.9 ml_filter.9 ml_init.9 ml_len.9 ml_init.9 ml_empty.9 \
 	ml_init.9 MBUF_LIST_INITIALIZER.9 ml_init.9 MBUF_LIST_FOREACH.9
 MLINKS+=mountroothook_establish.9 mountroothook_disestablish.9
@@ -337,8 +337,8 @@ MLINKS+=rt_timer_add.9 rt_timer_queue_create.9 \
 	rt_timer_add.9 rt_timer_remove_all.9
 MLINKS+=rtalloc.9 rtalloc_mpath.9 rtalloc.9 rtisvalid.9 rtalloc.9 rtref.9 \
 	rtalloc.9 rtfree.9
-MLINKS+=rtable_add.9 rtable_exists.9 rtable_add.9 rtable_get.9 \
-	rtable_add.9 rtable_l2.9 rtable_add.9 rtable_l2set.9
+MLINKS+=rtable_add.9 rtable_exists.9 rtable_add.9 rtable_l2.9 \
+	rtable_add.9 rtable_l2set.9
 MLINKS+=rtlabel_id2name.9 rtlabel_name2id.9 \
 	rtlabel_id2name.9 rtlabel_id2sa.9 rtlabel_id2name.9 rtlabel_unref.9
 MLINKS+=rwlock.9 rw_init.9 rwlock.9 rw_enter.9 rwlock.9 rw_exit.9 \
