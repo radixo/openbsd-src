@@ -1,4 +1,4 @@
-/*	$OpenBSD: auth_subr.c,v 1.44 2015/09/12 15:20:14 guenther Exp $	*/
+/*	$OpenBSD: auth_subr.c,v 1.46 2015/10/22 23:55:51 mmcc Exp $	*/
 
 /*
  * Copyright (c) 2000-2002,2004 Todd C. Miller <Todd.Miller@courtesan.com>
@@ -363,7 +363,7 @@ auth_setenv(auth_session_t *as)
 			}
 		} else
 		if (!strncasecmp(line, BI_UNSETENV, sizeof(BI_UNSETENV)-1)) {
-			if (isblank(line[sizeof(BI_UNSETENV) - 1])) {
+			if (isblank((unsigned char)line[sizeof(BI_UNSETENV) - 1])) {
 				/* only do it once! */
 				line[2] = 'd'; line[3] = 'i'; line[4] = 'd';
 				line += sizeof(BI_UNSETENV) - 1;
@@ -896,17 +896,17 @@ auth_call(auth_session_t *as, char *path, ...)
 		as->index = 0;
 		_auth_spool(as, pfd[0]);
 		close(pfd[0]);
-		status = 0;
-		while (waitpid(pid, &status, 0) == -1 && errno == EINTR)
-			;
-		if (pid < 0) {
-			if (errno != ECHILD) {
-				syslog(LOG_ERR, "%s: waitpid: %m", path);
-				warnx("internal failure");
-				goto fail;
+		do {
+			if (waitpid(pid, &status, 0) != -1) {
+				if (!WIFEXITED(status))
+					goto fail;
+				break;
 			}
-		} else if (!WIFEXITED(status))
-			goto fail;
+			/*
+			 * could get ECHILD if it was waited for by
+			 * another thread or from a signal handler
+			 */
+		} while (errno == EINTR);
 	}
 
 	/*

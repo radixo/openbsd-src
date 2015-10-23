@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_mpw.c,v 1.5 2015/09/10 16:41:30 mikeb Exp $ */
+/*	$OpenBSD: if_mpw.c,v 1.7 2015/10/22 15:37:47 bluhm Exp $ */
 
 /*
  * Copyright (c) 2015 Rafael Zalamena <rzalamena@openbsd.org>
@@ -27,6 +27,7 @@
 #include <sys/errno.h>
 
 #include <net/if.h>
+#include <net/if_dl.h>
 #include <net/if_types.h>
 #include <net/route.h>
 
@@ -104,8 +105,7 @@ mpw_clone_create(struct if_clone *ifc, int unit)
 	if_alloc_sadl(ifp);
 
 	sc->sc_ifa.ifa_ifp = ifp;
-	sc->sc_ifa.ifa_rtrequest = link_rtrequest;
-	sc->sc_ifa.ifa_addr = (struct sockaddr *) ifp->if_sadl;
+	sc->sc_ifa.ifa_addr = sdltosa(ifp->if_sadl);
 	sc->sc_smpls.smpls_len = sizeof(sc->sc_smpls);
 	sc->sc_smpls.smpls_family = AF_MPLS;
 

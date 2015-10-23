@@ -1,4 +1,4 @@
-/*	$OpenBSD: pledge.h,v 1.7 2015/10/18 20:15:10 deraadt Exp $	*/
+/*	$OpenBSD: pledge.h,v 1.9 2015/10/20 18:04:03 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -47,6 +47,9 @@
 #define PLEDGE_ROUTE	0x00100000	/* routing lookups */
 #define PLEDGE_MCAST	0x00200000	/* multicast joins */
 #define PLEDGE_FLOCK	0x00400000	/* file locking */
+#define PLEDGE_PS	0x00800000	/* ps listings */
+#define PLEDGE_VMINFO	0x01000000	/* vminfo listings */
+#define PLEDGE_SETTIME	0x02000000	/* able to set/adj time/freq */
 
 #define PLEDGE_ABORT	0x08000000	/* SIGABRT instead of SIGKILL */
 
@@ -66,13 +69,13 @@ int	pledge_recvfd_check(struct proc *p, struct file *);
 int	pledge_sysctl_check(struct proc *p, int namelen, int *name, void *new);
 int	pledge_chown_check(struct proc *p, uid_t, gid_t);
 int	pledge_adjtime_check(struct proc *p, const void *v);
-int	pledge_recvit_check(struct proc *p, const void *from);
 int	pledge_sendit_check(struct proc *p, const void *to);
 int	pledge_socket_check(struct proc *p, int domain);
 int	pledge_sockopt_check(struct proc *p, int level, int optname);
-int	pledge_dns_check(struct proc *p, in_port_t port);
+int	pledge_socket_check(struct proc *p, int dns);
 int	pledge_ioctl_check(struct proc *p, long com, void *);
 int	pledge_flock_check(struct proc *p);
+int	pledge_swapctl_check(struct proc *p);
 
 #define PLEDGE_MAXPATHS	8192
 

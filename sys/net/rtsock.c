@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtsock.c,v 1.170 2015/09/11 16:58:00 mpi Exp $	*/
+/*	$OpenBSD: rtsock.c,v 1.173 2015/10/22 17:19:38 mpi Exp $	*/
 /*	$NetBSD: rtsock.c,v 1.18 1996/03/29 00:32:10 cgd Exp $	*/
 
 /*
@@ -72,6 +72,7 @@
 #include <sys/protosw.h>
 
 #include <net/if.h>
+#include <net/if_dl.h>
 #include <net/if_var.h>
 #include <net/route.h>
 #include <net/raw_cb.h>
@@ -100,6 +101,9 @@ struct mbuf	*rt_msg1(int, struct rt_addrinfo *);
 int		 rt_msg2(int, int, struct rt_addrinfo *, caddr_t,
 		     struct walkarg *);
 void		 rt_xaddrs(caddr_t, caddr_t, struct rt_addrinfo *);
+
+int		 sysctl_iflist(int, struct walkarg *);
+int		 sysctl_ifnames(struct walkarg *);
 
 struct routecb {
 	struct rawcb	rcb;
@@ -703,8 +707,7 @@ report:
 			info.rti_info[RTAX_IFA] = NULL;
 			if (rtm->rtm_addrs & (RTA_IFP | RTA_IFA) &&
 			    (ifp = rt->rt_ifp) != NULL) {
-				info.rti_info[RTAX_IFP] =
-					(struct sockaddr *)ifp->if_sadl;
+				info.rti_info[RTAX_IFP] = sdltosa(ifp->if_sadl);
 				info.rti_info[RTAX_IFA] = rt->rt_ifa->ifa_addr;
 				if (ifp->if_flags & IFF_POINTOPOINT)
 					info.rti_info[RTAX_BRD] =
@@ -1144,7 +1147,7 @@ rt_sendaddrmsg(struct rtentry *rt, int cmd)
 
 	memset(&info, 0, sizeof(info));
 	info.rti_info[RTAX_IFA] = ifa->ifa_addr;
-	info.rti_info[RTAX_IFP] = (struct sockaddr *)ifp->if_sadl;
+	info.rti_info[RTAX_IFP] = sdltosa(ifp->if_sadl);
 	info.rti_info[RTAX_NETMASK] = ifa->ifa_netmask;
 	info.rti_info[RTAX_BRD] = ifa->ifa_dstaddr;
 	if ((m = rt_msg1(cmd, &info)) == NULL)
@@ -1220,8 +1223,7 @@ sysctl_dumpentry(struct rtentry *rt, void *v, unsigned int id)
 	info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
 	info.rti_info[RTAX_NETMASK] = rt_mask(rt);
 	if (rt->rt_ifp) {
-		info.rti_info[RTAX_IFP] =
-		    (struct sockaddr *)rt->rt_ifp->if_sadl;
+		info.rti_info[RTAX_IFP] = sdltosa(rt->rt_ifp->if_sadl);
 		info.rti_info[RTAX_IFA] = rt->rt_ifa->ifa_addr;
 		if (rt->rt_ifp->if_flags & IFF_POINTOPOINT)
 			info.rti_info[RTAX_BRD] = rt->rt_ifa->ifa_dstaddr;
@@ -1247,7 +1249,8 @@ sysctl_dumpentry(struct rtentry *rt, void *v, unsigned int id)
 		rtm->rtm_flags = rt->rt_flags;
 		rtm->rtm_priority = rt->rt_priority & RTP_MASK;
 		rt_getmetrics(&rt->rt_rmx, &rtm->rtm_rmx);
-		rtm->rtm_rmx.rmx_refcnt = rt->rt_refcnt;
+		/* Do not account the routing table's reference. */
+		rtm->rtm_rmx.rmx_refcnt = rt->rt_refcnt - 1;
 		rtm->rtm_index = rt->rt_ifp->if_index;
 		rtm->rtm_addrs = info.rti_addrs;
 		rtm->rtm_tableid = id;
@@ -1275,7 +1278,7 @@ sysctl_iflist(int af, struct walkarg *w)
 		if (w->w_arg && w->w_arg != ifp->if_index)
 			continue;
 		/* Copy the link-layer address first */
-		info.rti_info[RTAX_IFP] = (struct sockaddr *)ifp->if_sadl;
+		info.rti_info[RTAX_IFP] = sdltosa(ifp->if_sadl);
 		len = rt_msg2(RTM_IFINFO, RTM_VERSION, &info, 0, w);
 		if (w->w_where && w->w_tmem && w->w_needed <= 0) {
 			struct if_msghdr *ifm;
@@ -1321,6 +1324,34 @@ sysctl_iflist(int af, struct walkarg *w)
 }
 
 int
+sysctl_ifnames(struct walkarg *w)
+{
+	struct if_nameindex_msg ifn;
+	struct ifnet *ifp;
+	int error = 0;
+
+	/* XXX ignore tableid for now */
+	TAILQ_FOREACH(ifp, &ifnet, if_list) {
+		if (w->w_arg && w->w_arg != ifp->if_index)
+			continue;
+		w->w_needed += sizeof(ifn);
+		if (w->w_where && w->w_needed <= 0) {
+
+			memset(&ifn, 0, sizeof(ifn));
+			ifn.if_index = ifp->if_index;
+			strlcpy(ifn.if_name, ifp->if_xname,
+			    sizeof(ifn.if_name));
+			error = copyout(&ifn, w->w_where, sizeof(ifn));
+			if (error)
+				return (error);
+			w->w_where += sizeof(ifn);
+		}
+	}
+
+	return (0);
+}
+
+int
 sysctl_rtable(int *name, u_int namelen, void *where, size_t *given, void *new,
     size_t newlen)
 {
@@ -1351,7 +1382,6 @@ sysctl_rtable(int *name, u_int namelen, void *where, size_t *given, void *new,
 
 	s = splsoftnet();
 	switch (w.w_op) {
-
 	case NET_RT_DUMP:
 	case NET_RT_FLAGS:
 		for (i = 1; i <= AF_MAX; i++) {
@@ -1387,6 +1417,9 @@ sysctl_rtable(int *name, u_int namelen, void *where, size_t *given, void *new,
 		    &tableinfo, sizeof(tableinfo));
 		splx(s);
 		return (error);
+	case NET_RT_IFNAMES:
+		error = sysctl_ifnames(&w);
+		break;
 	}
 	splx(s);
 	free(w.w_tmem, M_RTABLE, 0);

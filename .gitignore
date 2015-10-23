@@ -1,5 +1,6 @@
 # Temp Files
 *~
+*.swp
 
 # CVS Files
 CVS
