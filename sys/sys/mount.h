@@ -506,7 +506,6 @@ extern void bufadjust(int);
 struct uvm_constraint_range;
 extern int bufbackoff(struct uvm_constraint_range*, long);
 
-
 /*
  * This operations vector is so wapbl can be wrapped into a filesystem lkm.
  * XXX Eventually, we want to move this functionality
@@ -516,7 +515,8 @@ struct wapbl_ops {
 	void (*wo_wapbl_discard)(struct wapbl *);
 	int (*wo_wapbl_replay_isopen)(struct wapbl_replay *);
 	int (*wo_wapbl_replay_can_read)(struct wapbl_replay *, daddr_t, long);
-	int (*wo_wapbl_replay_read)(struct wapbl_replay *, void *, daddr_t, long);
+	int (*wo_wapbl_replay_read)(struct wapbl_replay *, void *, daddr_t,
+	    long);
 	void (*wo_wapbl_add_buf)(struct wapbl *, struct buf *);
 	void (*wo_wapbl_remove_buf)(struct wapbl *, struct buf *);
 	void (*wo_wapbl_resize_buf)(struct wapbl *, struct buf *, long, long);

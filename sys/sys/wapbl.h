@@ -110,8 +110,8 @@ void	wapbl_init(void);
 
 /* Start using a log */
 int	wapbl_start(struct wapbl **, struct mount *, struct vnode *, daddr_t,
-		    size_t, size_t, struct wapbl_replay *, wapbl_flush_fn_t,
-		    wapbl_flush_fn_t);
+	    size_t, size_t, struct wapbl_replay *, wapbl_flush_fn_t,
+	    wapbl_flush_fn_t);
 
 /* Discard the current transaction, potentially dangerous */
 void	wapbl_discard(struct wapbl *);

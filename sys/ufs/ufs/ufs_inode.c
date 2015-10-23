@@ -99,17 +99,19 @@ ufs_inactive(void *v)
 			 * at a time
 			 */
 			if (vp->v_mount->mnt_wapbl) {
-				uint64_t incr = MNINDIR(ip->i_ump) << fs->fs_bshift;
+				uint64_t incr = MNINDIR(ip->i_ump) << 
+				    fs->fs_bshift;
 				uint64_t base = NDADDR << fs->fs_bshift;
 				while (!error && DIP(ip, size) > base + incr) {
 					/*
-					 * round down to next full indirect block
-					 * boundary.
+					 * round down to next full indirect
+					 * block boundary.
 					 */
 					uint64_t nsize = base +
-						((DIP(ip, size) - base - 1) &
-						 ~(incr - 1));
-					error = UFS_TRUNCATE(ip, nsize, 0, NOCRED);
+					    ((DIP(ip, size) - base - 1) &
+					    ~(incr - 1));
+					error = UFS_TRUNCATE(ip, nsize, 0,
+					    NOCRED);
 					if (error)
 						break;
 					UFS_WAPBL_END(vp->v_mount);

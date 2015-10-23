@@ -791,7 +791,8 @@ ffs2_reallocblks(void *v)
 		} else {
 			if (!DOINGSOFTDEP(vp))
 				ffs_blkfree(ip, dbtofsb(fs,
-			            buflist->bs_children[i]->b_blkno), fs->fs_bsize);
+			            buflist->bs_children[i]->b_blkno),
+				    fs->fs_bsize);
 		}
 		buflist->bs_children[i]->b_blkno = fsbtodb(fs, blkno);
 #ifdef DIAGNOSTIC
@@ -2128,9 +2129,9 @@ ffs_blkfree_subr(struct fs *fs, struct vnode *devvp, struct inode *ip,
 					printf("block = %lld, fs = %s\n",
 					    (long long)(bno + i), fs->fs_fsmnt);
 				else
-					printf("dev = 0x%x, block = %lld, fs = %s\n",
-					    ip->i_dev, (long long)(bno + i),
-					    fs->fs_fsmnt);
+					printf("dev = 0x%x, block = %lld, "
+					    "fs = %s\n", ip->i_dev,
+					    (long long)(bno + i), fs->fs_fsmnt);
 				panic("ffs_blkfree: freeing free frag");
 			}
 			setbit(cg_blksfree(cgp), bno + i);

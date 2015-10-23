@@ -69,17 +69,17 @@ do {									\
 } while (/* CONSTCOND */0)
 #endif
 
-static int ffs_superblock_layout(struct fs *);
-static int wapbl_log_position(struct mount *, struct fs *, struct vnode *,
-    daddr_t *, size_t *, size_t *, uint64_t *);
-static int wapbl_create_infs_log(struct mount *, struct fs *, struct vnode *,
-    daddr_t *, size_t *, uint64_t *);
-static void wapbl_find_log_start(struct mount *, struct vnode *, off_t,
-    daddr_t *, daddr_t *, size_t *);
-static int wapbl_remove_log(struct mount *);
-static int wapbl_allocate_log_file(struct mount *, struct vnode *,
-    daddr_t *, size_t *, uint64_t *);
-static int wapbl_getdisksize(struct vnode *, uint64_t *, unsigned int *);
+static int	 ffs_superblock_layout(struct fs *);
+static int	 wapbl_log_position(struct mount *, struct fs *, struct vnode *,
+		    daddr_t *, size_t *, size_t *, uint64_t *);
+static int	 wapbl_create_infs_log(struct mount *, struct fs *,
+		    struct vnode *, daddr_t *, size_t *, uint64_t *);
+static void	 wapbl_find_log_start(struct mount *, struct vnode *, off_t,
+		    daddr_t *, daddr_t *, size_t *);
+static int	 wapbl_remove_log(struct mount *);
+static int	 wapbl_allocate_log_file(struct mount *, struct vnode *,
+		    daddr_t *, size_t *, uint64_t *);
+static int	 wapbl_getdisksize(struct vnode *, uint64_t *, unsigned int *);
 
 /*
  * Return the super block layout format - UFS1 or UFS2.
@@ -656,8 +656,8 @@ wapbl_create_infs_log(struct mount *mp, struct fs *fs, struct vnode *devvp,
 	DIP_ASSIGN(ip, nlink, 1);
 	ffs_update(ip, MNT_WAIT);
 
-	if ((error = wapbl_allocate_log_file(mp, vp,
-	                 startp, countp, extradatap)) != 0) {
+	if ((error = wapbl_allocate_log_file(mp, vp, startp, countp,
+	    extradatap)) != 0) {
 		/*
 		 * If we couldn't allocate the space for the log file,
 		 * remove the inode by setting its link count back to
