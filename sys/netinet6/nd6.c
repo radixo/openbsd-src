@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.c,v 1.157 2015/10/22 15:37:47 bluhm Exp $	*/
+/*	$OpenBSD: nd6.c,v 1.162 2015/10/25 15:11:52 deraadt Exp $	*/
 /*	$KAME: nd6.c,v 1.280 2002/06/08 19:52:07 itojun Exp $	*/
 
 /*
@@ -147,7 +147,6 @@ nd6_ifattach(struct ifnet *ifp)
 
 	nd->initialized = 1;
 
-	nd->chlim = IPV6_DEFHLIM;
 	nd->basereachable = REACHABLE_TIME;
 	nd->reachable = ND_COMPUTE_RTIME(nd->basereachable);
 	nd->retrans = RETRANS_TIMER;
@@ -393,8 +392,8 @@ nd6_llinfo_timer(void *arg)
 
 	if ((rt = ln->ln_rt) == NULL)
 		panic("ln->ln_rt == NULL");
-	if ((ifp = rt->rt_ifp) == NULL)
-		panic("ln->ln_rt->rt_ifp == NULL");
+	if ((ifp = if_get(rt->rt_ifidx)) == NULL)
+		return;
 	ndi = ND_IFINFO(ifp);
 	dst = satosin6(rt_key(rt));
 
@@ -422,7 +421,7 @@ nd6_llinfo_timer(void *arg)
 				 * XXX: should we consider
 				 * older rcvif?
 				 */
-				m->m_pkthdr.ph_ifidx = rt->rt_ifp->if_index;
+				m->m_pkthdr.ph_ifidx = rt->rt_ifidx;
 
 				icmp6_error(m, ICMP6_DST_UNREACH,
 				    ICMP6_DST_UNREACH_ADDR, 0);
@@ -478,6 +477,7 @@ nd6_llinfo_timer(void *arg)
 		break;
 	}
 
+	if_put(ifp);
 	splx(s);
 }
 
@@ -662,7 +662,7 @@ nd6_lookup(struct in6_addr *addr6, int create, struct ifnet *ifp,
 			 * Create a new route.  RTF_LLINFO is necessary
 			 * to create a Neighbor Cache entry for the
 			 * destination in nd6_rtrequest which will be
-			 * called in rtrequest1 via ifa->ifa_rtrequest.
+			 * called in rtrequest1.
 			 */
 			bzero(&info, sizeof(info));
 			info.rti_flags = RTF_HOST | RTF_LLINFO;
@@ -918,11 +918,10 @@ nd6_nud_hint(struct rtentry *rt, u_int rtableid)
 }
 
 void
-nd6_rtrequest(int req, struct rtentry *rt)
+nd6_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 {
 	struct sockaddr *gate = rt->rt_gateway;
 	struct llinfo_nd6 *ln = (struct llinfo_nd6 *)rt->rt_llinfo;
-	struct ifnet *ifp = rt->rt_ifp;
 	struct ifaddr *ifa;
 	struct nd_defrouter *dr;
 
@@ -1174,6 +1173,9 @@ nd6_ioctl(u_long cmd, caddr_t data, struct ifnet *ifp)
 	switch (cmd) {
 	case SIOCGIFINFO_IN6:
 		ndi->ndi = *ND_IFINFO(ifp);
+		memset(&ndi->ndi.randomseed0, 0, sizeof ndi->ndi.randomseed0);
+		memset(&ndi->ndi.randomseed1, 0, sizeof ndi->ndi.randomseed1);
+		memset(&ndi->ndi.randomid, 0, sizeof ndi->ndi.randomid);
 		break;
 	case SIOCSIFINFO_FLAGS:
 		ND_IFINFO(ifp)->flags = ndi->ndi.flags;

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rarpd.c,v 1.61 2015/08/20 22:39:29 deraadt Exp $ */
+/*	$OpenBSD: rarpd.c,v 1.64 2015/10/26 10:08:14 jung Exp $ */
 /*	$NetBSD: rarpd.c,v 1.25 1998/04/23 02:48:33 mrg Exp $	*/
 
 /*
@@ -48,7 +48,6 @@
 #include <netdb.h>
 #include <arpa/inet.h>
 #include <dirent.h>
-#include <util.h>
 #include <poll.h>
 #include <ifaddrs.h>
 #include <paths.h>
@@ -151,7 +150,6 @@ main(int argc, char *argv[])
 	if ((!fflag) && (!dflag)) {
 		if (daemon(0, 0) == -1)
 			error(FATAL, "failed to daemonize: %s", strerror(errno));
-		pidfile(NULL);
 	}
 	rarp_loop();
 	exit(0);
@@ -383,7 +381,7 @@ rarp_loop(void)
 		numfd++;
 	pfd = reallocarray(NULL, numfd, sizeof(*pfd));
 	if (pfd == NULL) {
-		error(FATAL, "malloc: %s", strerror(errno));
+		error(FATAL, "reallocarray: %s", strerror(errno));
 		/* NOTREACHED */
 	}
 	for (i = 0, ii = iflist; ii; ii = ii->ii_next, i++) {
@@ -395,7 +393,7 @@ rarp_loop(void)
 		if (poll(pfd, numfd, -1) == -1) {
 			if (errno == EINTR)
 				continue;
-			error(FATAL, "select: %s", strerror(errno));
+			error(FATAL, "poll: %s", strerror(errno));
 			/* NOTREACHED */
 		}
 		for (i = 0, ii = iflist; ii; ii = ii->ii_next, i++) {

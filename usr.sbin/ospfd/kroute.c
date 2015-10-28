@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.102 2015/07/20 23:45:39 benno Exp $ */
+/*	$OpenBSD: kroute.c,v 1.104 2015/10/24 16:42:18 claudio Exp $ */
 
 /*
  * Copyright (c) 2004 Esben Norby <norby@openbsd.org>
@@ -1368,6 +1368,10 @@ rtmsg_process(char *buf, size_t len)
 				continue;
 
 			if (rtm->rtm_tableid != kr_state.rdomain)
+				continue;
+
+			if (rtm->rtm_type == RTM_GET &&
+			    rtm->rtm_pid != kr_state.pid)
 				continue;
 
 			if ((sa = rti_info[RTAX_DST]) == NULL)

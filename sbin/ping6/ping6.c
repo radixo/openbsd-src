@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.127 2015/10/17 13:08:14 florian Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.134 2015/10/25 19:58:56 florian Exp $	*/
 /*	$KAME: ping6.c,v 1.163 2002/10/25 02:19:06 itojun Exp $	*/
 
 /*
@@ -148,6 +148,10 @@ struct payload {
 #define F_AUD_MISS	0x400000
 u_int options;
 
+/* multicast options */
+int moptions;
+#define	MULTICAST_NOLOOP	0x001
+
 #define DUMMY_PORT	10101
 
 /*
@@ -168,7 +172,6 @@ char BSPACE = '\b';		/* characters written for flood */
 char DOT = '.';
 char *hostname;
 int ident;			/* process id to identify our packets */
-u_int8_t nonce[8];		/* nonce field for node information */
 int hoplimit = -1;		/* hoplimit */
 
 /* counters */
@@ -206,17 +209,14 @@ struct in6_pktinfo *get_rcvpktinfo(struct msghdr *);
 void	 onsignal(int);
 void	 retransmit(void);
 void	 onint(int);
-size_t	 pingerlen(void);
 int	 pinger(void);
 const char *pr_addr(struct sockaddr *, socklen_t);
 void	 pr_icmph(struct icmp6_hdr *, u_char *);
 void	 pr_iph(struct ip6_hdr *);
-int	 myechoreply(const struct icmp6_hdr *);
 void	 pr_pack(u_char *, int, struct msghdr *);
 void	 pr_exthdrs(struct msghdr *);
 void	 pr_ip6opt(void *);
 void	 pr_rthdr(void *);
-int	 pr_bitrange(u_int32_t, int, int);
 void	 pr_retip(struct ip6_hdr *, u_char *);
 void	 summary(int);
 void	 usage(void);
@@ -231,13 +231,13 @@ main(int argc, char *argv[])
 	int ch, i, maxsize, packlen, preload, optval, error;
 	socklen_t maxsizelen;
 	u_char *datap, *packet;
-	char *e, *target, *gateway = NULL;
+	char *e, *target;
 	const char *errstr;
 	int ip6optlen = 0;
 	struct cmsghdr *scmsgp = NULL;
 	struct in6_pktinfo *pktinfo = NULL;
 	double intval;
-	int mflag = 0;
+	int mflag = 0, loop = 1;
 	uid_t uid;
 	u_int rtableid = 0;
 
@@ -252,7 +252,7 @@ main(int argc, char *argv[])
 	preload = 0;
 	datap = &outpack[ICMP6ECHOLEN + ICMP6ECHOTMLEN];
 	while ((ch = getopt(argc, argv,
-	    "c:dEefg:Hh:I:i:l:mNnp:qS:s:V:vw:")) != -1) {
+	    "c:dEefHh:I:i:Ll:mNnp:qS:s:V:vw:")) != -1) {
 		switch (ch) {
 		case 'c':
 			npackets = strtonum(optarg, 0, INT_MAX, &errstr);
@@ -277,9 +277,6 @@ main(int argc, char *argv[])
 			}
 			options |= F_FLOOD;
 			setbuf(stdout, (char *)NULL);
-			break;
-		case 'g':
-			gateway = optarg;
 			break;
 		case 'H':
 			options |= F_HOSTNAME;
@@ -327,6 +324,10 @@ main(int argc, char *argv[])
 				interval.tv_usec = 10000;
 			}
 			options |= F_INTERVAL;
+			break;
+		case 'L':
+			moptions |= MULTICAST_NOLOOP;
+			loop = 0;
 			break;
 		case 'l':
 			if (getuid()) {
@@ -423,27 +424,6 @@ main(int argc, char *argv[])
 		err(1, "bind");
 	}
 
-	/* set the gateway (next hop) if specified */
-	if (gateway) {
-		memset(&hints, 0, sizeof(hints));
-		hints.ai_family = AF_INET6;
-		hints.ai_socktype = SOCK_RAW;
-		hints.ai_protocol = IPPROTO_ICMPV6;
-
-		error = getaddrinfo(gateway, NULL, &hints, &res0);
-		if (error)
-			errx(1, "gateway %s: %s", gateway, gai_strerror(error));
-
-		if (res0->ai_next && (options & F_VERBOSE))
-			warnx("gateway resolves to multiple addresses");
-
-		if (setsockopt(s, IPPROTO_IPV6, IPV6_NEXTHOP, res0->ai_addr,
-		    res0->ai_addrlen))
-			err(1, "setsockopt(IPV6_NEXTHOP)");
-
-		freeaddrinfo(res0);
-	}
-
 	/*
 	 * let the kernel pass extension headers of incoming packets,
 	 * for privileged socket options
@@ -464,6 +444,11 @@ main(int argc, char *argv[])
 
 	if ((options & F_FLOOD) && (options & (F_AUD_RECV | F_AUD_MISS)))
 		warnx("No audible output for flood pings");
+
+	if ((moptions & MULTICAST_NOLOOP) &&
+	    setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &loop,
+	    sizeof(loop)) < 0)
+		err(1, "setsockopt IP6_MULTICAST_LOOP");
 
 	if (datalen >= sizeof(struct payload)) {
 		/* we can time transfer */
@@ -501,7 +486,6 @@ main(int argc, char *argv[])
 			*datap++ = i;
 
 	ident = getpid() & 0xFFFF;
-	arc4random_buf(nonce, sizeof(nonce));
 
 	optval = 1;
 
@@ -571,7 +555,7 @@ main(int argc, char *argv[])
 		scmsgp = CMSG_NXTHDR(&smsghdr, scmsgp);
 	}
 
-	if (!(options & F_SRCADDR)) {
+	if (!(options & F_SRCADDR) && options & F_VERBOSE) {
 		/*
 		 * get the source address. XXX since we revoked the root
 		 * privilege, we cannot use a raw socket for this.
@@ -635,10 +619,12 @@ main(int argc, char *argv[])
 	arc4random_buf(&tv64_offset, sizeof(tv64_offset));
 	arc4random_buf(&mac_key, sizeof(mac_key));
 
-	printf("PING6(%lu=40+8+%lu bytes) ", (unsigned long)(40 + ICMP6ECHOLEN
-	    + datalen), (unsigned long)(ICMP6ECHOLEN + datalen - 8));
-	printf("%s --> ", pr_addr((struct sockaddr *)&src, sizeof(src)));
-	printf("%s\n", pr_addr((struct sockaddr *)&dst, sizeof(dst)));
+	printf("PING6 %s (", hostname);
+	if (options & F_VERBOSE)
+		printf("%s --> ", pr_addr((struct sockaddr *)&src,
+		    sizeof(src)));
+	printf("%s): %d data bytes\n", pr_addr((struct sockaddr *)&dst,
+	    sizeof(dst)), datalen);
 
 	while (preload--)		/* Fire off them quickies. */
 		(void)pinger();
@@ -872,15 +858,6 @@ pinger(void)
 	return(0);
 }
 
-int
-myechoreply(const struct icmp6_hdr *icp)
-{
-	if (ntohs(icp->icmp6_id) == ident)
-		return 1;
-	else
-		return 0;
-}
-
 #define MINIMUM(a,b) (((a)<(b))?(a):(b))
 
 /*
@@ -937,7 +914,9 @@ pr_pack(u_char *buf, int cc, struct msghdr *mhdr)
 		return;
 	}
 
-	if (icp->icmp6_type == ICMP6_ECHO_REPLY && myechoreply(icp)) {
+	if (icp->icmp6_type == ICMP6_ECHO_REPLY) {
+		if (ntohs(icp->icmp6_id) != ident)
+			return;			/* 'Twas not our ECHO */
 		seq = ntohs(icp->icmp6_seq);
 		++nreceived;
 		if (timing) {
@@ -1164,52 +1143,6 @@ pr_rthdr(void *extbuf)
 }
 
 int
-pr_bitrange(u_int32_t v, int soff, int ii)
-{
-	int off;
-	int i;
-
-	off = 0;
-	while (off < 32) {
-		/* shift till we have 0x01 */
-		if ((v & 0x01) == 0) {
-			if (ii > 1)
-				printf("-%u", soff + off - 1);
-			ii = 0;
-			switch (v & 0x0f) {
-			case 0x00:
-				v >>= 4;
-				off += 4;
-				continue;
-			case 0x08:
-				v >>= 3;
-				off += 3;
-				continue;
-			case 0x04: case 0x0c:
-				v >>= 2;
-				off += 2;
-				continue;
-			default:
-				v >>= 1;
-				off += 1;
-				continue;
-			}
-		}
-
-		/* we have 0x01 with us */
-		for (i = 0; i < 32 - off; i++) {
-			if ((v & (0x01 << i)) == 0)
-				break;
-		}
-		if (!ii)
-			printf(" %u", soff + off);
-		ii += i;
-		v >>= i; off += i;
-	}
-	return ii;
-}
-
-int
 get_hoplim(struct msghdr *mhdr)
 {
 	struct cmsghdr *cm;
@@ -1326,7 +1259,7 @@ summary(int signo)
 
 	buf[0] = '\0';
 
-	snprintf(buft, sizeof(buft), "\n--- %s ping6 statistics ---\n",
+	snprintf(buft, sizeof(buft), "--- %s ping6 statistics ---\n",
 	    hostname);
 	strlcat(buf, buft, sizeof(buf));
 	snprintf(buft, sizeof(buft), "%ld packets transmitted, ",
@@ -1653,7 +1586,7 @@ void
 usage(void)
 {
 	(void)fprintf(stderr,
-	    "usage: ping6 [-dEefHmnqv] [-c count] [-g gateway] [-h hoplimit] "
+	    "usage: ping6 [-dEefHLmnqv] [-c count] [-h hoplimit] "
 	    "[-I sourceaddr]\n\t[-i wait] [-l preload] [-p pattern] "
 	    "[-s packetsize] [-V rtable]\n\t[-w maxwait] host\n");
 	exit(1);
