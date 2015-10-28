@@ -1,4 +1,4 @@
-/*	$OpenBSD: mda.c,v 1.109 2015/01/20 17:37:54 deraadt Exp $	*/
+/*	$OpenBSD: mda.c,v 1.111 2015/10/26 09:22:03 jsg Exp $	*/
 
 /*
  * Copyright (c) 2008 Gilles Chehade <gilles@poolp.org>
@@ -349,6 +349,8 @@ mda_imsg(struct mproc *p, struct imsg *imsg)
 				    sizeof(deliver.user));
 				(void)strlcpy(deliver.from, e->sender,
 				    sizeof(deliver.from));
+				(void)strlcpy(deliver.dest, e->dest,
+				    sizeof(deliver.dest));
 				if (strlcpy(deliver.to, e->buffer,
 					sizeof(deliver.to))
 				    >= sizeof(deliver.to)) {
@@ -511,6 +513,7 @@ mda_io(struct io *io, int evt)
 		}
 
 		free(ln);
+		ln = NULL;
 		if (ferror(s->datafp)) {
 			log_debug("debug: mda: ferror on session %016"PRIx64,
 			    s->id);

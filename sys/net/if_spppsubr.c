@@ -1,4 +1,4 @@
-/*	$OpenBSD$	*/
+/*	$OpenBSD: if_spppsubr.c,v 1.142 2015/10/24 11:58:46 mpi Exp $	*/
 /*
  * Synchronous PPP link level subroutines.
  *
@@ -871,7 +871,6 @@ int
 sppp_ioctl(struct ifnet *ifp, u_long cmd, void *data)
 {
 	struct ifreq *ifr = data;
-	struct ifaddr *ifa = data;
 	struct sppp *sp = (struct sppp*) ifp;
 	int s, rv, going_up, going_down, newmode;
 
@@ -884,7 +883,6 @@ sppp_ioctl(struct ifnet *ifp, u_long cmd, void *data)
 
 	case SIOCSIFADDR:
 		if_up(ifp);
-		ifa->ifa_rtrequest = p2p_rtrequest;
 		/* FALLTHROUGH */
 
 	case SIOCSIFFLAGS:
@@ -4263,7 +4261,7 @@ sppp_update_gw_walker(struct rtentry *rt, void *arg, unsigned int id)
 {
 	struct ifnet *ifp = arg;
 
-	if (rt->rt_ifp == ifp) {
+	if (rt->rt_ifidx == ifp->if_index) {
 		if (rt->rt_ifa->ifa_dstaddr->sa_family !=
 		    rt->rt_gateway->sa_family ||
 		    (rt->rt_flags & RTF_GATEWAY) == 0)

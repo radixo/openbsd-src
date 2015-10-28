@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.392 2015/10/22 16:44:54 mpi Exp $	*/
+/*	$OpenBSD: if.c,v 1.398 2015/10/25 21:58:04 deraadt Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -520,6 +520,8 @@ if_attach_common(struct ifnet *ifp)
 	    M_TEMP, M_WAITOK);
 	TAILQ_INIT(ifp->if_detachhooks);
 
+	if (ifp->if_rtrequest == NULL)
+		ifp->if_rtrequest = if_rtrequest_dummy;
 	ifp->if_slowtimo = malloc(sizeof(*ifp->if_slowtimo), M_TEMP,
 	    M_WAITOK|M_ZERO);
 	ifp->if_watchdogtask = malloc(sizeof(*ifp->if_watchdogtask),
@@ -1273,14 +1275,18 @@ ifaof_ifpforaddr(struct sockaddr *addr, struct ifnet *ifp)
 	return (ifa_maybe);
 }
 
+void
+if_rtrequest_dummy(struct ifnet *ifp, int req, struct rtentry *rt)
+{
+}
+
 /*
  * Default action when installing a local route on a point-to-point
  * interface.
  */
 void
-p2p_rtrequest(int req, struct rtentry *rt)
+p2p_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 {
-	struct ifnet *ifp = rt->rt_ifp;
 	struct ifaddr *ifa, *lo0ifa;
 
 	switch (req) {
@@ -1761,6 +1767,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 	case SIOCDELMULTI:
 	case SIOCSIFMEDIA:
 	case SIOCSVNETID:
+	case SIOCSIFPAIR:
 		if ((error = suser(p, 0)) != 0)
 			return (error);
 		/* FALLTHROUGH */
@@ -1771,6 +1778,7 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 	case SIOCGLIFPHYTTL:
 	case SIOCGIFMEDIA:
 	case SIOCGVNETID:
+	case SIOCGIFPAIR:
 		if (ifp->if_ioctl == 0)
 			return (EOPNOTSUPP);
 		error = (*ifp->if_ioctl)(ifp, cmd, data);
@@ -2333,6 +2341,7 @@ if_group_routechange(struct sockaddr *dst, struct sockaddr *mask)
 int
 if_group_egress_build(void)
 {
+	struct ifnet		*ifp;
 	struct ifg_group	*ifg;
 	struct ifg_member	*ifgm, *next;
 	struct sockaddr_in	 sa_in;
@@ -2356,8 +2365,11 @@ if_group_egress_build(void)
 	if (rt0 != NULL) {
 		rt = rt0;
 		do {
-			if (rt->rt_ifp)
-				if_addgroup(rt->rt_ifp, IFG_EGRESS);
+			ifp = if_get(rt->rt_ifidx);
+			if (ifp != NULL) {
+				if_addgroup(ifp, IFG_EGRESS);
+				if_put(ifp);
+			}
 #ifndef SMALL_KERNEL
 			rt = rt_mpath_next(rt);
 #else
@@ -2373,8 +2385,11 @@ if_group_egress_build(void)
 	if (rt0 != NULL) {
 		rt = rt0;
 		do {
-			if (rt->rt_ifp)
-				if_addgroup(rt->rt_ifp, IFG_EGRESS);
+			ifp = if_get(rt->rt_ifidx);
+			if (ifp != NULL) {
+				if_addgroup(ifp, IFG_EGRESS);
+				if_put(ifp);
+			}
 #ifndef SMALL_KERNEL
 			rt = rt_mpath_next(rt);
 #else
@@ -2503,7 +2518,9 @@ ifa_print_all(void)
 void
 ifnewlladdr(struct ifnet *ifp)
 {
+#ifdef INET6
 	struct ifaddr *ifa;
+#endif
 	struct ifreq ifrq;
 	short up;
 	int s;
@@ -2522,11 +2539,6 @@ ifnewlladdr(struct ifnet *ifp)
 	ifrq.ifr_flags = ifp->if_flags;
 	(*ifp->if_ioctl)(ifp, SIOCSIFFLAGS, (caddr_t)&ifrq);
 
-	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-		if (ifa->ifa_addr != NULL &&
-		    ifa->ifa_addr->sa_family == AF_INET)
-			arp_ifinit((struct arpcom *)ifp, ifa);
-	}
 #ifdef INET6
 	/*
 	 * Update the link-local address.  Don't do it if we're

@@ -1,4 +1,4 @@
-/*	$OpenBSD: fpclassify.c,v 1.5 2012/12/05 23:19:59 deraadt Exp $	*/
+/*	$OpenBSD: fpclassify.c,v 1.6 2013/03/28 18:09:38 martynas Exp $	*/
 /*
  * Copyright (c) 2008 Martynas Venckus <martynas@openbsd.org>
  *
@@ -29,6 +29,7 @@ __fpclassify(double d)
 
 	return FP_NORMAL;
 }
+DEF_STRONG(__fpclassify);
 
 int
 __fpclassifyf(float f)
@@ -41,5 +42,7 @@ __fpclassifyf(float f)
 
 	return FP_NORMAL;
 }
+DEF_STRONG(__fpclassifyf);
 
-__strong_alias(__fpclassifyl, __fpclassify);
+MAKE_CLONE(__fpclassifyl, __fpclassify);
+DEF_STRONG(__fpclassifyl);

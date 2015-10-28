@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.h,v 1.114 2015/10/03 18:57:11 renato Exp $	*/
+/*	$OpenBSD: route.h,v 1.116 2015/10/24 11:47:07 mpi Exp $	*/
 /*	$NetBSD: route.h,v 1.9 1996/02/13 22:00:49 christos Exp $	*/
 
 /*
@@ -103,6 +103,7 @@ struct rtentry {
 #endif
 	struct sockaddr	*rt_gateway;	/* value */
 	struct ifnet	*rt_ifp;	/* the answer: interface to use */
+#define rt_ifidx rt_ifp->if_index
 	struct ifaddr	*rt_ifa;	/* the answer: interface addr to use */
 	caddr_t		 rt_llinfo;	/* pointer to link level info cache or
 					   to an MPLS structure */ 
@@ -356,8 +357,7 @@ void	 rt_maskedcopy(struct sockaddr *,
 	    struct sockaddr *, struct sockaddr *);
 void	 rt_sendmsg(struct rtentry *, int, u_int);
 void	 rt_sendaddrmsg(struct rtentry *, int);
-void	 rt_missmsg(int, struct rt_addrinfo *, int, struct ifnet *, int,
-	    u_int);
+void	 rt_missmsg(int, struct rt_addrinfo *, int, u_int, int, u_int);
 int	 rt_setgate(struct rtentry *, struct sockaddr *, unsigned int);
 int	 rt_checkgate(struct ifnet *, struct rtentry *, struct sockaddr *,
 	    unsigned int, struct rtentry **);

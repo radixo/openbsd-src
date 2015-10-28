@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tun.c,v 1.155 2015/09/10 17:41:15 dlg Exp $	*/
+/*	$OpenBSD: if_tun.c,v 1.158 2015/10/25 11:58:11 mpi Exp $	*/
 /*	$NetBSD: if_tun.c,v 1.24 1996/05/07 02:40:48 thorpej Exp $	*/
 
 /*
@@ -219,6 +219,7 @@ tun_create(struct if_clone *ifc, int unit, int flags)
 		ifp->if_flags = IFF_POINTOPOINT;
 		ifp->if_type = IFT_TUNNEL;
 		ifp->if_hdrlen = sizeof(u_int32_t);
+		ifp->if_rtrequest = p2p_rtrequest;
 
 		if_attach(ifp);
 		if_alloc_sadl(ifp);
@@ -489,7 +490,6 @@ tun_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 {
 	struct tun_softc	*tp = (struct tun_softc *)(ifp->if_softc);
 	struct ifreq		*ifr = (struct ifreq *)data;
-	struct ifaddr		*ifa = (struct ifaddr *)data;
 	int			 error = 0, s;
 
 	s = splnet();
@@ -497,18 +497,6 @@ tun_ioctl(struct ifnet *ifp, u_long cmd, caddr_t data)
 	switch (cmd) {
 	case SIOCSIFADDR:
 		tun_init(tp);
-		TUNDEBUG(("%s: address set\n", ifp->if_xname));
-		if (tp->tun_flags & TUN_LAYER2) {
-			switch (ifa->ifa_addr->sa_family) {
-			case AF_INET:
-				arp_ifinit(&tp->arpcom, ifa);
-				break;
-			default:
-				break;
-			}
-		} else {
-			ifa->ifa_rtrequest = p2p_rtrequest;
-		}
 		break;
 	case SIOCSIFDSTADDR:
 		tun_init(tp);
@@ -1067,7 +1055,7 @@ tapkqfilter(dev_t dev, struct knote *kn)
 {
 	struct tun_softc *tp;
 
-	if ((tp = tun_lookup(minor(dev))) == NULL)
+	if ((tp = tap_lookup(minor(dev))) == NULL)
 		return (ENXIO);
 	return (tun_dev_kqfilter(tp, kn));
 }

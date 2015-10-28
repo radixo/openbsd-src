@@ -1632,6 +1632,7 @@
 ./usr/share/man/man4/owid.4
 ./usr/share/man/man4/owsbm.4
 ./usr/share/man/man4/owtemp.4
+./usr/share/man/man4/pair.4
 ./usr/share/man/man4/pcagpio.4
 ./usr/share/man/man4/pcaled.4
 ./usr/share/man/man4/pcdisplay.4
@@ -1933,6 +1934,7 @@
 ./usr/share/man/man4/svlan.4
 ./usr/share/man/man4/sym.4
 ./usr/share/man/man4/systrace.4
+./usr/share/man/man4/tap.4
 ./usr/share/man/man4/tcic.4
 ./usr/share/man/man4/tcp.4
 ./usr/share/man/man4/termios.4
@@ -2593,7 +2595,6 @@
 ./usr/share/man/man8/repquota.8
 ./usr/share/man/man8/restore.8
 ./usr/share/man/man8/revnetgroup.8
-./usr/share/man/man8/rip6query.8
 ./usr/share/man/man8/ripctl.8
 ./usr/share/man/man8/ripd.8
 ./usr/share/man/man8/rmgroup.8
