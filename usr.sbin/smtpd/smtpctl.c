@@ -1,4 +1,4 @@
-/*	$OpenBSD: smtpctl.c,v 1.131 2015/10/15 08:18:23 sunil Exp $	*/
+/*	$OpenBSD: smtpctl.c,v 1.133 2015/10/27 21:01:09 gilles Exp $	*/
 
 /*
  * Copyright (c) 2013 Eric Faurot <eric@openbsd.org>
@@ -695,11 +695,6 @@ do_show_queue(int argc, struct parameter *argv)
 		}
 
 		fts_close(fts);
-		/*
-		while ((r = queue_envelope_walk(&evp)) != -1)
-			if (r)
-				show_queue_envelope(&evp, 0);
-		*/
 		return (0);
 	}
 
@@ -932,7 +927,8 @@ main(int argc, char **argv)
 			err(1, "setresgid");
 
 		/* we'll reduce further down the road */
-		if (pledge("stdio rpath tmppath flock getpw recvfd", NULL) == -1)
+		if (pledge("stdio rpath wpath cpath tmppath flock "
+			"dns getpw recvfd", NULL) == -1)
 			err(1, "pledge");
 		
 		sendmail = 1;

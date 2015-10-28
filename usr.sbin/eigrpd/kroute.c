@@ -1,4 +1,4 @@
-/*	$OpenBSD: kroute.c,v 1.3 2015/10/21 03:52:12 renato Exp $ */
+/*	$OpenBSD: kroute.c,v 1.5 2015/10/25 00:43:35 renato Exp $ */
 
 /*
  * Copyright (c) 2015 Renato Westphal <renato@openbsd.org>
@@ -198,10 +198,14 @@ kif_redistribute(void)
 	struct kif_node		*kif;
 	struct kif_addr		*ka;
 
-	RB_FOREACH(kif, kif_tree, &kit)
-		TAILQ_FOREACH(ka, &kif->addrs, entry)
+	RB_FOREACH(kif, kif_tree, &kit) {
+		main_imsg_compose_eigrpe(IMSG_IFINFO, 0, &kif->k,
+		    sizeof(struct kif));
+		TAILQ_FOREACH(ka, &kif->addrs, entry) {
 			main_imsg_compose_eigrpe(IMSG_NEWADDR, 0, &ka->a,
 			    sizeof(struct kaddr));
+		}
+	}
 }
 
 int
@@ -1103,6 +1107,8 @@ send_rtmsg_v4(int fd, int action, struct kroute *kr)
 		hdr.rtm_fmask = RTF_REJECT|RTF_BLACKHOLE;
 	else
 		hdr.rtm_flags = RTF_MPATH;
+	if (kr->flags & F_BLACKHOLE)
+		hdr.rtm_flags |= RTF_BLACKHOLE;
 	hdr.rtm_seq = kr_state.rtseq++;	/* overflow doesn't matter */
 	hdr.rtm_msglen = sizeof(hdr);
 	/* adjust iovec */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: cron.c,v 1.53 2015/08/25 20:09:27 millert Exp $	*/
+/*	$OpenBSD: cron.c,v 1.56 2015/10/26 14:27:41 millert Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -31,7 +31,6 @@ static	void	usage(void),
 		sigchld_handler(int),
 		sighup_handler(int),
 		sigchld_reaper(void),
-		quit(int),
 		parse_args(int c, char *v[]);
 
 static	volatile sig_atomic_t	got_sighup, got_sigchld;
@@ -75,15 +74,12 @@ main(int argc, char *argv[])
 	(void) sigaction(SIGCHLD, &sact, NULL);
 	sact.sa_handler = sighup_handler;
 	(void) sigaction(SIGHUP, &sact, NULL);
-	sact.sa_handler = quit;
-	(void) sigaction(SIGINT, &sact, NULL);
-	(void) sigaction(SIGTERM, &sact, NULL);
 	sact.sa_handler = SIG_IGN;
 	(void) sigaction(SIGPIPE, &sact, NULL);
 
-	acquire_daemonlock(0);
-	set_cron_uid();
 	set_cron_cwd();
+
+	cronSock = open_socket();
 
 	if (putenv("PATH="_PATH_DEFPATH) < 0) {
 		log_it("CRON", getpid(), "DEATH", "can't malloc");
@@ -91,31 +87,13 @@ main(int argc, char *argv[])
 	}
 
 	if (NoFork == 0) {
-		switch (fork()) {
-		case -1:
+		if (daemon(1, 0) == -1) {
 			log_it("CRON",getpid(),"DEATH","can't fork");
 			exit(EXIT_FAILURE);
-			break;
-		case 0:
-			/* child process */
-			(void) setsid();
-			if ((fd = open(_PATH_DEVNULL, O_RDWR, 0)) >= 0) {
-				(void) dup2(fd, STDIN_FILENO);
-				(void) dup2(fd, STDOUT_FILENO);
-				(void) dup2(fd, STDERR_FILENO);
-				if (fd != STDERR_FILENO)
-					(void) close(fd);
-			}
-			log_it("CRON",getpid(),"STARTUP",CRON_VERSION);
-			break;
-		default:
-			/* parent process should just die */
-			_exit(EXIT_SUCCESS);
 		}
+		log_it("CRON",getpid(),"STARTUP",CRON_VERSION);
 	}
 
-	acquire_daemonlock(0);
-	cronSock = open_socket();
 	database.head = NULL;
 	database.tail = NULL;
 	database.mtime = 0;
@@ -367,8 +345,9 @@ cron_sleep(time_t target, sigset_t *mask)
 			break;		/* an error occurred */
 		if (nfds > 0) {
 			sunlen = sizeof(s_un);
-			fd = accept(cronSock, (struct sockaddr *)&s_un, &sunlen);
-			if (fd >= 0 && fcntl(fd, F_SETFL, O_NONBLOCK) == 0) {
+			fd = accept4(cronSock, (struct sockaddr *)&s_un,
+			    &sunlen, SOCK_NONBLOCK);
+			if (fd >= 0) {
 				(void) read(fd, &poke, 1);
 				close(fd);
 				if (poke & RELOAD_CRON) {
@@ -423,13 +402,6 @@ static void
 sigchld_handler(int x)
 {
 	got_sigchld = 1;
-}
-
-static void
-quit(int x)
-{
-	(void) unlink(_PATH_CRON_PID);
-	_exit(0);
 }
 
 static void

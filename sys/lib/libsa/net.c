@@ -1,4 +1,4 @@
-/*	$OpenBSD: net.c,v 1.17 2014/11/19 20:28:56 miod Exp $	*/
+/*	$OpenBSD: net.c,v 1.19 2015/10/26 02:33:07 mmcc Exp $	*/
 /*	$NetBSD: net.c,v 1.14 1996/10/13 02:29:02 christos Exp $	*/
 
 /*
@@ -233,7 +233,7 @@ intoa(u_int32_t addr)
 static const char *
 number(const char *s, int *n)
 {
-	for (*n = 0; isdigit(*s); s++)
+	for (*n = 0; isdigit((unsigned char)*s); s++)
 		*n = (*n * 10) + *s - '0';
 	return s;
 }
@@ -244,7 +244,7 @@ ip_convertaddr(const char *p)
 #define IP_ANYADDR	0
 	u_int32_t addr = 0, n;
 
-	if (p == (char *)0 || *p == '\0')
+	if (p == NULL || *p == '\0')
 		return IP_ANYADDR;
 	p = number(p, &n);
 	addr |= (n << 24) & 0xff000000;
