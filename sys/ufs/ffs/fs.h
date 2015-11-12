@@ -270,9 +270,9 @@ struct fs {
 	int32_t	 fs_cpc;		/* cyl per cycle in postbl */
 /* this area is only allocated if fs_ffs1_flags & FS_FLAGS_UPDATED */
 	int32_t	 fs_maxbsize;           /* maximum blocking factor permitted */
-	uint8_t  fs_journal_version;	/* journal forma version */
+	uint8_t  fs_journal_version;	/* journal format version */
 	uint8_t  fs_journal_location;	/* journal location type */
-	uint8_t  fs_journal_reserved[2];/* reserver for future */
+	uint8_t  fs_journal_reserved[2];/* reserved for future */
 	uint32_t fs_journal_flags;	/* journal flags */
 	uint64_t fs_journallocs[4];	/* location info for journal */
 	int64_t	 fs_spareconf64[12];    /* old rotation block list head */
