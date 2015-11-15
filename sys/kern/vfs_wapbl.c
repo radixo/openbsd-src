@@ -78,6 +78,7 @@ static int wapbl_verbose_commit = 0;
 #include <string.h>
 
 #include <sys/time.h>
+#include <sys/rwlock.h>
 #include <sys/wapbl.h>
 #include <sys/wapbl_replay.h>
 

@@ -69,17 +69,17 @@ do {									\
 } while (/* CONSTCOND */0)
 #endif
 
-static int	 ffs_superblock_layout(struct fs *);
-static int	 wapbl_log_position(struct mount *, struct fs *, struct vnode *,
-		    daddr_t *, size_t *, size_t *, uint64_t *);
-static int	 wapbl_create_infs_log(struct mount *, struct fs *,
-		    struct vnode *, daddr_t *, size_t *, uint64_t *);
-static void	 wapbl_find_log_start(struct mount *, struct vnode *, off_t,
-		    daddr_t *, daddr_t *, size_t *);
-static int	 wapbl_remove_log(struct mount *);
-static int	 wapbl_allocate_log_file(struct mount *, struct vnode *,
-		    daddr_t *, size_t *, uint64_t *);
-static int	 wapbl_getdisksize(struct vnode *, uint64_t *, unsigned int *);
+int	 ffs_superblock_layout(struct fs *);
+int	 wapbl_log_position(struct mount *, struct fs *, struct vnode *,
+	    daddr_t *, size_t *, size_t *, uint64_t *);
+int	 wapbl_create_infs_log(struct mount *, struct fs *,
+	    struct vnode *, daddr_t *, size_t *, uint64_t *);
+void	 wapbl_find_log_start(struct mount *, struct vnode *, off_t,
+	    daddr_t *, daddr_t *, size_t *);
+int	 wapbl_remove_log(struct mount *);
+int	 wapbl_allocate_log_file(struct mount *, struct vnode *,
+	    daddr_t *, size_t *, uint64_t *);
+int	 wapbl_getdisksize(struct vnode *, uint64_t *, unsigned int *);
 
 /*
  * Return the super block layout format - UFS1 or UFS2.
@@ -89,7 +89,7 @@ static int	 wapbl_getdisksize(struct vnode *, uint64_t *, unsigned int *);
  * XXX Should this be in ufs/ffs/fs.h?  Same style of check is
  * also used in ffs_alloc.c in a few places.
  */
-static int
+int
 ffs_superblock_layout(struct fs *fs)
 {
 	if ((fs->fs_magic == FS_UFS1_MAGIC) &&
@@ -202,7 +202,7 @@ ffs_wapbl_abort_sync_metadata(struct mount *mp, daddr_t *deallocblks,
 	}
 }
 
-static int
+int
 wapbl_remove_log(struct mount *mp)
 {
 	struct ufsmount *ump = VFSTOUFS(mp);
@@ -463,7 +463,7 @@ ffs_wapbl_replay_start(struct mount *mp, struct fs *fs, struct vnode *devvp)
 	return 0;
 }
 
-static int
+int
 wapbl_getdisksize(struct vnode *vp, uint64_t *numsecp, unsigned int *secsizep)
 {
 	struct partinfo dpart;
@@ -519,7 +519,7 @@ wapbl_getdisksize(struct vnode *vp, uint64_t *numsecp, unsigned int *secsizep)
  * "switch (fs_journal_location)" constructs.  Can we centralise
  * this sort of code somehow/somewhere?
  */
-static int
+int
 wapbl_log_position(struct mount *mp, struct fs *fs, struct vnode *devvp,
     daddr_t *startp, size_t *countp, size_t *blksizep, uint64_t *extradatap)
 {
@@ -626,7 +626,7 @@ wapbl_log_position(struct mount *mp, struct fs *fs, struct vnode *devvp,
 /*
  * Try to create a journal log inside the filesystem.
  */
-static int
+int
 wapbl_create_infs_log(struct mount *mp, struct fs *fs, struct vnode *devvp,
     daddr_t *startp, size_t *countp, uint64_t *extradatap)
 {
@@ -745,7 +745,7 @@ wapbl_allocate_log_file(struct mount *mp, struct vnode *vp,
  * find is less than a quarter the requested space reasonable?  If the
  * search fails entirely, return a block address if "0" it indicate this.
  */
-static void
+void
 wapbl_find_log_start(struct mount *mp, struct vnode *vp, off_t logsize,
     daddr_t *addr, daddr_t *indir_addr, size_t *size)
 {

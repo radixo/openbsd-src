@@ -861,7 +861,8 @@ sbagain:
 	
 	fs->fs_fmod = 0;
 	fs->fs_flags &= ~FS_UNCLEAN;
-	if (fs->fs_clean == 0) {
+
+	if (!(fs->fs_flags & FS_DOWAPBL) && fs->fs_clean == 0) {
 #if 0
 		/*
 		 * It is safe to mount an unclean file system
@@ -1334,18 +1335,49 @@ ffs_sync_vnode(struct vnode *vp, void *arg) {
 	int error;
 
 	ip = VTOI(vp);
-	if (vp->v_type == VNON || 
-	    ((ip->i_flag &
-		(IN_ACCESS | IN_CHANGE | IN_MODIFIED | IN_UPDATE)) == 0	&&
-		LIST_EMPTY(&vp->v_dirtyblkhd)) ) {
+	/* Skip the vnode/inode if inacessible. */
+	if (ip == NULL || vp->v_type == VNON || vp->v_flag & VXLOCK)
+		return (0);
+
+	/* Skip the vnode/inode if lazy/clean and nothing to sync. */
+	if ((fsa->waitfor == MNT_LAZY || LIST_EMPTY(&vp->v_dirtyblkhd)) &&
+	    !(ip->i_flag & (IN_ACCESS | IN_CHANGE | IN_MODIFIED | IN_UPDATE)))
+		return (0);
+
+	error = vget(vp, LK_EXCLUSIVE | LK_NOWAIT, fsa->p);
+	if (error) {
+		if (error == ENOENT)
+			return (error); /* Force restart of traversal. */
 		return (0);
 	}
 
-	if (vget(vp, LK_EXCLUSIVE | LK_NOWAIT, fsa->p))
-		return (0);
+	/*
+	 * We deliberately update inode times here.  This will
+	 * prevent a massive queue of updates accumulating, only
+	 * to be handled by a call to unmount.
+	 *
+	 * XXX It would be better to have the syncer trickle these
+	 * out.  Adjustment needed to allow registering vnodes for
+	 * sync when the vnode is clean, but the inode dirty.  Or
+	 * have ufs itself trickle out inode updates.
+	 *
+	 * If doing a lazy sync, we don't care about metadata or
+	 * data updates, because they are handled by each vnode's
+	 * synclist entry.  In this case we are only interested in
+	 * writing back modified inodes.
+	 */
+	if (fsa->waitfor == MNT_LAZY) {
+		error = UFS_WAPBL_BEGIN(vp->v_mount);
+		if (!error) {
+			error = UFS_UPDATE(ip, 0);
+			UFS_WAPBL_END(vp->v_mount);
+		}
+	} else
+		error = VOP_FSYNC(vp, fsa->cred, fsa->waitfor, fsa->p);
 
-	if ((error = VOP_FSYNC(vp, fsa->cred, fsa->waitfor, fsa->p)))
+	if (error)
 		fsa->allerror = error;
+	
 	VOP_UNLOCK(vp, 0, fsa->p);
 	vrele(vp);
 
@@ -1386,13 +1418,10 @@ ffs_sync(struct mount *mp, int waitfor, struct ucred *cred, struct proc *p)
 	fsa.cred = cred;
 	fsa.waitfor = waitfor;
 
-	/*
-	 * Don't traverse the vnode list if we want to skip all of them.
-	 */
-	if (waitfor != MNT_LAZY) {
-		vfs_mount_foreach_vnode(mp, ffs_sync_vnode, &fsa);
+	vfs_mount_foreach_vnode(mp, ffs_sync_vnode, &fsa);
+
+	if (fsa.allerror != 0)
 		allerror = fsa.allerror;
-	}
 
 	/*
 	 * Force stale file system control information to be flushed.

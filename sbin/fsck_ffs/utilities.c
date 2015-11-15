@@ -323,6 +323,7 @@ ckfini(int markclean)
 	if (debug)
 		printf("cache missed %ld of %ld (%d%%)\n", diskreads,
 		    totalreads, (int)(diskreads * 100 / totalreads));
+	cleanup_wapbl();
 	(void)close(fsreadfd);
 	fsreadfd = -1;
 	(void)close(fswritefd);
@@ -339,7 +340,8 @@ bread(int fd, char *buf, daddr_t blk, long size)
 
 	offset = blk;
 	offset *= DEV_BSIZE;
-	if (pread(fd, buf, size, offset) == size)
+	if (pread(fd, buf, size, offset) == size &&
+	    read_wapbl(buf, size, blk) == 0)
 		return (0);
 	rwerror("READ", blk);
 	errs = 0;
