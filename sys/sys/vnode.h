@@ -190,7 +190,7 @@ struct vattr {
 #define	IO_NDELAY		0x10	/* FNDELAY flag set in file table */
 #define	IO_NOLIMIT		0x20	/* don't enforce limits on i/o */
 #define	IO_NOCACHE		0x40	/* don't cache result of this i/o */
-#define IO_JOURNALLOCKED	0x80	/* journal is already locked */
+#define	IO_JOURNALLOCKED	0x80	/* journal is already locked */
 
 /*
  *  Modes.  Some values same as Ixxx entries from inode.h for now.
