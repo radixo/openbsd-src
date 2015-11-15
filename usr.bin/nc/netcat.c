@@ -1,4 +1,4 @@
-/* $OpenBSD: netcat.c,v 1.139 2015/10/11 00:26:23 guenther Exp $ */
+/* $OpenBSD: netcat.c,v 1.142 2015/11/12 20:33:52 benno Exp $ */
 /*
  * Copyright (c) 2001 Eric Jackson <ericj@monkey.org>
  * Copyright (c) 2015 Bob Beck.  All rights reserved.
@@ -310,26 +310,20 @@ main(int argc, char *argv[])
 	argc -= optind;
 	argv += optind;
 
-	if (rtableid >= 0) {
-		/*
-		 * XXX No pledge if doing rtable manipulation!
-		 * XXX the routing table stuff is dangerous and can't be pledged.
-		 * XXX rtable should really have a better interface than sockopt
-		 */
-	}
-	else if (family == AF_UNIX) {
+	if (rtableid >= 0)
+		if (setrtable(rtableid) == -1)
+			err(1, "setrtable");
+
+	if (family == AF_UNIX) {
 		if (pledge("stdio rpath wpath cpath tmppath unix", NULL) == -1)
 			err(1, "pledge");
-	}
-	else if (Fflag) {
+	} else if (Fflag) {
 		if (pledge("stdio inet dns sendfd", NULL) == -1)
 			err(1, "pledge");
-	}
-	else if (usetls) {
+	} else if (usetls) {
 		if (pledge("stdio rpath inet dns", NULL) == -1)
 			err(1, "pledge");
-	}
-	else if (pledge("stdio inet dns", NULL) == -1)
+	} else if (pledge("stdio inet dns", NULL) == -1)
 		err(1, "pledge");
 
 	/* Cruft to make sure options are clean, and used properly. */
@@ -676,7 +670,6 @@ unix_bind(char *path, int flags)
 
 void
 tls_setup_client(struct tls *tls_ctx, int s, char *host)
-
 {
 	int i;
 
@@ -696,6 +689,7 @@ tls_setup_client(struct tls *tls_ctx, int s, char *host)
 	    strcmp(tls_expecthash, tls_peer_cert_hash(tls_ctx)) != 0)
 		errx(1, "peer certificate is not %s", tls_expecthash);
 }
+
 struct tls *
 tls_setup_server(struct tls *tls_ctx, int connfd, char *host)
 {
@@ -735,6 +729,7 @@ tls_setup_server(struct tls *tls_ctx, int connfd, char *host)
 	}
 	return NULL;
 }
+
 /*
  * unix_connect()
  * Returns a socket connected to a local unix socket. Returns -1 on failure.
@@ -808,10 +803,6 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 		    SOCK_NONBLOCK, res0->ai_protocol)) < 0)
 			continue;
 
-		if (rtableid >= 0 && (setsockopt(s, SOL_SOCKET, SO_RTABLE,
-		    &rtableid, sizeof(rtableid)) == -1))
-			err(1, "setsockopt SO_RTABLE");
-
 		/* Bind to a local port or source address if specified. */
 		if (sflag || pflag) {
 			struct addrinfo ahints, *ares;
@@ -836,7 +827,7 @@ remote_connect(const char *host, const char *port, struct addrinfo hints)
 
 		if (timeout_connect(s, res0->ai_addr, res0->ai_addrlen) == 0)
 			break;
-		else if (vflag)
+		if (vflag)
 			warn("connect to %s port %s (%s) failed", host, port,
 			    uflag ? "udp" : "tcp");
 
@@ -907,10 +898,6 @@ local_listen(char *host, char *port, struct addrinfo hints)
 		if ((s = socket(res0->ai_family, res0->ai_socktype,
 		    res0->ai_protocol)) < 0)
 			continue;
-
-		if (rtableid >= 0 && (setsockopt(s, SOL_SOCKET, SO_RTABLE,
-		    &rtableid, sizeof(rtableid)) == -1))
-			err(1, "setsockopt SO_RTABLE");
 
 		ret = setsockopt(s, SOL_SOCKET, SO_REUSEPORT, &x, sizeof(x));
 		if (ret == -1)
@@ -1160,7 +1147,6 @@ drainbuf(int fd, unsigned char *buf, size_t *bufpos, struct tls *tls)
 	*bufpos -= n;
 	return n;
 }
-
 
 ssize_t
 fillbuf(int fd, unsigned char *buf, size_t *bufpos, struct tls *tls)

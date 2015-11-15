@@ -1,4 +1,4 @@
-/*	$OpenBSD: ldape.c,v 1.19 2015/01/16 16:04:38 deraadt Exp $ */
+/*	$OpenBSD: ldape.c,v 1.21 2015/11/02 04:48:43 jmatthew Exp $ */
 
 /*
  * Copyright (c) 2009, 2010 Martin Hedenfalk <martin@bzero.se>
@@ -383,7 +383,8 @@ ldape(struct passwd *pw, char *csockpath, int pipe_parent2ldap[2])
 	/* Initialize LDAP listeners.
 	 */
 	TAILQ_FOREACH(l, &conf->listeners, entry) {
-		l->fd = socket(l->ss.ss_family, SOCK_STREAM, 0);
+		l->fd = socket(l->ss.ss_family, SOCK_STREAM | SOCK_NONBLOCK,
+		    0);
 		if (l->fd < 0)
 			fatal("ldape: socket");
 
@@ -419,8 +420,6 @@ ldape(struct passwd *pw, char *csockpath, int pipe_parent2ldap[2])
 		if (listen(l->fd, 20) != 0)
 			fatal("ldape: listen");
 
-		fd_nonblock(l->fd);
-
 		event_set(&l->ev, l->fd, EV_READ, conn_accept, l);
 		event_add(&l->ev, NULL);
 		evtimer_set(&l->evt, conn_accept, l);
@@ -444,6 +443,9 @@ ldape(struct passwd *pw, char *csockpath, int pipe_parent2ldap[2])
 		    setresuid(pw->pw_uid, pw->pw_uid, pw->pw_uid))
 			fatal("cannot drop privileges");
 	}
+
+	if (pledge("stdio flock inet unix recvfd", NULL) == -1)
+		fatal("pledge");
 
 	log_debug("ldape: entering event loop");
 	event_dispatch();

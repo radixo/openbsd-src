@@ -1,4 +1,4 @@
-/*	$OpenBSD: pledge.h,v 1.12 2015/10/25 20:39:54 deraadt Exp $	*/
+/*	$OpenBSD: pledge.h,v 1.17 2015/11/02 16:31:55 semarie Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -22,6 +22,7 @@
 
 #include <sys/cdefs.h>
 
+#define PLEDGE_ALWAYS	0xffffffff
 #define PLEDGE_RPATH	0x00000001	/* allow open for read */
 #define PLEDGE_WPATH	0x00000002	/* allow open for write */
 #define PLEDGE_CPATH	0x00000004	/* allow creat, mkdir, path creations */
@@ -91,24 +92,27 @@ static struct {
 
 #ifdef _KERNEL
 
-int	pledge_check(struct proc *, int, int *);
+struct nameidata;
+int	pledge_syscall(struct proc *, int, int *);
 int	pledge_fail(struct proc *, int, int);
-int	pledge_namei(struct proc *, char *);
+int	pledge_namei(struct proc *, struct nameidata *, char *);
 void	pledge_aftersyscall(struct proc *, int, int);
 
 struct mbuf;
-int	pledge_sendfd_check(struct proc *p, struct file *);
-int	pledge_recvfd_check(struct proc *p, struct file *);
-int	pledge_sysctl_check(struct proc *p, int namelen, int *name, void *new);
-int	pledge_chown_check(struct proc *p, uid_t, gid_t);
-int	pledge_adjtime_check(struct proc *p, const void *v);
-int	pledge_sendit_check(struct proc *p, const void *to);
-int	pledge_socket_check(struct proc *p, int domain);
-int	pledge_sockopt_check(struct proc *p, int set, int level, int optname);
-int	pledge_socket_check(struct proc *p, int dns);
-int	pledge_ioctl_check(struct proc *p, long com, void *);
-int	pledge_flock_check(struct proc *p);
-int	pledge_swapctl_check(struct proc *p);
+int	pledge_sendfd(struct proc *p, struct file *);
+int	pledge_recvfd(struct proc *p, struct file *);
+int	pledge_sysctl(struct proc *p, int namelen, int *name, void *new);
+int	pledge_chown(struct proc *p, uid_t, gid_t);
+int	pledge_adjtime(struct proc *p, const void *v);
+int	pledge_sendit(struct proc *p, const void *to);
+int	pledge_sockopt(struct proc *p, int set, int level, int optname);
+int	pledge_socket(struct proc *p, int dns);
+int	pledge_ioctl(struct proc *p, long com, struct file *);
+int	pledge_flock(struct proc *p);
+int	pledge_fcntl(struct proc *p, int cmd);
+int	pledge_swapctl(struct proc *p);
+int	pledge_kill(struct proc *p, pid_t pid);
+int	pledge_protexec(struct proc *p, int prot);
 
 #define PLEDGE_MAXPATHS	8192
 

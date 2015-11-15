@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty.c,v 1.123 2015/08/26 21:21:57 deraadt Exp $	*/
+/*	$OpenBSD: tty.c,v 1.125 2015/10/28 11:17:24 deraadt Exp $	*/
 /*	$NetBSD: tty.c,v 1.68.4.2 1996/06/06 16:04:52 thorpej Exp $	*/
 
 /*-
@@ -59,6 +59,7 @@
 #include <sys/pool.h>
 #include <sys/poll.h>
 #include <sys/unistd.h>
+#include <sys/pledge.h>
 
 #include <sys/namei.h>
 
@@ -797,6 +798,7 @@ ttioctl(struct tty *tp, u_long cmd, caddr_t data, int flag, struct proc *p)
 
 			/* ensure user can open the real console */
 			NDINIT(&nid, LOOKUP, FOLLOW, UIO_SYSSPACE, "/dev/console", p);
+			nid.ni_pledge = PLEDGE_RPATH | PLEDGE_WPATH;
 			error = namei(&nid);
 			if (error)
 				return (error);

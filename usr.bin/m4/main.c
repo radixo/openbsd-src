@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.83 2014/05/12 19:11:19 espie Exp $	*/
+/*	$OpenBSD: main.c,v 1.85 2015/11/01 18:17:59 espie Exp $	*/
 /*	$NetBSD: main.c,v 1.12 1997/02/08 23:54:49 cgd Exp $	*/
 
 /*-
@@ -131,13 +131,7 @@ struct keyblk keywrds[] = {	/* m4 keywords to be installed */
 	{ "traceon",	  TRACEONTYPE | NOARGS },
 	{ "traceoff",	  TRACEOFFTYPE | NOARGS },
 
-#if defined(unix) || defined(__unix__)
 	{ "unix",         SELFTYPE | NOARGS },
-#else
-#ifdef vms
-	{ "vms",          SELFTYPE | NOARGS },
-#endif
-#endif
 };
 
 #define MAXKEYS	(sizeof(keywrds)/sizeof(struct keyblk))
@@ -173,6 +167,9 @@ main(int argc, char *argv[])
 	int c;
 	int n;
 	char *p;
+
+	if (pledge("stdio rpath wpath cpath tmppath proc exec", NULL) == -1)
+		err(1, "pledge");
 
 	if (signal(SIGINT, SIG_IGN) != SIG_IGN)
 		signal(SIGINT, onintr);

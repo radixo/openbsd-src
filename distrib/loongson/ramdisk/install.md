@@ -1,4 +1,4 @@
-#	$OpenBSD: install.md,v 1.18 2015/05/31 19:40:10 rpe Exp $
+#	$OpenBSD: install.md,v 1.20 2015/11/05 21:04:19 miod Exp $
 #
 #
 # Copyright (c) 1996 The NetBSD Foundation, Inc.
@@ -58,7 +58,7 @@ md_prep_fdisk() {
 		if fdisk $_disk | grep -q 'Signature: 0xAA55'; then
 			fdisk $_disk
 			if fdisk $_disk | grep -q '^..: A6 '; then
-				_q=", use the (O)penBSD area,"
+				_q=", use the (O)penBSD area"
 				_d=OpenBSD
 			fi
 		else
@@ -67,13 +67,20 @@ md_prep_fdisk() {
 		ask "Use (W)hole disk$_q or (E)dit the MBR?" "$_d"
 		case $resp in
 		w*|W*)
-			if [ $(sysctl -n hw.product) = Gdium ]; then
+			case $(sysctl -n hw.product) in
+			Gdium)
 				_s=32
 				_o="-O 1 -b 4096"
-			else
+				;;
+			EBT700)
+				_s=1
+				_o="-O 1"
+				;;
+			*)
 				_s=1
 				_o=""
-			fi
+				;;
+			esac
 			echo -n "Creating a ${_s}MB ext2 partition and an OpenBSD partition for rest of $_disk..."
 			fdisk -e $_disk <<__EOT >/dev/null
 re

@@ -1,4 +1,4 @@
-/*	$OpenBSD: rtsock.c,v 1.178 2015/10/25 11:58:11 mpi Exp $	*/
+/*	$OpenBSD: rtsock.c,v 1.181 2015/11/02 14:40:09 mpi Exp $	*/
 /*	$NetBSD: rtsock.c,v 1.18 1996/03/29 00:32:10 cgd Exp $	*/
 
 /*
@@ -597,7 +597,7 @@ route_output(struct mbuf *m, ...)
 			error = EINVAL;
 			goto flush;
 		}
-		error = rtrequest1(RTM_ADD, &info, prio, &saved_nrt, tableid);
+		error = rtrequest(RTM_ADD, &info, prio, &saved_nrt, tableid);
 		if (error == 0) {
 			rt_setmetrics(rtm->rtm_inits, &rtm->rtm_rmx,
 			    &saved_nrt->rt_rmx);
@@ -609,7 +609,7 @@ route_output(struct mbuf *m, ...)
 		}
 		break;
 	case RTM_DELETE:
-		error = rtrequest1(RTM_DELETE, &info, prio, &rt, tableid);
+		error = rtrequest(RTM_DELETE, &info, prio, &rt, tableid);
 		if (error == 0)
 			goto report;
 		break;
@@ -620,51 +620,36 @@ route_output(struct mbuf *m, ...)
 			error = EAFNOSUPPORT;
 			goto flush;
 		}
+
 		rt = rtable_lookup(tableid, info.rti_info[RTAX_DST],
-		    info.rti_info[RTAX_NETMASK]);
-		if (rt == NULL) {
-			error = ESRCH;
-			goto flush;
-		}
-#ifndef SMALL_KERNEL
-		/* First find the right priority. */
-		rt = rtable_mpath_match(tableid, rt, NULL, prio);
-		if (rt == NULL) {
-			error = ESRCH;
-			goto flush;
-		}
-
-
+		    info.rti_info[RTAX_NETMASK], info.rti_info[RTAX_GATEWAY],
+		    prio);
+#ifdef SMALL_KERNEL
 		/*
-		 * For RTM_CHANGE/LOCK, if we got multipath routes,
-		 * a matching RTAX_GATEWAY is required.
-		 * OR
-		 * If a gateway is specified then RTM_GET and
-		 * RTM_LOCK must match the gateway no matter
-		 * what even in the non multipath case.
+		 * If we got multipath routes, we require users to specify
+		 * a matching gateway, except for RTM_GET.
 		 */
-		if ((rt->rt_flags & RTF_MPATH) ||
-		    (info.rti_info[RTAX_GATEWAY] && rtm->rtm_type !=
-		     RTM_CHANGE)) {
-			rt = rtable_mpath_match(tableid, rt,
-			    info.rti_info[RTAX_GATEWAY], prio);
-			if (rt == NULL) {
-				error = ESRCH;
-				goto flush;
-			}
-			/*
-			 * Only RTM_GET may use an empty gateway
-			 * on multipath routes
-			 */
-			if (info.rti_info[RTAX_GATEWAY] == NULL &&
-			    rtm->rtm_type != RTM_GET) {
-			    	rtfree(rt);
-				rt = NULL;
-				error = ESRCH;
-				goto flush;
-			}
+		if ((rt != NULL) && ISSET(rt->rt_flags, RTF_MPATH) &&
+		    (info.rti_info[RTAX_GATEWAY] == NULL) &&
+		    (rtm->rtm_type != RTM_GET)) {
+		    	rtfree(rt);
+		    	rt = NULL;
 		}
 #endif
+		/*
+		 * If RTAX_GATEWAY is the argument we're trying to
+		 * change, try to find a compatible route.
+		 */
+		if ((rt == NULL) && (info.rti_info[RTAX_GATEWAY] != NULL) &&
+		    (rtm->rtm_type == RTM_CHANGE)) {
+			rt = rtable_lookup(tableid, info.rti_info[RTAX_DST],
+			    info.rti_info[RTAX_NETMASK], NULL, prio);
+		}
+
+		if (rt == NULL) {
+			error = ESRCH;
+			goto flush;
+		}
 
 		/*
 		 * RTM_CHANGE/LOCK need a perfect match, rn_lookup()
@@ -760,9 +745,8 @@ report:
 					goto flush;
 				ifa = info.rti_ifa;
 			}
-			if (info.rti_info[RTAX_GATEWAY] != NULL &&
-			    (error = rt_setgate(rt, info.rti_info[RTAX_GATEWAY],
-			     tableid)))
+			if (info.rti_info[RTAX_GATEWAY] != NULL && (error =
+			    rt_setgate(rt, info.rti_info[RTAX_GATEWAY])))
 				goto flush;
 			if (ifa) {
 				if (rt->rt_ifa != ifa) {

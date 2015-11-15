@@ -1,4 +1,4 @@
-/*	$OpenBSD: ikectl.c,v 1.19 2015/01/16 06:40:17 deraadt Exp $	*/
+/*	$OpenBSD: ikectl.c,v 1.21 2015/11/02 10:27:44 jsg Exp $	*/
 
 /*
  * Copyright (c) 2007-2013 Reyk Floeter <reyk@openbsd.org>
@@ -113,6 +113,7 @@ ca_opt(struct parse_result *res)
 	case CA_CERT_CREATE:
 	case CA_SERVER:
 	case CA_CLIENT:
+	case CA_OCSP:
 		ca_certificate(ca, res->host, res->htype, res->action);
 		break;
 	case CA_CERT_DELETE:
@@ -193,6 +194,7 @@ main(int argc, char *argv[])
 	case CA_CERT_CREATE:
 	case CA_CLIENT:
 	case CA_SERVER:
+	case CA_OCSP:
 	case CA_CERT_DELETE:
 	case CA_CERT_INSTALL:
 	case CA_CERT_EXPORT:
@@ -203,6 +205,9 @@ main(int argc, char *argv[])
 	case CA_KEY_DELETE:
 	case CA_KEY_INSTALL:
 	case CA_KEY_IMPORT:
+		if (pledge("stdio proc exec rpath wpath cpath fattr tty", NULL)
+		    == -1)
+			err(1, "pledge");
 		ca_opt(res);
 		break;
 	case NONE:
@@ -232,6 +237,9 @@ main(int argc, char *argv[])
 		}
 		err(1, "connect: %s", sock);
 	}
+
+	if (pledge("stdio", NULL) == -1)
+		err(1, "pledge");
 
 	if (res->ibuf != NULL)
 		ibuf = res->ibuf;

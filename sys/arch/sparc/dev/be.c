@@ -1,4 +1,4 @@
-/*	$OpenBSD: be.c,v 1.51 2015/06/24 09:40:53 mpi Exp $	*/
+/*	$OpenBSD: be.c,v 1.53 2015/11/12 10:26:09 dlg Exp $	*/
 
 /*
  * Copyright (c) 1998 Theo de Raadt and Jason L. Wright.
@@ -49,7 +49,6 @@
 #include "bpfilter.h"
 #if NBPFILTER > 0
 #include <net/bpf.h>
-#include <net/bpfdesc.h>
 #endif
 
 #include <machine/autoconf.h>
@@ -261,11 +260,9 @@ bestart(ifp)
 	cnt = sc->sc_no_td;
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m);
+		IFQ_DEQUEUE(&ifp->if_snd, m);
 		if (m == NULL)
 			break;
-
-		IFQ_DEQUEUE(&ifp->if_snd, m);
 
 #if NBPFILTER > 0
 		/*

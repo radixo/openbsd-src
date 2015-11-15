@@ -1,4 +1,4 @@
-/* $OpenBSD: format.c,v 1.89 2015/10/27 09:28:31 nicm Exp $ */
+/* $OpenBSD: format.c,v 1.96 2015/11/13 10:00:26 nicm Exp $ */
 
 /*
  * Copyright (c) 2011 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -48,6 +48,8 @@ void	 format_cb_host_short(struct format_tree *, struct format_entry *);
 void	 format_cb_pid(struct format_tree *, struct format_entry *);
 void	 format_cb_session_alerts(struct format_tree *, struct format_entry *);
 void	 format_cb_window_layout(struct format_tree *, struct format_entry *);
+void	 format_cb_window_visible_layout(struct format_tree *,
+	     struct format_entry *);
 void	 format_cb_start_command(struct format_tree *, struct format_entry *);
 void	 format_cb_current_command(struct format_tree *, struct format_entry *);
 void	 format_cb_history_bytes(struct format_tree *, struct format_entry *);
@@ -239,7 +241,7 @@ format_job_get(struct format_tree *ft, const char *cmd)
 
 	t = time(NULL);
 	if (fj->job == NULL && ((ft->flags & FORMAT_FORCE) || fj->last != t)) {
-		fj->job = job_run(fj->cmd, NULL, -1, format_job_callback,
+		fj->job = job_run(fj->cmd, NULL, NULL, format_job_callback,
 		    NULL, fj);
 		if (fj->job == NULL) {
 			free(fj->out);
@@ -362,6 +364,18 @@ format_cb_window_layout(struct format_tree *ft, struct format_entry *fe)
 		fe->value = layout_dump(w->layout_root);
 }
 
+/* Callback for window_visible_layout. */
+void
+format_cb_window_visible_layout(struct format_tree *ft, struct format_entry *fe)
+{
+	struct window	*w = ft->w;
+
+	if (w == NULL)
+		return;
+
+	fe->value = layout_dump(w->layout_root);
+}
+
 /* Callback for pane_start_command. */
 void
 format_cb_start_command(struct format_tree *ft, struct format_entry *fe)
@@ -415,6 +429,7 @@ format_cb_history_bytes(struct format_tree *ft, struct format_entry *fe)
 	for (i = 0; i < gd->hsize; i++) {
 		gl = &gd->linedata[i];
 		size += gl->cellsize * sizeof *gl->celldata;
+		size += gl->extdsize * sizeof *gl->extddata;
 	}
 	size += gd->hsize * sizeof *gd->linedata;
 
@@ -631,9 +646,9 @@ format_find(struct format_tree *ft, const char *key, int modifiers)
 	if (~modifiers & FORMAT_TIMESTRING) {
 		envent = NULL;
 		if (ft->s != NULL)
-			envent = environ_find(&ft->s->environ, key);
+			envent = environ_find(ft->s->environ, key);
 		if (envent == NULL)
-			envent = environ_find(&global_environ, key);
+			envent = environ_find(global_environ, key);
 		if (envent != NULL) {
 			found = envent->value;
 			goto found;
@@ -1023,6 +1038,8 @@ format_defaults_window(struct format_tree *ft, struct window *w)
 	format_add(ft, "window_width", "%u", w->sx);
 	format_add(ft, "window_height", "%u", w->sy);
 	format_add_cb(ft, "window_layout", format_cb_window_layout);
+	format_add_cb(ft, "window_visible_layout",
+	    format_cb_window_visible_layout);
 	format_add(ft, "window_panes", "%u", window_count_panes(w));
 	format_add(ft, "window_zoomed_flag", "%d",
 	    !!(w->flags & WINDOW_ZOOMED));
@@ -1138,16 +1155,13 @@ format_defaults_pane(struct format_tree *ft, struct window_pane *wp)
 	    !!(wp->base.mode & MODE_MOUSE_STANDARD));
 	format_add(ft, "mouse_button_flag", "%d",
 	    !!(wp->base.mode & MODE_MOUSE_BUTTON));
-	format_add(ft, "mouse_utf8_flag", "%d",
-	    !!(wp->base.mode & MODE_MOUSE_UTF8));
 
 	format_add_cb(ft, "pane_tabs", format_cb_pane_tabs);
 }
 
 /* Set default format keys for paste buffer. */
 void
-format_defaults_paste_buffer(struct format_tree *ft, struct paste_buffer *pb,
-    int utf8flag)
+format_defaults_paste_buffer(struct format_tree *ft, struct paste_buffer *pb)
 {
 	size_t	 bufsize;
 	char	*s;
@@ -1156,7 +1170,7 @@ format_defaults_paste_buffer(struct format_tree *ft, struct paste_buffer *pb,
 	format_add(ft, "buffer_size", "%zu", bufsize);
 	format_add(ft, "buffer_name", "%s", paste_buffer_name(pb));
 
-	s = paste_make_sample(pb, utf8flag);
+	s = paste_make_sample(pb);
 	format_add(ft, "buffer_sample", "%s", s);
 	free(s);
 }

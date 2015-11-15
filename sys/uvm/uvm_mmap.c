@@ -1,4 +1,4 @@
-/*	$OpenBSD: uvm_mmap.c,v 1.119 2015/09/30 11:36:07 semarie Exp $	*/
+/*	$OpenBSD: uvm_mmap.c,v 1.121 2015/11/01 19:03:33 semarie Exp $	*/
 /*	$NetBSD: uvm_mmap.c,v 1.49 2001/02/18 21:19:08 chs Exp $	*/
 
 /*
@@ -365,10 +365,9 @@ sys_mmap(struct proc *p, void *v, register_t *retval)
 	if (size == 0)
 		return (EINVAL);
 
-	if ((p->p_p->ps_flags & PS_PLEDGE) &&
-	    !(p->p_p->ps_pledge & PLEDGE_PROTEXEC) &&
-	    (prot & PROT_EXEC))
-		return (pledge_fail(p, EPERM, PLEDGE_PROTEXEC));
+	error = pledge_protexec(p, prot);
+	if (error)
+		return (error);
 
 	/* align file position and save offset.  adjust size. */
 	ALIGN_ADDR(pos, size, pageoff);
@@ -656,6 +655,7 @@ sys_mprotect(struct proc *p, void *v, register_t *retval)
 	vaddr_t addr;
 	vsize_t size, pageoff;
 	vm_prot_t prot;
+	int error;
 
 	/*
 	 * extract syscall args from uap
@@ -668,10 +668,9 @@ sys_mprotect(struct proc *p, void *v, register_t *retval)
 	if ((prot & PROT_MASK) != prot)
 		return (EINVAL);
 
-	if ((p->p_p->ps_flags & PS_PLEDGE) &&
-	    !(p->p_p->ps_pledge & PLEDGE_PROTEXEC) &&
-	    (prot & PROT_EXEC))
-		return (pledge_fail(p, EPERM, PLEDGE_PROTEXEC));
+	error = pledge_protexec(p, prot);
+	if (error)
+		return (error);
 
 	/*
 	 * align the address to a page boundary, and adjust the size accordingly
@@ -983,7 +982,7 @@ uvm_mmapanon(vm_map_t map, vaddr_t *addr, vsize_t size, vm_prot_t prot,
 {
 	int error;
 	int advice = MADV_NORMAL;
-	uvm_flag_t uvmflag = 0;
+	unsigned int uvmflag = 0;
 	vsize_t align = 0;	/* userland page size */
 
 	/*
@@ -1036,7 +1035,7 @@ uvm_mmapfile(vm_map_t map, vaddr_t *addr, vsize_t size, vm_prot_t prot,
 	struct uvm_object *uobj;
 	int error;
 	int advice = MADV_NORMAL;
-	uvm_flag_t uvmflag = 0;
+	unsigned int uvmflag = 0;
 	vsize_t align = 0;	/* userland page size */
 
 	/*

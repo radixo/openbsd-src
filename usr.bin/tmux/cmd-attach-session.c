@@ -1,4 +1,4 @@
-/* $OpenBSD: cmd-attach-session.c,v 1.43 2015/10/27 13:23:24 nicm Exp $ */
+/* $OpenBSD: cmd-attach-session.c,v 1.48 2015/11/03 15:07:36 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -51,9 +51,8 @@ cmd_attach_session(struct cmd_q *cmdq, const char *tflag, int dflag, int rflag,
 	struct window_pane	*wp = NULL;
 	const char		*update;
 	char			*cause;
-	int			 fd;
 	struct format_tree	*ft;
-	char			*cp;
+	char			*cwd;
 
 	if (RB_EMPTY(&sessions)) {
 		cmdq_error(cmdq, "no sessions");
@@ -97,18 +96,11 @@ cmd_attach_session(struct cmd_q *cmdq, const char *tflag, int dflag, int rflag,
 		ft = format_create();
 		format_defaults(ft, cmd_find_client(cmdq, NULL, 1), s,
 		    NULL, NULL);
-		cp = format_expand(ft, cflag);
+		cwd = format_expand(ft, cflag);
 		format_free(ft);
 
-		fd = open(cp, O_RDONLY|O_DIRECTORY);
-		free(cp);
-		if (fd == -1) {
-			cmdq_error(cmdq, "bad working directory: %s",
-			    strerror(errno));
-			return (CMD_RETURN_ERROR);
-		}
-		close(s->cwd);
-		s->cwd = fd;
+		free((void *)s->cwd);
+		s->cwd = cwd;
 	}
 
 	if (c->session != NULL) {
@@ -116,14 +108,14 @@ cmd_attach_session(struct cmd_q *cmdq, const char *tflag, int dflag, int rflag,
 			TAILQ_FOREACH(c_loop, &clients, entry) {
 				if (c_loop->session != s || c == c_loop)
 					continue;
-				proc_send_s(c->peer, MSG_DETACH, s->name);
+				proc_send_s(c_loop->peer, MSG_DETACH, s->name);
 			}
 		}
 
 		if (!Eflag) {
 			update = options_get_string(s->options,
 			    "update-environment");
-			environ_update(update, &c->environ, &s->environ);
+			environ_update(update, c->environ, s->environ);
 		}
 
 		c->session = s;
@@ -147,14 +139,14 @@ cmd_attach_session(struct cmd_q *cmdq, const char *tflag, int dflag, int rflag,
 			TAILQ_FOREACH(c_loop, &clients, entry) {
 				if (c_loop->session != s || c == c_loop)
 					continue;
-				proc_send_s(c->peer, MSG_DETACH, s->name);
+				proc_send_s(c_loop->peer, MSG_DETACH, s->name);
 			}
 		}
 
 		if (!Eflag) {
 			update = options_get_string(s->options,
 			    "update-environment");
-			environ_update(update, &c->environ, &s->environ);
+			environ_update(update, c->environ, s->environ);
 		}
 
 		c->session = s;

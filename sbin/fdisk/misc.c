@@ -1,4 +1,4 @@
-/*	$OpenBSD: misc.c,v 1.53 2015/10/07 00:04:57 krw Exp $	*/
+/*	$OpenBSD: misc.c,v 1.56 2015/11/12 15:07:41 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -71,38 +71,34 @@ string_from_line(char *buf, size_t buflen)
 		return (1);
 
 	if (line[sz - 1] == '\n')
-		line[--sz] = '\0';
+		sz--;
+	if (sz >= buflen)
+		sz = buflen - 1;
 
-	if (sz < buflen) {
-		memcpy(buf, line, sz);
-		buf[sz] = '\0';
-	} else {
-		memcpy(buf, line, buflen - 1);
-		buf[buflen - 1] = '\0';
-	}
+	memcpy(buf, line, sz);
+	buf[sz] = '\0';
 
 	return (0);
 }
 
-int
-ask_cmd(char **cmd, char **args)
+void
+ask_cmd(char **cmd, char **arg)
 {
 	static char lbuf[100];
-	char *cp, *buf;
+	size_t cmdstart, cmdend, argstart;
 
-	/* Get input */
+	/* Get NUL terminated string from stdin. */
 	if (string_from_line(lbuf, sizeof(lbuf)))
 		errx(1, "eof");
 
-	/* Parse input */
-	buf = lbuf;
-	buf = &buf[strspn(buf, " \t")];
-	cp = &buf[strcspn(buf, " \t")];
-	*cp++ = '\0';
-	*cmd = buf;
-	*args = &cp[strspn(cp, " \t")];
+	cmdstart = strspn(lbuf, " \t");
+	cmdend = cmdstart + strcspn(&lbuf[cmdstart], " \t");
+	argstart = cmdend + strspn(&lbuf[cmdend], " \t");
 
-	return (0);
+	/* *cmd and *arg may be set to point at final NUL! */
+	*cmd = &lbuf[cmdstart];
+	lbuf[cmdend] = '\0';
+	*arg = &lbuf[argstart];
 }
 
 int
@@ -371,15 +367,15 @@ crc32(const u_char *buf, const u_int32_t size)
 char *
 utf16le_to_string(u_int16_t *utf)
 {
-	static char name[36];
+	static char name[GPTPARTNAMESIZE];
 	int i;
 
-	for (i = 0; i < sizeof(name); i++) {
+	for (i = 0; i < GPTPARTNAMESIZE; i++) {
 		name[i] = letoh16(utf[i]) & 0x7F;
 		if (name[i] == '\0')
 			break;
 	}
-	if (i == sizeof(name))
+	if (i == GPTPARTNAMESIZE)
 		name[i - 1] = '\0';
 
 	return (name);
@@ -388,15 +384,15 @@ utf16le_to_string(u_int16_t *utf)
 u_int16_t *
 string_to_utf16le(char *ch)
 {
-	static u_int16_t utf[36];
+	static u_int16_t utf[GPTPARTNAMESIZE];
 	int i;
 
-	for (i = 0; i < sizeof(utf); i++) {
+	for (i = 0; i < GPTPARTNAMESIZE; i++) {
 		utf[i] = htole16((unsigned int)ch[i]);
 		if (utf[i] == 0)
 			break;
 	}
-	if (i == sizeof(utf))
+	if (i == GPTPARTNAMESIZE)
 		utf[i - 1] = 0;
 
 	return (utf);

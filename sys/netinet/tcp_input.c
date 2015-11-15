@@ -1,4 +1,4 @@
-/*	$OpenBSD: tcp_input.c,v 1.305 2015/09/11 08:17:06 claudio Exp $	*/
+/*	$OpenBSD: tcp_input.c,v 1.307 2015/10/28 12:14:25 florian Exp $	*/
 /*	$NetBSD: tcp_input.c,v 1.23 1996/02/13 23:43:44 christos Exp $	*/
 
 /*
@@ -144,10 +144,9 @@ struct timeval tcp_ackdrop_ppslim_last;
 #ifdef INET6
 #define ND6_HINT(tp) \
 do { \
-	if (tp && tp->t_inpcb && (tp->t_inpcb->inp_flags & INP_IPV6) && \
-	    tp->t_inpcb->inp_route6.ro_rt) { \
-		nd6_nud_hint(tp->t_inpcb->inp_route6.ro_rt, \
-		    tp->t_inpcb->inp_rtableid); \
+	if (tp && tp->t_inpcb && (tp->t_inpcb->inp_flags & INP_IPV6) &&	\
+	    rtisvalid(tp->t_inpcb->inp_route6.ro_rt)) {			\
+		nd6_nud_hint(tp->t_inpcb->inp_route6.ro_rt);		\
 	} \
 } while (0)
 #else
@@ -3045,22 +3044,13 @@ tcp_mss(struct tcpcb *tp, int offer)
 		 * for IPv6, path MTU discovery is always turned on,
 		 * or the node must use packet size <= 1280.
 		 */
-		mss = IN6_LINKMTU(ifp) - iphlen - sizeof(struct tcphdr);
+		mss = ifp->if_mtu - iphlen - sizeof(struct tcphdr);
 	}
 #endif /* INET6 */
 
 	/* Calculate the value that we offer in TCPOPT_MAXSEG */
 	if (offer != -1) {
-#ifndef INET6
 		mssopt = ifp->if_mtu - iphlen - sizeof(struct tcphdr);
-#else
-		if (tp->pf == AF_INET6)
-			mssopt = IN6_LINKMTU(ifp) - iphlen -
-			    sizeof(struct tcphdr);
-		else
-			mssopt = ifp->if_mtu - iphlen - sizeof(struct tcphdr);
-#endif
-
 		mssopt = max(tcp_mssdflt, mssopt);
 	}
 
@@ -3272,7 +3262,7 @@ tcp_mss_adv(struct mbuf *m, int af)
 #ifdef INET6
 	case AF_INET6:
 		if (ifp != NULL)
-			mss = IN6_LINKMTU(ifp);
+			mss = ifp->if_mtu;
 		iphlen = sizeof(struct ip6_hdr);
 		break;
 #endif  

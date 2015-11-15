@@ -1,4 +1,4 @@
-/*	$OpenBSD: ieee80211_input.c,v 1.136 2015/06/30 13:54:42 mpi Exp $	*/
+/*	$OpenBSD: ieee80211_input.c,v 1.139 2015/11/08 18:48:07 stsp Exp $	*/
 
 /*-
  * Copyright (c) 2001 Atsushi Onoe
@@ -316,6 +316,8 @@ ieee80211_input(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 				    ether_sprintf(wh->i_addr2), ic->ic_pssta));
 			}
 		} else if (ni->ni_pwrsave == IEEE80211_PS_DOZE) {
+			struct mbuf *m;
+
 			/* turn off PS mode */
 			ni->ni_pwrsave = IEEE80211_PS_AWAKE;
 			ic->ic_pssta--;
@@ -325,10 +327,8 @@ ieee80211_input(struct ifnet *ifp, struct mbuf *m, struct ieee80211_node *ni,
 			(*ic->ic_set_tim)(ic, ni->ni_associd, 0);
 
 			/* dequeue buffered unicast frames */
-			while (!IF_IS_EMPTY(&ni->ni_savedq)) {
-				struct mbuf *m;
-				IF_DEQUEUE(&ni->ni_savedq, m);
-				IF_ENQUEUE(&ic->ic_pwrsaveq, m);
+			while ((m = mq_dequeue(&ni->ni_savedq)) != NULL) {
+				mq_enqueue(&ic->ic_pwrsaveq, m);
 				(*ifp->if_start)(ifp);
 			}
 		}
@@ -1140,7 +1140,7 @@ ieee80211_parse_rsn_cipher(const u_int8_t selector[4])
 			return IEEE80211_CIPHER_WEP104;
 		}
 	} else if (memcmp(selector, IEEE80211_OUI, 3) == 0) {	/* RSN */
-		/* from IEEE Std 802.11 - Table 20da */
+		/* see 802.11-2012 Table 8-99 */
 		switch (selector[3]) {
 		case 0:	/* use group data cipher suite */
 			return IEEE80211_CIPHER_USEGROUP;
@@ -1186,7 +1186,7 @@ ieee80211_parse_rsn_akm(const u_int8_t selector[4])
 }
 
 /*
- * Parse an RSN element (see 7.3.2.25).
+ * Parse an RSN element (see 802.11-2012 8.4.2.27)
  */
 int
 ieee80211_parse_rsn_body(struct ieee80211com *ic, const u_int8_t *frm,
@@ -1221,7 +1221,9 @@ ieee80211_parse_rsn_body(struct ieee80211com *ic, const u_int8_t *frm,
 	if (frm + 4 > efrm)
 		return 0;
 	rsn->rsn_groupcipher = ieee80211_parse_rsn_cipher(frm);
-	if (rsn->rsn_groupcipher == IEEE80211_CIPHER_USEGROUP)
+	if (rsn->rsn_groupcipher == IEEE80211_CIPHER_NONE ||
+	    rsn->rsn_groupcipher == IEEE80211_CIPHER_USEGROUP ||
+	    rsn->rsn_groupcipher == IEEE80211_CIPHER_BIP)
 		return IEEE80211_STATUS_BAD_GROUP_CIPHER;
 	frm += 4;
 
@@ -1285,6 +1287,8 @@ ieee80211_parse_rsn_body(struct ieee80211com *ic, const u_int8_t *frm,
 	if (frm + 4 > efrm)
 		return 0;
 	rsn->rsn_groupmgmtcipher = ieee80211_parse_rsn_cipher(frm);
+	if (rsn->rsn_groupmgmtcipher != IEEE80211_CIPHER_BIP)
+		return IEEE80211_STATUS_BAD_GROUP_CIPHER;
 
 	return IEEE80211_STATUS_SUCCESS;
 }
@@ -2799,10 +2803,10 @@ ieee80211_recv_pspoll(struct ieee80211com *ic, struct mbuf *m,
 	}
 
 	/* take the first queued frame and put it out.. */
-	IF_DEQUEUE(&ni->ni_savedq, m);
+	m = mq_dequeue(&ni->ni_savedq);
 	if (m == NULL)
 		return;
-	if (IF_IS_EMPTY(&ni->ni_savedq)) {
+	if (mq_empty(&ni->ni_savedq)) {
 		/* last queued frame, turn off the TIM bit */
 		(*ic->ic_set_tim)(ic, ni->ni_associd, 0);
 	} else {
@@ -2810,7 +2814,7 @@ ieee80211_recv_pspoll(struct ieee80211com *ic, struct mbuf *m,
 		wh = mtod(m, struct ieee80211_frame *);
 		wh->i_fc[1] |= IEEE80211_FC1_MORE_DATA;
 	}
-	IF_ENQUEUE(&ic->ic_pwrsaveq, m);
+	mq_enqueue(&ic->ic_pwrsaveq, m);
 	(*ifp->if_start)(ifp);
 }
 #endif	/* IEEE80211_STA_ONLY */

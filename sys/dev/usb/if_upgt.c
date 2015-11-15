@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_upgt.c,v 1.69 2015/05/02 10:44:29 jsg Exp $ */
+/*	$OpenBSD: if_upgt.c,v 1.71 2015/11/04 12:12:00 dlg Exp $ */
 
 /*
  * Copyright (c) 2007 Marcus Glocker <mglocker@openbsd.org>
@@ -1377,11 +1377,9 @@ upgt_start(struct ifnet *ifp)
 	for (i = 0; i < UPGT_TX_COUNT; i++) {
 		struct upgt_data *data_tx = &sc->tx_data[i];
 
-		IF_POLL(&ic->ic_mgtq, m);
+		m = mq_dequeue(&ic->ic_mgtq);
 		if (m != NULL) {
 			/* management frame */
-			IF_DEQUEUE(&ic->ic_mgtq, m);
-
 			ni = m->m_pkthdr.ph_cookie;
 #if NBPFILTER > 0
 			if (ic->ic_rawbpf != NULL)
@@ -1400,11 +1398,10 @@ upgt_start(struct ifnet *ifp)
 			if (ic->ic_state != IEEE80211_S_RUN)
 				break;
 
-			IFQ_POLL(&ifp->if_snd, m);
+			IFQ_DEQUEUE(&ifp->if_snd, m);
 			if (m == NULL)
 				break;
 
-			IFQ_DEQUEUE(&ifp->if_snd, m);
 #if NBPFILTER > 0
 			if (ifp->if_bpf != NULL)
 				bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);

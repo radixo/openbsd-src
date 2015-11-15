@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_sppp.h,v 1.20 2013/11/20 08:21:33 stsp Exp $	*/
+/*	$OpenBSD: if_sppp.h,v 1.22 2015/11/02 11:19:30 dlg Exp $	*/
 /*	$NetBSD: if_sppp.h,v 1.2.2.1 1999/04/04 06:57:39 explorer Exp $	*/
 
 /*
@@ -154,7 +154,7 @@ struct sauth {
 struct sppp {
 	/* NB: pp_if _must_ be first */
 	struct  ifnet pp_if;    /* network interface data */
-	struct	ifqueue pp_cpq;	/* PPP control protocol queue */
+	struct	mbuf_queue pp_cpq;	/* PPP control protocol queue */
 	struct  sppp *pp_next;  /* next interface in keepalive list */
 	u_int   pp_flags;
 	u_int   pp_framebytes;	/* number of bytes added by hardware framing */
@@ -229,7 +229,6 @@ void spppattach (struct ifnet *ifp);
 int sppp_ioctl(struct ifnet *ifp, u_long cmd, void *data);
 
 struct mbuf *sppp_dequeue (struct ifnet *ifp);
-struct mbuf *sppp_pick(struct ifnet *ifp);
 int sppp_isempty (struct ifnet *ifp);
 void sppp_flush (struct ifnet *ifp);
 #endif /* _KERNEL */

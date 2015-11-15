@@ -1,4 +1,4 @@
-/*	$OpenBSD: icmp6.c,v 1.173 2015/10/19 12:11:28 mpi Exp $	*/
+/*	$OpenBSD: icmp6.c,v 1.176 2015/10/30 09:39:42 bluhm Exp $	*/
 /*	$KAME: icmp6.c,v 1.217 2001/06/20 15:03:29 jinmei Exp $	*/
 
 /*
@@ -587,7 +587,6 @@ icmp6_input(struct mbuf **mp, int *offp, int proto)
 			n->m_next = n0;
 		} else {
 	 deliverecho:
-			nip6 = mtod(n, struct ip6_hdr *);
 			IP6_EXTHDR_GET(nicmp6, struct icmp6_hdr *, n, off,
 			    sizeof(*nicmp6));
 			noff = off;
@@ -1022,7 +1021,7 @@ icmp6_mtudisc_update(struct ip6ctlparam *ip6cp, int validated)
 	if (rt && (rt->rt_flags & RTF_HOST) &&
 	    !(rt->rt_rmx.rmx_locks & RTV_MTU) &&
 	    (rt->rt_rmx.rmx_mtu > mtu || rt->rt_rmx.rmx_mtu == 0)) {
-		if (mtu < IN6_LINKMTU(rt->rt_ifp)) {
+		if (mtu < rt->rt_ifp->if_mtu) {
 			icmp6stat.icp6s_pmtuchg++;
 			rt->rt_rmx.rmx_mtu = mtu;
 		}
@@ -1922,7 +1921,7 @@ icmp6_mtudisc_clone(struct sockaddr *dst, u_int rdomain)
 		info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
 
 		s = splsoftnet();
-		error = rtrequest1(RTM_ADD, &info, rt->rt_priority, &nrt,
+		error = rtrequest(RTM_ADD, &info, rt->rt_priority, &nrt,
 		    rdomain);
 		splx(s);
 		if (error) {
