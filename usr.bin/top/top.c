@@ -1,4 +1,4 @@
-/*	$OpenBSD: top.c,v 1.84 2015/10/23 03:26:24 deraadt Exp $	*/
+/*	$OpenBSD: top.c,v 1.87 2015/11/04 21:28:27 tedu Exp $	*/
 
 /*
  *  Top users/processes display for Unix
@@ -288,9 +288,9 @@ main(int argc, char *argv[])
 
 	/* set the buffer for stdout */
 #ifdef DEBUG
-	setbuffer(stdout, NULL, 0);
+	setvbuf(stdout, NULL, _IONBUF, 0);
 #else
-	setbuffer(stdout, stdoutbuf, sizeof stdoutbuf);
+	setvbuf(stdout, stdoutbuf, _IOFBF, sizeof stdoutbuf);
 #endif
 
 	/* initialize some selection options */
@@ -328,7 +328,7 @@ main(int argc, char *argv[])
 		preset_argc = 0;
 	} while (i != 0);
 
-	if (pledge("stdio rpath getpw tty ps vminfo", NULL) == -1)
+	if (pledge("stdio rpath getpw tty proc ps vminfo", NULL) == -1)
 		err(1, "pledge");
 
 	/* set constants for username/uid display correctly */

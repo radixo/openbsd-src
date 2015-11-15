@@ -1,7 +1,7 @@
-#	$OpenBSD: Makefile,v 1.5 2005/12/19 19:12:17 millert Exp $
+#	$OpenBSD: Makefile,v 1.7 2015/10/31 12:19:41 millert Exp $
 
 PROG=	crontab
-SRCS=	crontab.c misc.c entry.c env.c
+SRCS=	crontab.c entry.c env.c client.c misc.c
 CFLAGS+=-I${.CURDIR} -I${.CURDIR}/../../usr.sbin/cron
 BINGRP =crontab
 BINMODE=2555

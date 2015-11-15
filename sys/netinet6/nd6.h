@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6.h,v 1.50 2015/10/24 16:08:48 mpi Exp $	*/
+/*	$OpenBSD: nd6.h,v 1.54 2015/11/02 12:51:16 bluhm Exp $	*/
 /*	$KAME: nd6.h,v 1.95 2002/06/08 11:31:06 itojun Exp $	*/
 
 /*
@@ -49,8 +49,6 @@
 #define ND6_LLINFO_PROBE	4
 
 struct nd_ifinfo {
-	u_int32_t linkmtu;		/* LinkMTU */
-	u_int32_t maxmtu;		/* Upper bound of LinkMTU */
 	u_int32_t basereachable;	/* BaseReachableTime */
 	u_int32_t reachable;		/* Reachable Time */
 	u_int32_t retrans;		/* Retrans Timer */
@@ -136,16 +134,8 @@ struct	in6_ndifreq {
 #define RS_LHCOOKIE(ifp) \
 	((struct in6_ifextra *)(ifp)->if_afdata[AF_INET6])->rs_lhcookie
 
-#define IN6_LINKMTU(ifp) \
-	((ND_IFINFO(ifp)->linkmtu && ND_IFINFO(ifp)->linkmtu < (ifp)->if_mtu) \
-	    ? ND_IFINFO(ifp)->linkmtu \
-	    : ((ND_IFINFO(ifp)->maxmtu && ND_IFINFO(ifp)->maxmtu < (ifp)->if_mtu) \
-		? ND_IFINFO(ifp)->maxmtu : (ifp)->if_mtu))
-
-
 struct	llinfo_nd6 {
-	struct	llinfo_nd6 *ln_next;
-	struct	llinfo_nd6 *ln_prev;
+	TAILQ_ENTRY(llinfo_nd6)	ln_list;
 	struct	rtentry *ln_rt;
 	struct	mbuf *ln_hold;	/* last packet until resolved/timeout */
 	time_t	ln_expire;	/* lifetime for NDP state transition */
@@ -223,7 +213,6 @@ extern int nd6_umaxtries;
 extern int nd6_mmaxtries;
 extern int nd6_maxnudhint;
 extern int nd6_gctimer;
-extern struct llinfo_nd6 llinfo_nd6;
 extern struct nd_drhead nd_defrouter;
 extern struct nd_prhead nd_prefix;
 extern int nd6_debug;
@@ -269,7 +258,7 @@ void nd6_setmtu(struct ifnet *);
 void nd6_llinfo_settimer(struct llinfo_nd6 *, long);
 void nd6_timer(void *);
 void nd6_purge(struct ifnet *);
-void nd6_nud_hint(struct rtentry *, u_int);
+void nd6_nud_hint(struct rtentry *);
 int nd6_resolve(struct ifnet *, struct rtentry *,
 	struct mbuf *, struct sockaddr *, u_char *);
 void nd6_rtrequest(struct ifnet *, int, struct rtentry *);
@@ -308,7 +297,7 @@ int prelist_update(struct nd_prefix *, struct nd_defrouter *, struct mbuf *);
 int nd6_prelist_add(struct nd_prefix *, struct nd_defrouter *,
 	struct nd_prefix **);
 void pfxlist_onlink_check(void);
-struct nd_defrouter *defrouter_lookup(struct in6_addr *, struct ifnet *);
+struct nd_defrouter *defrouter_lookup(struct in6_addr *, unsigned int);
 
 struct nd_prefix *nd6_prefix_lookup(struct nd_prefix *);
 int in6_ifdel(struct ifnet *, struct in6_addr *);

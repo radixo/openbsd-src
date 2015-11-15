@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbr.c,v 1.55 2015/10/05 01:39:08 krw Exp $	*/
+/*	$OpenBSD: mbr.c,v 1.59 2015/11/12 23:49:37 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -35,6 +35,7 @@
 #include "part.h"
 #include "misc.h"
 #include "mbr.h"
+#include "gpt.h"
 
 struct mbr initial_mbr;
 
@@ -68,13 +69,19 @@ MBR_protective_mbr(struct mbr *mbr)
 void
 MBR_init_GPT(struct mbr *mbr)
 {
-	/* Initialize a protective MBR for GPT. */
-	bzero(&mbr->part, sizeof(mbr->part));
+	u_int64_t sz;
+
+	sz = DL_GETDSIZE(&dl);
+
+	memset(&mbr->part, 0, sizeof(mbr->part));
 
 	/* Use whole disk, starting after MBR. */
 	mbr->part[0].id = DOSPTYP_EFI;
 	mbr->part[0].bs = 1;
-	mbr->part[0].ns = disk.size - 1;
+	if (sz > UINT32_MAX)
+		mbr->part[0].ns = UINT32_MAX;
+	else
+		mbr->part[0].ns = sz - 1;
 
 	/* Fix up start/length fields. */
 	PRT_fix_CHS(&mbr->part[0]);
@@ -87,10 +94,9 @@ MBR_init(struct mbr *mbr)
 	u_int64_t adj;
 	daddr_t i;
 
-	/* Fix up given mbr for this disk */
-	mbr->part[0].flag = 0;
-	mbr->part[1].flag = 0;
-	mbr->part[2].flag = 0;
+	memset(&mbr->part, 0, sizeof(mbr->part));
+	memset(&gh, 0, sizeof(gh));
+	memset(&gp, 0, sizeof(gp));
 
 	mbr->part[3].flag = DOSACTIVE;
 	mbr->signature = DOSMBR_SIGNATURE;
@@ -208,11 +214,11 @@ MBR_print(struct mbr *mbr, char *units)
 }
 
 int
-MBR_read(int fd, off_t where, struct dos_mbr *dos_mbr)
+MBR_read(off_t where, struct dos_mbr *dos_mbr)
 {
 	char *secbuf;
 
-	secbuf = DISK_readsector(fd, where);
+	secbuf = DISK_readsector(where);
 	if (secbuf == NULL)
 		return (-1);
 
@@ -223,11 +229,11 @@ MBR_read(int fd, off_t where, struct dos_mbr *dos_mbr)
 }
 
 int
-MBR_write(int fd, off_t where, struct dos_mbr *dos_mbr)
+MBR_write(off_t where, struct dos_mbr *dos_mbr)
 {
 	char *secbuf;
 
-	secbuf = DISK_readsector(fd, where);
+	secbuf = DISK_readsector(where);
 	if (secbuf == NULL)
 		return (-1);
 
@@ -236,8 +242,10 @@ MBR_write(int fd, off_t where, struct dos_mbr *dos_mbr)
 	 * write the sector back to "disk".
 	 */
 	memcpy(secbuf, dos_mbr, sizeof(*dos_mbr));
-	DISK_writesector(fd, secbuf, where);
-	ioctl(fd, DIOCRLDINFO, 0);
+	DISK_writesector(secbuf, where);
+
+	/* Refresh in-kernel disklabel from the updated disk information. */
+	ioctl(disk.fd, DIOCRLDINFO, 0);
 
 	free(secbuf);
 
@@ -253,11 +261,9 @@ MBR_pcopy(struct mbr *mbr)
 {
 	struct dos_partition dos_parts[NDOSPART];
 	struct dos_mbr dos_mbr;
-	int i, fd, error;
+	int i, error;
 
-	fd = DISK_open(disk.name, O_RDONLY);
-	error = MBR_read(fd, 0, &dos_mbr);
-	close(fd);
+	error = MBR_read(0, &dos_mbr);
 
 	if (error == -1)
 		return;
@@ -275,7 +281,7 @@ MBR_pcopy(struct mbr *mbr)
  * confused.
  */
 void
-MBR_zapgpt(int fd, struct dos_mbr *dos_mbr, uint64_t lastsec)
+MBR_zapgpt(struct dos_mbr *dos_mbr, uint64_t lastsec)
 {
 	struct dos_partition dos_parts[NDOSPART];
 	char *secbuf;
@@ -289,25 +295,25 @@ MBR_zapgpt(int fd, struct dos_mbr *dos_mbr, uint64_t lastsec)
 		    (dos_parts[i].dp_typ == DOSPTYP_EFISYS))
 			return;
 
-	secbuf = DISK_readsector(fd, GPTSECTOR);
+	secbuf = DISK_readsector(GPTSECTOR);
 	if (secbuf == NULL)
 		return;
 
 	memcpy(&sig, secbuf, sizeof(sig));
 	if (letoh64(sig) == GPTSIGNATURE) {
 		memset(secbuf, 0, sizeof(sig));
-		DISK_writesector(fd, secbuf, GPTSECTOR);
+		DISK_writesector(secbuf, GPTSECTOR);
 	}
 	free(secbuf);
 
-	secbuf = DISK_readsector(fd, lastsec);
+	secbuf = DISK_readsector(lastsec);
 	if (secbuf == NULL)
 		return;
 
 	memcpy(&sig, secbuf, sizeof(sig));
 	if (letoh64(sig) == GPTSIGNATURE) {
 		memset(secbuf, 0, sizeof(sig));
-		DISK_writesector(fd, secbuf, lastsec);
+		DISK_writesector(secbuf, lastsec);
 	}
 	free(secbuf);
 }

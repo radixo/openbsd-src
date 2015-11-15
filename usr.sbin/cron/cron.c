@@ -1,4 +1,4 @@
-/*	$OpenBSD: cron.c,v 1.56 2015/10/26 14:27:41 millert Exp $	*/
+/*	$OpenBSD: cron.c,v 1.71 2015/11/14 13:09:14 millert Exp $	*/
 
 /* Copyright 1988,1990,1993,1994 by Paul Vixie
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -17,9 +17,31 @@
  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#define	MAIN_PROGRAM
+#include <sys/types.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <sys/un.h>
+#include <sys/wait.h>
 
-#include "cron.h"
+#include <bitstring.h>
+#include <errno.h>
+#include <grp.h>
+#include <locale.h>
+#include <poll.h>
+#include <signal.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <syslog.h>
+#include <time.h>
+#include <unistd.h>
+
+#include "config.h"
+#include "pathnames.h"
+#include "macros.h"
+#include "structs.h"
+#include "funcs.h"
+#include "globals.h"
 
 enum timejump { negative, small, medium, large };
 
@@ -29,23 +51,26 @@ static	void	usage(void),
 		set_time(int),
 		cron_sleep(time_t, sigset_t *),
 		sigchld_handler(int),
-		sighup_handler(int),
 		sigchld_reaper(void),
 		parse_args(int c, char *v[]);
 
-static	volatile sig_atomic_t	got_sighup, got_sigchld;
+static	int	open_socket(void);
+
+static	volatile sig_atomic_t	got_sigchld;
 static	time_t			timeRunning, virtualTime, clockTime;
 static	int			cronSock;
 static	long			GMToff;
-static	cron_db			database;
-static	at_db			at_database;
+static	cron_db			*database;
+static	at_db			*at_database;
 static	double			batch_maxload = BATCH_MAXLOAD;
+static	int			NoFork;
+static	time_t			StartTime;
 
 static void
 usage(void)
 {
 
-	fprintf(stderr, "usage: %s [-n] [-l load_avg]\n", ProgramName);
+	fprintf(stderr, "usage: %s [-n] [-l load_avg]\n", __progname);
 	exit(EXIT_FAILURE);
 }
 
@@ -54,56 +79,50 @@ main(int argc, char *argv[])
 {
 	struct sigaction sact;
 	sigset_t blocked, omask;
-	int fd;
-
-	ProgramName = argv[0];
 
 	setlocale(LC_ALL, "");
 
 	setvbuf(stdout, NULL, _IOLBF, 0);
 	setvbuf(stderr, NULL, _IOLBF, 0);
 
-	NoFork = 0;
 	parse_args(argc, argv);
 
 	bzero((char *)&sact, sizeof sact);
 	sigemptyset(&sact.sa_mask);
-	sact.sa_flags = 0;
-	sact.sa_flags |= SA_RESTART;
+	sact.sa_flags = SA_RESTART;
 	sact.sa_handler = sigchld_handler;
 	(void) sigaction(SIGCHLD, &sact, NULL);
-	sact.sa_handler = sighup_handler;
-	(void) sigaction(SIGHUP, &sact, NULL);
 	sact.sa_handler = SIG_IGN;
+	(void) sigaction(SIGHUP, &sact, NULL);
 	(void) sigaction(SIGPIPE, &sact, NULL);
 
-	set_cron_cwd();
+	openlog(__progname, LOG_PID, LOG_CRON);
+
+	if (pledge("stdio rpath wpath cpath fattr getpw unix id dns proc exec",
+	    NULL) == -1) {
+		syslog(LOG_ERR, "(CRON) PLEDGE (%m)");
+		exit(EXIT_FAILURE);
+	}
 
 	cronSock = open_socket();
 
 	if (putenv("PATH="_PATH_DEFPATH) < 0) {
-		log_it("CRON", getpid(), "DEATH", "can't malloc");
+		syslog(LOG_ERR, "(CRON) DEATH (%m)");
 		exit(EXIT_FAILURE);
 	}
 
 	if (NoFork == 0) {
-		if (daemon(1, 0) == -1) {
-			log_it("CRON",getpid(),"DEATH","can't fork");
+		if (daemon(0, 0) == -1) {
+			syslog(LOG_ERR, "(CRON) DEATH (%m)");
 			exit(EXIT_FAILURE);
 		}
-		log_it("CRON",getpid(),"STARTUP",CRON_VERSION);
+		syslog(LOG_INFO, "(CRON) STARTUP (%s)", CRON_VERSION);
 	}
 
-	database.head = NULL;
-	database.tail = NULL;
-	database.mtime = 0;
 	load_database(&database);
-	at_database.head = NULL;
-	at_database.tail = NULL;
-	at_database.mtime = 0;
 	scan_atjobs(&at_database, NULL);
 	set_time(TRUE);
-	run_reboot_jobs(&database);
+	run_reboot_jobs(database);
 	timeRunning = virtualTime = clockTime;
 
 	/*
@@ -145,7 +164,7 @@ main(int argc, char *argv[])
 		/* shortcut for the most common case */
 		if (timeDiff == 1) {
 			virtualTime = timeRunning;
-			find_jobs(virtualTime, &database, TRUE, TRUE);
+			find_jobs(virtualTime, database, TRUE, TRUE);
 		} else {
 			if (timeDiff > (3*MINUTE_COUNT) ||
 			    timeDiff < -(3*MINUTE_COUNT))
@@ -168,7 +187,7 @@ main(int argc, char *argv[])
 					if (job_runqueue())
 						sleep(10);
 					virtualTime++;
-					find_jobs(virtualTime, &database,
+					find_jobs(virtualTime, database,
 					    TRUE, TRUE);
 				} while (virtualTime < timeRunning);
 				break;
@@ -186,14 +205,14 @@ main(int argc, char *argv[])
 				 * housekeeping.
 				 */
 				/* run wildcard jobs for current minute */
-				find_jobs(timeRunning, &database, TRUE, FALSE);
+				find_jobs(timeRunning, database, TRUE, FALSE);
 
 				/* run fixed-time jobs for each minute missed */
 				do {
 					if (job_runqueue())
 						sleep(10);
 					virtualTime++;
-					find_jobs(virtualTime, &database,
+					find_jobs(virtualTime, database,
 					    FALSE, TRUE);
 					set_time(FALSE);
 				} while (virtualTime< timeRunning &&
@@ -209,7 +228,7 @@ main(int argc, char *argv[])
 				 * not be repeated.  Virtual time does not
 				 * change until we are caught up.
 				 */
-				find_jobs(timeRunning, &database, TRUE, FALSE);
+				find_jobs(timeRunning, database, TRUE, FALSE);
 				break;
 			default:
 				/*
@@ -217,7 +236,7 @@ main(int argc, char *argv[])
 				 * jump virtual time, and run everything
 				 */
 				virtualTime = timeRunning;
-				find_jobs(timeRunning, &database, TRUE, TRUE);
+				find_jobs(timeRunning, database, TRUE, TRUE);
 			}
 		}
 
@@ -225,7 +244,7 @@ main(int argc, char *argv[])
 		job_runqueue();
 
 		/* Run any jobs in the at queue. */
-		atrun(&at_database, batch_maxload,
+		atrun(at_database, batch_maxload,
 		    timeRunning * SECONDS_PER_MINUTE - GMToff);
 
 		/* Reload jobs as needed. */
@@ -240,8 +259,8 @@ run_reboot_jobs(cron_db *db)
 	user *u;
 	entry *e;
 
-	for (u = db->head; u != NULL; u = u->next) {
-		for (e = u->crontab; e != NULL; e = e->next) {
+	TAILQ_FOREACH(u, &db->users, entries) {
+		SLIST_FOREACH(e, &u->crontab, entries) {
 			if (e->flags & WHEN_REBOOT)
 				job_add(e, u);
 		}
@@ -272,8 +291,8 @@ find_jobs(time_t vtime, cron_db *db, int doWild, int doNonWild)
 	 * is why we keep 'e->dow_star' and 'e->dom_star'.  yes, it's bizarre.
 	 * like many bizarre things, it's the standard.
 	 */
-	for (u = db->head; u != NULL; u = u->next) {
-		for (e = u->crontab; e != NULL; e = e->next) {
+	TAILQ_FOREACH(u, &db->users, entries) {
+		SLIST_FOREACH(e, &u->crontab, entries) {
 			if (bit_test(e->minute, minute) &&
 			    bit_test(e->hour, hour) &&
 			    bit_test(e->month, month) &&
@@ -351,7 +370,7 @@ cron_sleep(time_t target, sigset_t *mask)
 				(void) read(fd, &poke, 1);
 				close(fd);
 				if (poke & RELOAD_CRON) {
-					database.mtime = 0;
+					database->mtime = 0;
 					load_database(&database);
 				}
 				if (poke & RELOAD_AT) {
@@ -361,18 +380,14 @@ cron_sleep(time_t target, sigset_t *mask)
 					 * jobs immediately.
 					 */
 					clock_gettime(CLOCK_REALTIME, &t2);
-					at_database.mtime = 0;
+					at_database->mtime = 0;
 					if (scan_atjobs(&at_database, &t2))
-						atrun(&at_database,
+						atrun(at_database,
 						    batch_maxload, t2.tv_sec);
 				}
 			}
 		} else {
 			/* Interrupted by a signal. */
-			if (got_sighup) {
-				got_sighup = 0;
-				log_close();
-			}
 			if (got_sigchld) {
 				got_sigchld = 0;
 				sigchld_reaper();
@@ -392,10 +407,70 @@ cron_sleep(time_t target, sigset_t *mask)
 	}
 }
 
-static void
-sighup_handler(int x)
+/* int open_socket(void)
+ *	opens a UNIX domain socket that crontab uses to poke cron.
+ *	If the socket is already in use, return an error.
+ */
+static int
+open_socket(void)
 {
-	got_sighup = 1;
+	int		   sock, rc;
+	mode_t		   omask;
+	struct group *grp;
+	struct sockaddr_un s_un;
+
+	if ((grp = getgrnam(CRON_GROUP)) == NULL)
+		syslog(LOG_WARNING, "(CRON) STARTUP (can't find cron group)");
+
+	sock = socket(AF_UNIX, SOCK_STREAM|SOCK_CLOEXEC|SOCK_NONBLOCK, 0);
+	if (sock == -1) {
+		fprintf(stderr, "%s: can't create socket: %s\n",
+		    __progname, strerror(errno));
+		syslog(LOG_ERR, "(CRON) DEATH (can't create socket)");
+		exit(EXIT_FAILURE);
+	}
+	bzero(&s_un, sizeof(s_un));
+	if (strlcpy(s_un.sun_path, _PATH_CRON_SOCK, sizeof(s_un.sun_path))
+	    >= sizeof(s_un.sun_path)) {
+		fprintf(stderr, "%s: path too long\n", _PATH_CRON_SOCK);
+		syslog(LOG_ERR, "(CRON) DEATH (socket path too long)");
+		exit(EXIT_FAILURE);
+	}
+	s_un.sun_family = AF_UNIX;
+
+	if (connect(sock, (struct sockaddr *)&s_un, sizeof(s_un)) == 0) {
+		fprintf(stderr, "%s: already running\n", __progname);
+		syslog(LOG_ERR, "(CRON) DEATH (already running)");
+		exit(EXIT_FAILURE);
+	}
+	if (errno != ENOENT)
+		unlink(s_un.sun_path);
+
+	omask = umask(007);
+	rc = bind(sock, (struct sockaddr *)&s_un, sizeof(s_un));
+	umask(omask);
+	if (rc != 0) {
+		fprintf(stderr, "%s: can't bind socket: %s\n",
+		    __progname, strerror(errno));
+		syslog(LOG_ERR, "(CRON) DEATH (can't bind socket)");
+		exit(EXIT_FAILURE);
+	}
+	if (listen(sock, SOMAXCONN)) {
+		fprintf(stderr, "%s: can't listen on socket: %s\n",
+		    __progname, strerror(errno));
+		syslog(LOG_ERR, "(CRON) DEATH (can't listen on socket)");
+		exit(EXIT_FAILURE);
+	}
+	chmod(s_un.sun_path, 0660);
+	if (grp != NULL) {
+		/* pledge won't let us change files to a foreign group. */
+		if (setegid(grp->gr_gid) == 0) {
+			chown(s_un.sun_path, -1, grp->gr_gid);
+			(void)setegid(getgid());
+		}
+	}
+
+	return(sock);
 }
 
 static void

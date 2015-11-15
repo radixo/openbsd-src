@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.h,v 1.116 2015/10/24 11:47:07 mpi Exp $	*/
+/*	$OpenBSD: route.h,v 1.120 2015/11/06 17:55:55 mpi Exp $	*/
 /*	$NetBSD: route.h,v 1.9 1996/02/13 22:00:49 christos Exp $	*/
 
 /*
@@ -99,7 +99,7 @@ struct rtentry {
 	struct art_node	*rt_node;	/* ART entry */
 	struct sockaddr	*rt_dest;	/* destination */
 	struct sockaddr *rt_mask;	/* mask (radix tree compat) */
-	LIST_ENTRY(rtentry)  rt_next;	/* Next multipath entry to our dst. */
+	SLIST_ENTRY(rtentry)  rt_next;	/* Next multipath entry to our dst. */
 #endif
 	struct sockaddr	*rt_gateway;	/* value */
 	struct ifnet	*rt_ifp;	/* the answer: interface to use */
@@ -119,6 +119,8 @@ struct rtentry {
 };
 #define	rt_use		rt_rmx.rmx_pksent
 #define	rt_expire	rt_rmx.rmx_expire
+#define	rt_locks	rt_rmx.rmx_locks
+#define	rt_mtu		rt_rmx.rmx_mtu
 
 #define	RTF_UP		0x1		/* route usable */
 #define	RTF_GATEWAY	0x2		/* destination is a gateway */
@@ -358,7 +360,7 @@ void	 rt_maskedcopy(struct sockaddr *,
 void	 rt_sendmsg(struct rtentry *, int, u_int);
 void	 rt_sendaddrmsg(struct rtentry *, int);
 void	 rt_missmsg(int, struct rt_addrinfo *, int, u_int, int, u_int);
-int	 rt_setgate(struct rtentry *, struct sockaddr *, unsigned int);
+int	 rt_setgate(struct rtentry *, struct sockaddr *);
 int	 rt_checkgate(struct ifnet *, struct rtentry *, struct sockaddr *,
 	    unsigned int, struct rtentry **);
 void	 rt_setmetrics(u_long, struct rt_metrics *, struct rt_kmetrics *);
@@ -393,7 +395,7 @@ int	 rtioctl(u_long, caddr_t, struct proc *);
 void	 rtredirect(struct sockaddr *, struct sockaddr *,
 			 struct sockaddr *, int, struct sockaddr *,
 			 struct rtentry **, u_int);
-int	 rtrequest1(int, struct rt_addrinfo *, u_int8_t, struct rtentry **,
+int	 rtrequest(int, struct rt_addrinfo *, u_int8_t, struct rtentry **,
 	     u_int);
 void	 rt_if_remove(struct ifnet *);
 #ifndef SMALL_KERNEL
@@ -401,8 +403,6 @@ void	 rt_if_track(struct ifnet *);
 int	 rt_if_linkstate_change(struct rtentry *, void *, u_int);
 #endif
 int	 rtdeletemsg(struct rtentry *, u_int);
-
-struct rtentry *rt_mpath_next(struct rtentry *);
 #endif /* _KERNEL */
 
 #endif /* _NET_ROUTE_H_ */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: apm.c,v 1.29 2015/01/16 06:40:15 deraadt Exp $	*/
+/*	$OpenBSD: apm.c,v 1.31 2015/10/28 12:25:13 deraadt Exp $	*/
 
 /*
  *  Copyright (c) 1996 John T. Kohl
@@ -157,6 +157,9 @@ main(int argc, char *argv[])
 	int cpuspeed_mib[] = { CTL_HW, HW_CPUSPEED }, cpuspeed;
 	size_t cpuspeed_sz = sizeof(cpuspeed);
 
+	if (sysctl(cpuspeed_mib, 2, &cpuspeed, &cpuspeed_sz, NULL, 0) < 0)
+		err(1, "sysctl hw.cpuspeed");
+
 	while ((ch = getopt(argc, argv, "ACHLlmbvaPSzZf:")) != -1) {
 		switch (ch) {
 		case 'v':
@@ -240,6 +243,11 @@ main(int argc, char *argv[])
 
 	fd = open_socket(sockname);
 
+	if (fd != -1) {
+		if (pledge("stdio rpath wpath cpath", NULL) == -1)
+			err(1, "pledge");
+	}
+
 	if (!strcmp(__progname, "zzz")) {
 		if (fd < 0)
 			err(1, "cannot connect to apmd");
@@ -257,10 +265,7 @@ main(int argc, char *argv[])
 	reply.batterystate.battery_state = APM_BATT_UNKNOWN;
 	reply.batterystate.ac_state = APM_AC_UNKNOWN;
 	reply.perfmode = PERF_MANUAL;
-	if (sysctl(cpuspeed_mib, 2, &cpuspeed, &cpuspeed_sz, NULL, 0) < 0)
-		reply.cpuspeed = 0;
-	else
-		reply.cpuspeed = cpuspeed;
+	reply.cpuspeed = cpuspeed;
 
 	switch (action) {
 	case SETPERF_LOW:

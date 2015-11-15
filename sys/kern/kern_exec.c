@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_exec.c,v 1.169 2015/10/10 14:46:15 deraadt Exp $	*/
+/*	$OpenBSD: kern_exec.c,v 1.171 2015/10/28 11:13:41 deraadt Exp $	*/
 /*	$NetBSD: kern_exec.c,v 1.75 1996/02/09 18:59:28 christos Exp $	*/
 
 /*-
@@ -280,7 +280,6 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 	 * Mark this process as "leave me alone, I'm execing".
 	 */
 	atomic_setbits_int(&pr->ps_flags, PS_INEXEC);
-	p->p_pledgenote = PLEDGE_EXEC;
 
 #if NSYSTRACE > 0
 	if (ISSET(p->p_flag, P_SYSTRACE)) {
@@ -298,6 +297,7 @@ sys_execve(struct proc *p, void *v, register_t *retval)
 		NDINIT(&nid, LOOKUP, NOFOLLOW, UIO_USERSPACE,
 		    SCARG(uap, path), p);
 	}
+	nid.ni_pledge = PLEDGE_EXEC;
 
 	/*
 	 * initialize the fields of the exec package.

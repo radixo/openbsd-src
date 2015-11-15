@@ -1,4 +1,4 @@
-/*	$OpenBSD: pf.c,v 1.947 2015/10/13 19:32:31 sashan Exp $ */
+/*	$OpenBSD: pf.c,v 1.949 2015/11/06 17:55:55 mpi Exp $ */
 
 /*
  * Copyright (c) 2001 Daniel Hartmeier
@@ -5405,7 +5405,7 @@ pf_routable(struct pf_addr *addr, sa_family_t af, struct pfi_kif *kif,
 			if (kif->pfik_ifp == ifp)
 				ret = 1;
 #ifndef SMALL_KERNEL
-			rt = rt_mpath_next(rt);
+			rt = rtable_mpath_next(rt);
 #else
 			rt = NULL;
 #endif
@@ -6531,7 +6531,7 @@ done:
 	}
 
 	if (s) {
-		pd.m->m_pkthdr.flowid = M_FLOWID_VALID |
+		pd.m->m_pkthdr.ph_flowid = M_FLOWID_VALID |
 		    (M_FLOWID_MASK & bemtoh64(&s->id));
 	}
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: uipc_mbuf.c,v 1.207 2015/08/14 05:25:29 dlg Exp $	*/
+/*	$OpenBSD: uipc_mbuf.c,v 1.212 2015/11/12 10:07:14 mpi Exp $	*/
 /*	$NetBSD: uipc_mbuf.c,v 1.15.4.1 1996/06/13 17:11:44 cgd Exp $	*/
 
 /*
@@ -248,6 +248,23 @@ m_inithdr(struct mbuf *m)
 	m->m_pkthdr.pf.prio = IFQ_DEFPRIO;
 
 	return (m);
+}
+
+void
+m_resethdr(struct mbuf *m)
+{
+	int len = m->m_pkthdr.len;
+
+	KASSERT(m->m_flags & M_PKTHDR);
+	m->m_flags &= (M_EXT|M_PKTHDR|M_EOR|M_EXTWR|M_ZEROIZE);
+
+	/* delete all mbuf tags to reset the state */
+	m_tag_delete_chain(m);
+
+	/* like m_inithdr(), but keep any associated data and mbufs */
+	memset(&m->m_pkthdr, 0, sizeof(m->m_pkthdr));
+	m->m_pkthdr.pf.prio = IFQ_DEFPRIO;
+	m->m_pkthdr.len = len;
 }
 
 struct mbuf *
@@ -1185,7 +1202,7 @@ m_dup_pkthdr(struct mbuf *to, struct mbuf *from, int wait)
 	to->m_flags |= (from->m_flags & M_COPYFLAGS);
 	to->m_pkthdr = from->m_pkthdr;
 
-	SLIST_INIT(&to->m_pkthdr.tags);
+	SLIST_INIT(&to->m_pkthdr.ph_tags);
 
 	if ((error = m_tag_copy_chain(to, from, wait)) != 0)
 		return (error);
@@ -1211,9 +1228,10 @@ m_print(void *v,
 	if (m->m_flags & M_PKTHDR) {
 		(*pr)("m_ptkhdr.ph_ifidx: %u\tm_pkthdr.len: %i\n",
 		    m->m_pkthdr.ph_ifidx, m->m_pkthdr.len);
-		(*pr)("m_ptkhdr.tags: %p\tm_pkthdr.tagsset: %b\n",
-		    SLIST_FIRST(&m->m_pkthdr.tags),
-		    m->m_pkthdr.tagsset, MTAG_BITS);
+		(*pr)("m_ptkhdr.ph_tags: %p\tm_pkthdr.ph_tagsset: %b\n",
+		    SLIST_FIRST(&m->m_pkthdr.ph_tags),
+		    m->m_pkthdr.ph_tagsset, MTAG_BITS);
+		(*pr)("m_pkthdr.ph_flowid: %u\n", m->m_pkthdr.ph_flowid);
 		(*pr)("m_pkthdr.csum_flags: %b\n",
 		    m->m_pkthdr.csum_flags, MCS_BITS);
 		(*pr)("m_pkthdr.ether_vtag: %u\tm_ptkhdr.ph_rtableid: %u\n",
@@ -1351,6 +1369,23 @@ ml_filter(struct mbuf_list *ml,
 	return (matches.ml_head); /* ml_dechain */
 }
 
+unsigned int
+ml_purge(struct mbuf_list *ml)
+{
+	struct mbuf *m, *n;
+	unsigned int len;
+
+	for (m = ml->ml_head; m != NULL; m = n) {
+		n = m->m_nextpkt;
+		m_freem(m);
+	}
+
+	len = ml->ml_len;
+	ml_init(ml);
+
+	return (len);
+}
+
 /*
  * mbuf queues
  */
@@ -1463,4 +1498,14 @@ mq_filter(struct mbuf_queue *mq,
 	mtx_leave(&mq->mq_mtx);
 
 	return (m0);
+}
+
+unsigned int
+mq_purge(struct mbuf_queue *mq)
+{
+	struct mbuf_list ml;
+
+	mq_delist(mq, &ml);
+
+	return (ml_purge(&ml));
 }

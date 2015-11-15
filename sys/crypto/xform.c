@@ -1,9 +1,10 @@
-/*	$OpenBSD: xform.c,v 1.46 2015/03/14 03:38:46 jsg Exp $	*/
+/*	$OpenBSD: xform.c,v 1.52 2015/11/13 12:21:16 mikeb Exp $	*/
 /*
  * The authors of this code are John Ioannidis (ji@tla.org),
  * Angelos D. Keromytis (kermit@csd.uch.gr),
- * Niels Provos (provos@physnet.uni-hamburg.de) and
- * Damien Miller (djm@mindrot.org).
+ * Niels Provos (provos@physnet.uni-hamburg.de),
+ * Damien Miller (djm@mindrot.org) and
+ * Mike Belopuhov (mikeb@openbsd.org).
  *
  * This code was written by John Ioannidis for BSD/OS in Athens, Greece,
  * in November 1995.
@@ -18,12 +19,16 @@
  *
  * AES XTS implementation in 2008 by Damien Miller
  *
+ * AES-GCM-16 and Chacha20-Poly1305 AEAD modes by Mike Belopuhov.
+ *
  * Copyright (C) 1995, 1996, 1997, 1998, 1999 by John Ioannidis,
  * Angelos D. Keromytis and Niels Provos.
  *
  * Copyright (C) 2001, Angelos D. Keromytis.
  *
  * Copyright (C) 2008, Damien Miller
+ *
+ * Copyright (C) 2010, 2015, Mike Belopuhov
  *
  * Permission to use, copy, and modify this software with or without fee
  * is hereby granted, provided that this entire notice is included in
@@ -58,6 +63,7 @@
 #include <crypto/cryptodev.h>
 #include <crypto/xform.h>
 #include <crypto/gmac.h>
+#include <crypto/chachapoly.h>
 
 extern void des_ecb3_encrypt(caddr_t, caddr_t, caddr_t, caddr_t, caddr_t, int);
 extern void des_ecb_encrypt(caddr_t, caddr_t, caddr_t, int);
@@ -216,13 +222,14 @@ struct enc_xform enc_xform_aes_xts = {
 	aes_xts_reinit
 };
 
-struct enc_xform enc_xform_arc4 = {
-	CRYPTO_ARC4, "ARC4",
-	1, 1, 1, 32, 0,
-	NULL,
-	NULL,
-	NULL,
-	NULL
+struct enc_xform enc_xform_chacha20_poly1305 = {
+	CRYPTO_CHACHA20_POLY1305, "CHACHA20-POLY1305",
+	1, 8, 32+4, 32+4,
+	sizeof(struct chacha20_ctx),
+	chacha20_crypt,
+	chacha20_crypt,
+	chacha20_setkey,
+	chacha20_reinit
 };
 
 struct enc_xform enc_xform_null = {
@@ -286,47 +293,31 @@ struct auth_hash auth_hash_hmac_sha2_512_256 = {
 struct auth_hash auth_hash_gmac_aes_128 = {
 	CRYPTO_AES_128_GMAC, "GMAC-AES-128",
 	16+4, GMAC_BLOCK_LEN, GMAC_DIGEST_LEN, sizeof(AES_GMAC_CTX),
-	AESCTR_BLOCKSIZE, (void (*)(void *)) AES_GMAC_Init,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Setkey,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Reinit,
-	(int  (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Update,
-	(void (*)(u_int8_t *, void *)) AES_GMAC_Final
+	AESCTR_BLOCKSIZE, AES_GMAC_Init, AES_GMAC_Setkey, AES_GMAC_Reinit,
+	AES_GMAC_Update, AES_GMAC_Final
 };
 
 struct auth_hash auth_hash_gmac_aes_192 = {
 	CRYPTO_AES_192_GMAC, "GMAC-AES-192",
 	24+4, GMAC_BLOCK_LEN, GMAC_DIGEST_LEN, sizeof(AES_GMAC_CTX),
-	AESCTR_BLOCKSIZE, (void (*)(void *)) AES_GMAC_Init,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Setkey,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Reinit,
-	(int  (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Update,
-	(void (*)(u_int8_t *, void *)) AES_GMAC_Final
+	AESCTR_BLOCKSIZE, AES_GMAC_Init, AES_GMAC_Setkey, AES_GMAC_Reinit,
+	AES_GMAC_Update, AES_GMAC_Final
 };
 
 struct auth_hash auth_hash_gmac_aes_256 = {
 	CRYPTO_AES_256_GMAC, "GMAC-AES-256",
 	32+4, GMAC_BLOCK_LEN, GMAC_DIGEST_LEN, sizeof(AES_GMAC_CTX),
-	AESCTR_BLOCKSIZE, (void (*)(void *)) AES_GMAC_Init,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Setkey,
-	(void (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Reinit,
-	(int  (*)(void *, const u_int8_t *, u_int16_t)) AES_GMAC_Update,
-	(void (*)(u_int8_t *, void *)) AES_GMAC_Final
+	AESCTR_BLOCKSIZE, AES_GMAC_Init, AES_GMAC_Setkey, AES_GMAC_Reinit,
+	AES_GMAC_Update, AES_GMAC_Final
 };
 
-struct auth_hash auth_hash_md5 = {
-	CRYPTO_MD5, "MD5",
-	0, 16, 16, sizeof(MD5_CTX), 0,
-	(void (*) (void *)) MD5Init, NULL, NULL,
-	MD5Update_int,
-	(void (*) (u_int8_t *, void *)) MD5Final
-};
-
-struct auth_hash auth_hash_sha1 = {
-	CRYPTO_SHA1, "SHA1",
-	0, 20, 20, sizeof(SHA1_CTX), 0,
-	(void (*)(void *)) SHA1Init, NULL, NULL,
-	SHA1Update_int,
-	(void (*)(u_int8_t *, void *)) SHA1Final
+struct auth_hash auth_hash_chacha20_poly1305 = {
+	CRYPTO_CHACHA20_POLY1305_MAC, "CHACHA20-POLY1305",
+	CHACHA20_KEYSIZE+CHACHA20_SALT, POLY1305_BLOCK_LEN, POLY1305_TAGLEN,
+	sizeof(CHACHA20_POLY1305_CTX), CHACHA20_BLOCK_LEN,
+	Chacha20_Poly1305_Init, Chacha20_Poly1305_Setkey,
+	Chacha20_Poly1305_Reinit, Chacha20_Poly1305_Update,
+	Chacha20_Poly1305_Final
 };
 
 /* Compression instance */

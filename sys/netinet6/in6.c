@@ -1,4 +1,4 @@
-/*	$OpenBSD: in6.c,v 1.175 2015/09/12 20:50:17 mpi Exp $	*/
+/*	$OpenBSD: in6.c,v 1.177 2015/10/30 09:39:42 bluhm Exp $	*/
 /*	$KAME: in6.c,v 1.372 2004/06/14 08:14:21 itojun Exp $	*/
 
 /*
@@ -808,7 +808,7 @@ in6_update_ifa(struct ifnet *ifp, struct in6_aliasreq *ifra,
 			info.rti_info[RTAX_IFA] = sin6tosa(&ia6->ia_addr);
 			/* XXX: we need RTF_CLONING to fake nd6_rtrequest */
 			info.rti_flags = RTF_CLONING;
-			error = rtrequest1(RTM_ADD, &info, RTP_CONNECTED, NULL,
+			error = rtrequest(RTM_ADD, &info, RTP_CONNECTED, NULL,
 			    ifp->if_rdomain);
 			if (error)
 				goto cleanup;
@@ -864,7 +864,7 @@ in6_update_ifa(struct ifnet *ifp, struct in6_aliasreq *ifra,
 			info.rti_info[RTAX_NETMASK] = sin6tosa(&mltmask);
 			info.rti_info[RTAX_IFA] = sin6tosa(&ia6->ia_addr);
 			info.rti_flags = RTF_CLONING;
-			error = rtrequest1(RTM_ADD, &info, RTP_CONNECTED, NULL,
+			error = rtrequest(RTM_ADD, &info, RTP_CONNECTED, NULL,
 			    ifp->if_rdomain);
 			if (error)
 				goto cleanup;
@@ -1648,9 +1648,6 @@ in6_ifawithscope(struct ifnet *oifp, struct in6_addr *dst, u_int rdomain)
 	struct ifaddr *ifa;
 	struct ifnet *ifp;
 	struct in6_ifaddr *ia6_best = NULL;
-#if NCARP > 0
-	struct sockaddr_dl *proxydl = NULL;
-#endif
 
 	if (oifp == NULL) {
 		printf("in6_ifawithscope: output interface is not specified\n");
@@ -1670,8 +1667,7 @@ in6_ifawithscope(struct ifnet *oifp, struct in6_addr *dst, u_int rdomain)
 		 * Never use a carp address of an interface which is not
 		 * the master.
 		 */
-		if (ifp->if_type == IFT_CARP &&
-		    !carp_iamatch6(ifp, NULL, &proxydl))
+		if (ifp->if_type == IFT_CARP && !carp_iamatch6(ifp))
 			continue;
 #endif
 

@@ -1,4 +1,4 @@
-/*	$OpenBSD: nd6_rtr.c,v 1.128 2015/10/25 11:58:11 mpi Exp $	*/
+/*	$OpenBSD: nd6_rtr.c,v 1.132 2015/11/02 07:24:08 mpi Exp $	*/
 /*	$KAME: nd6_rtr.c,v 1.97 2001/02/07 11:09:13 itojun Exp $	*/
 
 /*
@@ -529,43 +529,6 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 	}
 
 	/*
-	 * MTU
-	 */
-	if (ndopts.nd_opts_mtu && ndopts.nd_opts_mtu->nd_opt_mtu_len == 1) {
-		u_long mtu;
-		u_long maxmtu;
-
-		mtu = ntohl(ndopts.nd_opts_mtu->nd_opt_mtu_mtu);
-
-		/* lower bound */
-		if (mtu < IPV6_MMTU) {
-			nd6log((LOG_INFO, "nd6_ra_input: bogus mtu option "
-			    "mtu=%lu sent from %s, ignoring\n",
-			    mtu,
-			    inet_ntop(AF_INET6, &ip6->ip6_src,
-				src, sizeof(src))));
-			goto skip;
-		}
-
-		/* upper bound */
-		maxmtu = (ndi->maxmtu && ndi->maxmtu < ifp->if_mtu)
-		    ? ndi->maxmtu : ifp->if_mtu;
-		if (mtu <= maxmtu) {
-			ndi->linkmtu = mtu;
-		} else {
-			nd6log((LOG_INFO, "nd6_ra_input: bogus mtu "
-			    "mtu=%lu sent from %s; "
-			    "exceeds maxmtu %lu, ignoring\n",
-			    mtu,
-			    inet_ntop(AF_INET6, &ip6->ip6_src,
-				src, sizeof(src)),
-			    maxmtu));
-		}
-	}
-
- skip:
-
-	/*
 	 * Source link layer address
 	 */
     {
@@ -591,7 +554,7 @@ nd6_ra_input(struct mbuf *m, int off, int icmp6len)
 	/*
 	 * Installing a link-layer address might change the state of the
 	 * router's neighbor cache, which might also affect our on-link
-	 * detection of adveritsed prefixes.
+	 * detection of advertised prefixes.
 	 */
 	pfxlist_onlink_check();
     }
@@ -636,7 +599,7 @@ defrouter_addreq(struct nd_defrouter *new)
 	info.rti_info[RTAX_NETMASK] = sin6tosa(&mask);
 
 	s = splsoftnet();
-	error = rtrequest1(RTM_ADD, &info, RTP_DEFAULT, &rt,
+	error = rtrequest(RTM_ADD, &info, RTP_DEFAULT, &rt,
 	    new->ifp->if_rdomain);
 	if (error == 0) {
 		rt_sendmsg(rt, RTM_ADD, new->ifp->if_rdomain);
@@ -648,12 +611,13 @@ defrouter_addreq(struct nd_defrouter *new)
 }
 
 struct nd_defrouter *
-defrouter_lookup(struct in6_addr *addr, struct ifnet *ifp)
+defrouter_lookup(struct in6_addr *addr, unsigned int ifidx)
 {
 	struct nd_defrouter *dr;
 
 	TAILQ_FOREACH(dr, &nd_defrouter, dr_entry)
-		if (dr->ifp == ifp && IN6_ARE_ADDR_EQUAL(addr, &dr->rtaddr))
+		if (dr->ifp->if_index == ifidx &&
+		    IN6_ARE_ADDR_EQUAL(addr, &dr->rtaddr))
 			return (dr);
 
 	return (NULL);		/* search failed */
@@ -741,7 +705,7 @@ defrouter_delreq(struct nd_defrouter *dr)
 	info.rti_info[RTAX_GATEWAY] = sin6tosa(&gw);
 	info.rti_info[RTAX_NETMASK] = sin6tosa(&mask);
 
-	error = rtrequest1(RTM_DELETE, &info, RTP_DEFAULT, &rt,
+	error = rtrequest(RTM_DELETE, &info, RTP_DEFAULT, &rt,
 	    dr->ifp->if_rdomain);
 	if (error == 0) {
 		rt_sendmsg(rt, RTM_DELETE, dr->ifp->if_rdomain);
@@ -910,7 +874,7 @@ defrtrlist_update(struct nd_defrouter *new)
 	struct in6_ifextra *ext = new->ifp->if_afdata[AF_INET6];
 	int s = splsoftnet();
 
-	if ((dr = defrouter_lookup(&new->rtaddr, new->ifp)) != NULL) {
+	if ((dr = defrouter_lookup(&new->rtaddr, new->ifp->if_index)) != NULL) {
 		/* entry exists */
 		if (new->rtlifetime == 0) {
 			defrtrlist_del(dr);
@@ -1810,7 +1774,7 @@ nd6_prefix_onlink(struct nd_prefix *pr)
 	info.rti_info[RTAX_GATEWAY] = ifa->ifa_addr;
 	info.rti_info[RTAX_NETMASK] = sin6tosa(&mask6);
 
-	error = rtrequest1(RTM_ADD, &info, RTP_CONNECTED, &rt, ifp->if_rdomain);
+	error = rtrequest(RTM_ADD, &info, RTP_CONNECTED, &rt, ifp->if_rdomain);
 	if (error == 0) {
 		pr->ndpr_stateflags |= NDPRF_ONLINK;
 		rt_sendmsg(rt, RTM_ADD, ifp->if_rdomain);
@@ -1854,7 +1818,7 @@ nd6_prefix_offlink(struct nd_prefix *pr)
 	info.rti_info[RTAX_DST] = sin6tosa(&sa6);
 	info.rti_info[RTAX_NETMASK] = sin6tosa(&mask6);
 
-	error = rtrequest1(RTM_DELETE, &info, RTP_CONNECTED, &rt,
+	error = rtrequest(RTM_DELETE, &info, RTP_CONNECTED, &rt,
 	    ifp->if_rdomain);
 	if (error == 0) {
 		pr->ndpr_stateflags &= ~NDPRF_ONLINK;
@@ -2158,5 +2122,5 @@ rt6_deleteroute(struct rtentry *rt, void *arg, unsigned int id)
 	info.rti_info[RTAX_DST] = rt_key(rt);
 	info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
 	info.rti_info[RTAX_NETMASK] = rt_mask(rt);
-	return (rtrequest1(RTM_DELETE, &info, RTP_ANY, NULL, id));
+	return (rtrequest(RTM_DELETE, &info, RTP_ANY, NULL, id));
 }

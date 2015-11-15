@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.398 2015/10/25 21:58:04 deraadt Exp $	*/
+/*	$OpenBSD: if.c,v 1.405 2015/11/11 10:23:23 mpi Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -250,7 +250,7 @@ struct srp_gc if_map_gc = SRP_GC_INITIALIZER(if_map_dtor, NULL);
 
 struct ifnet_head ifnet = TAILQ_HEAD_INITIALIZER(ifnet);
 struct ifnet_head iftxlist = TAILQ_HEAD_INITIALIZER(iftxlist);
-struct ifnet *lo0ifp;
+unsigned int lo0ifidx;
 
 void
 if_idxmap_init(unsigned int limit)
@@ -564,7 +564,6 @@ if_enqueue(struct ifnet *ifp, struct mbuf *m)
 #if NBRIDGE > 0
 	if (ifp->if_bridgeport && (m->m_flags & M_PROTO1) == 0)
 		return (bridge_output(ifp, m, NULL, NULL));
-	m->m_flags &= ~M_PROTO1;	/* Loop prevention */
 #endif
 
 	length = m->m_pkthdr.len;
@@ -792,17 +791,6 @@ if_input_process(void *xmq)
 			continue;
 		}
 
-#if NBRIDGE > 0
-		if (ifp->if_bridgeport && (m->m_flags & M_PROTO1) == 0) {
-			m = bridge_input(ifp, m);
-			if (m == NULL) {
-				if_put(ifp);
-				continue;
-			}
-		}
-		m->m_flags &= ~M_PROTO1;	/* Loop prevention */
-#endif
-
 		/*
 		 * Pass this mbuf to all input handlers of its
 		 * interface until it is consumed.
@@ -899,8 +887,8 @@ if_detach(struct ifnet *ifp)
 	rt_if_remove(ifp);
 	rti_delete(ifp);
 #if NETHER > 0 && defined(NFSCLIENT)
-	if (ifp == revarp_ifp)
-		revarp_ifp = NULL;
+	if (ifp->if_index == revarp_ifidx)
+		revarp_ifidx = 0;
 #endif
 #ifdef MROUTING
 	vif_delete(ifp);
@@ -1287,11 +1275,12 @@ if_rtrequest_dummy(struct ifnet *ifp, int req, struct rtentry *rt)
 void
 p2p_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 {
+	struct ifnet *lo0ifp;
 	struct ifaddr *ifa, *lo0ifa;
 
 	switch (req) {
 	case RTM_ADD:
-		if ((rt->rt_flags & RTF_LOCAL) == 0)
+		if (!ISSET(rt->rt_flags, RTF_LOCAL))
 			break;
 
 		TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
@@ -1310,10 +1299,14 @@ p2p_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		 * (ab)use it for any route related to an interface of a
 		 * different rdomain.
 		 */
-		TAILQ_FOREACH(lo0ifa, &lo0ifp->if_addrlist, ifa_list)
+		lo0ifp = if_get(lo0ifidx);
+		KASSERT(lo0ifp != NULL);
+		TAILQ_FOREACH(lo0ifa, &lo0ifp->if_addrlist, ifa_list) {
 			if (lo0ifa->ifa_addr->sa_family ==
 			    ifa->ifa_addr->sa_family)
 				break;
+		}
+		if_put(lo0ifp);
 
 		if (lo0ifa == NULL)
 			break;
@@ -1389,7 +1382,7 @@ if_up(struct ifnet *ifp)
 
 #ifdef INET6
 	/* Userland expects the kernel to set ::1 on lo0. */
-	if (ifp == lo0ifp)
+	if (ifp->if_index == lo0ifidx)
 		in6_ifattach(ifp);
 #endif
 
@@ -1734,26 +1727,12 @@ ifioctl(struct socket *so, u_long cmd, caddr_t data, struct proc *p)
 		break;
 
 	case SIOCSIFMTU:
-	{
-#ifdef INET6
-		int oldmtu = ifp->if_mtu;
-#endif
-
 		if ((error = suser(p, 0)) != 0)
 			return (error);
 		if (ifp->if_ioctl == NULL)
 			return (EOPNOTSUPP);
 		error = (*ifp->if_ioctl)(ifp, cmd, data);
-
-		/*
-		 * If the link MTU changed, do network layer specific procedure.
-		 */
-#ifdef INET6
-		if (ifp->if_mtu != oldmtu)
-			nd6_setmtu(ifp);
-#endif
 		break;
-	}
 
 	case SIOCSIFPHYADDR:
 	case SIOCDIFPHYADDR:
@@ -2361,7 +2340,7 @@ if_group_egress_build(void)
 	bzero(&sa_in, sizeof(sa_in));
 	sa_in.sin_len = sizeof(sa_in);
 	sa_in.sin_family = AF_INET;
-	rt0 = rtable_lookup(0, sintosa(&sa_in), sintosa(&sa_in));
+	rt0 = rtable_lookup(0, sintosa(&sa_in), sintosa(&sa_in), NULL, RTP_ANY);
 	if (rt0 != NULL) {
 		rt = rt0;
 		do {
@@ -2371,7 +2350,7 @@ if_group_egress_build(void)
 				if_put(ifp);
 			}
 #ifndef SMALL_KERNEL
-			rt = rt_mpath_next(rt);
+			rt = rtable_mpath_next(rt);
 #else
 			rt = NULL;
 #endif
@@ -2381,7 +2360,8 @@ if_group_egress_build(void)
 
 #ifdef INET6
 	bcopy(&sa6_any, &sa_in6, sizeof(sa_in6));
-	rt0 = rtable_lookup(0, sin6tosa(&sa_in6), sin6tosa(&sa_in6));
+	rt0 = rtable_lookup(0, sin6tosa(&sa_in6), sin6tosa(&sa_in6), NULL,
+	    RTP_ANY);
 	if (rt0 != NULL) {
 		rt = rt0;
 		do {
@@ -2391,7 +2371,7 @@ if_group_egress_build(void)
 				if_put(ifp);
 			}
 #ifndef SMALL_KERNEL
-			rt = rt_mpath_next(rt);
+			rt = rtable_mpath_next(rt);
 #else
 			rt = NULL;
 #endif

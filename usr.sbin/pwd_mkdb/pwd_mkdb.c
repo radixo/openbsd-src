@@ -1,4 +1,4 @@
-/*	$OpenBSD: pwd_mkdb.c,v 1.50 2015/08/27 19:11:37 gsoares Exp $	*/
+/*	$OpenBSD: pwd_mkdb.c,v 1.52 2015/11/05 13:48:51 semarie Exp $	*/
 
 /*-
  * Copyright (c) 1991, 1993, 1994

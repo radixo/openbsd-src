@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.74 2014/11/16 04:16:41 guenther Exp $	*/
+/*	$OpenBSD: main.c,v 1.78 2015/11/11 15:10:20 deraadt Exp $	*/
 
 /* This file is in the public domain. */
 
@@ -55,6 +55,9 @@ main(int argc, char **argv)
 	int	 	 o, i, nfiles;
 	int	  	 nobackups = 0;
 	struct buffer	*bp = NULL;
+
+	if (pledge("stdio rpath wpath cpath fattr getpw proc exec tty", NULL) == -1)
+		err(1, "pledge");
 
 	while ((o = getopt(argc, argv, "nf:")) != -1)
 		switch (o) {
@@ -115,7 +118,7 @@ main(int argc, char **argv)
 	if ((cp = startupfile(NULL)) != NULL)
 		(void)load(cp);
 
-	/* 
+	/*
 	 * Now ensure any default buffer modes from the startup file are
 	 * given to any files opened when parsing the startup file.
 	 * Note *scratch* will also be updated.
@@ -150,6 +153,10 @@ notnum:
 				if (nfiles == 1)
 					splitwind(0, 1);
 
+				if (fisdir(cp) == TRUE) {
+					(void)do_dired(cp);
+					continue;
+				}
 				if ((curbp = findbuffer(cp)) == NULL) {
 					vttidy();
 					errx(1, "Can't find current buffer!");

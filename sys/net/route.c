@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.c,v 1.264 2015/10/25 15:24:03 mpi Exp $	*/
+/*	$OpenBSD: route.c,v 1.269 2015/11/09 10:26:26 mpi Exp $	*/
 /*	$NetBSD: route.c,v 1.14 1996/02/13 22:00:46 christos Exp $	*/
 
 /*
@@ -151,6 +151,7 @@ void	rt_timer_init(void);
 int	rtflushclone1(struct rtentry *, void *, u_int);
 void	rtflushclone(unsigned int, struct rtentry *);
 int	rt_if_remove_rtdelete(struct rtentry *, void *, u_int);
+struct rtentry *rt_match(struct sockaddr *, int, unsigned int);
 
 struct	ifaddr *ifa_ifwithroute(int, struct sockaddr *, struct sockaddr *,
 		    u_int);
@@ -194,6 +195,12 @@ rtisvalid(struct rtentry *rt)
 	if (rt == NULL)
 		return (0);
 
+#ifdef DIAGNOSTIC
+	if (ISSET(rt->rt_flags, RTF_GATEWAY) && (rt->rt_gwroute != NULL) &&
+	    ISSET(rt->rt_gwroute->rt_flags, RTF_GATEWAY))
+	    	panic("next hop must be directly reachable");
+#endif
+
 	if ((rt->rt_flags & RTF_UP) == 0)
 		return (0);
 
@@ -201,11 +208,27 @@ rtisvalid(struct rtentry *rt)
 	if (rt->rt_ifa == NULL || rt->rt_ifa->ifa_ifp == NULL)
 		return (0);
 
+	if (ISSET(rt->rt_flags, RTF_GATEWAY) && !rtisvalid(rt->rt_gwroute))
+		return (0);
+
 	return (1);
 }
 
+/*
+ * Do the actual lookup for rtalloc(9), do not use directly!
+ *
+ * Return the best matching entry for the destination ``dst''.
+ *
+ * "RT_RESOLVE" means that a corresponding L2 entry should
+ *   be added to the routing table and resolved (via ARP or
+ *   NDP), if it does not exist.
+ *
+ * "RT_REPORT" indicates that a message should be sent to
+ *   userland if no matching route has been found or if an
+ *   error occured while adding a L2 entry.
+ */
 struct rtentry *
-rtalloc(struct sockaddr *dst, int flags, unsigned int tableid)
+rt_match(struct sockaddr *dst, int flags, unsigned int tableid)
 {
 	struct rtentry		*rt0, *rt = NULL;
 	struct rt_addrinfo	 info;
@@ -220,7 +243,7 @@ rtalloc(struct sockaddr *dst, int flags, unsigned int tableid)
 	if (rt != NULL) {
 		if ((rt->rt_flags & RTF_CLONING) && ISSET(flags, RT_RESOLVE)) {
 			rt0 = rt;
-			error = rtrequest1(RTM_RESOLVE, &info, RTP_DEFAULT,
+			error = rtrequest(RTM_RESOLVE, &info, RTP_DEFAULT,
 			    &rt, tableid);
 			if (error) {
 				rt0->rt_use++;
@@ -335,6 +358,76 @@ rtalloc_mpath(struct sockaddr *dst, uint32_t *src, unsigned int rtableid)
 	return (rtable_mpath_select(rt, rt_hash(rt, src) & 0xffff));
 }
 #endif /* SMALL_KERNEL */
+
+/*
+ * Look in the routing table for the best matching entry for
+ * ``dst''.
+ *
+ * If a route with a gateway is found and its next hop is no
+ * longer valid, try to cache it.
+ */
+struct rtentry *
+rtalloc(struct sockaddr *dst, int flags, unsigned int rtableid)
+{
+	struct rtentry *rt, *nhrt;
+
+	rt = rt_match(dst, flags, rtableid);
+
+	/* No match or route to host?  We're done. */
+	if (rt == NULL || !ISSET(rt->rt_flags, RTF_GATEWAY))
+		return (rt);
+
+	/* Nothing to do if the next hop is valid. */
+	if (rtisvalid(rt->rt_gwroute))
+		return (rt);
+
+	rtfree(rt->rt_gwroute);
+	rt->rt_gwroute = NULL;
+
+	/*
+	 * If we cannot find a valid next hop, return the route
+	 * with a gateway.
+	 *
+	 * XXX Some dragons hiding in the tree certainly depends on
+	 * this behavior.  But it is safe since rt_checkgate() wont
+	 * allow us to us this route later on.
+	 */
+	nhrt = rt_match(rt->rt_gateway, flags | RT_RESOLVE, rtableid);
+	if (nhrt == NULL)
+		return (rt);
+
+	/*
+	 * Next hop must be reachable, this also prevents rtentry
+	 * loops for example when rt->rt_gwroute points to rt.
+	 */
+	if (ISSET(nhrt->rt_flags, RTF_CLONING|RTF_GATEWAY)) {
+		rtfree(nhrt);
+		return (rt);
+	}
+
+	/*
+	 * Next hop entry must be UP and on the same interface.
+	 */
+	if (!ISSET(nhrt->rt_flags, RTF_UP) || nhrt->rt_ifidx != rt->rt_ifidx) {
+		rtfree(nhrt);
+		return (rt);
+	}
+
+	/*
+	 * If the MTU of next hop is 0, this will reset the MTU of the
+	 * route to run PMTUD again from scratch.
+	 */
+	if (!ISSET(rt->rt_locks, RTV_MTU) && (rt->rt_mtu > nhrt->rt_mtu))
+		rt->rt_mtu = nhrt->rt_mtu;
+
+	/*
+	 * Do not return the cached next-hop route, rt_checkgate() will
+	 * do the magic for us.
+	 */
+	rt->rt_gwroute = nhrt;
+
+	return (rt);
+}
 
 void
 rtref(struct rtentry *rt)
@@ -477,8 +570,7 @@ rtredirect(struct sockaddr *dst, struct sockaddr *gateway,
 			 * Create new route, rather than smashing route to net.
 			 */
 create:
-			if (rt)
-				rtfree(rt);
+			rtfree(rt);
 			flags |= RTF_GATEWAY | RTF_DYNAMIC;
 			bzero(&info, sizeof(info));
 			info.rti_info[RTAX_DST] = dst;
@@ -487,7 +579,7 @@ create:
 			info.rti_ifa = ifa;
 			info.rti_flags = flags;
 			rt = NULL;
-			error = rtrequest1(RTM_ADD, &info, RTP_DEFAULT, &rt,
+			error = rtrequest(RTM_ADD, &info, RTP_DEFAULT, &rt,
 			    rdomain);
 			if (error == 0)
 				flags = rt->rt_flags;
@@ -500,7 +592,7 @@ create:
 			rt->rt_flags |= RTF_MODIFIED;
 			flags |= RTF_MODIFIED;
 			stat = &rtstat.rts_newgateway;
-			rt_setgate(rt, gateway, rdomain);
+			rt_setgate(rt, gateway);
 		}
 	} else
 		error = EHOSTUNREACH;
@@ -545,7 +637,7 @@ rtdeletemsg(struct rtentry *rt, u_int tableid)
 	info.rti_info[RTAX_GATEWAY] = rt->rt_gateway;
 	info.rti_flags = rt->rt_flags;
 	ifidx = rt->rt_ifidx;
-	error = rtrequest1(RTM_DELETE, &info, rt->rt_priority, &rt, tableid);
+	error = rtrequest(RTM_DELETE, &info, rt->rt_priority, &rt, tableid);
 	rt_missmsg(RTM_DELETE, &info, info.rti_flags, ifidx, error, tableid);
 	if (error == 0)
 		rtfree(rt);
@@ -711,7 +803,7 @@ rt_getifa(struct rt_addrinfo *info, u_int rtid)
 }
 
 int
-rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
+rtrequest(int req, struct rt_addrinfo *info, u_int8_t prio,
     struct rtentry **ret_nrt, u_int tableid)
 {
 	struct rtentry		*rt, *crt;
@@ -733,15 +825,11 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 	switch (req) {
 	case RTM_DELETE:
 		rt = rtable_lookup(tableid, info->rti_info[RTAX_DST],
-		    info->rti_info[RTAX_NETMASK]);
+ 		    info->rti_info[RTAX_NETMASK], info->rti_info[RTAX_GATEWAY],
+ 		    prio);
 		if (rt == NULL)
 			return (ESRCH);
 #ifndef SMALL_KERNEL
-		rt = rtable_mpath_match(tableid, rt,
-		    info->rti_info[RTAX_GATEWAY], prio);
-		if (rt == NULL)
-			return (ESRCH);
-
 		/*
 		 * If we got multipath routes, we require users to specify
 		 * a matching gateway.
@@ -910,7 +998,7 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 			 * route.
 			 */
 			if ((*ret_nrt)->rt_ifa->ifa_ifp == NULL) {
-				printf("rtrequest1 RTM_RESOLVE: wrong ifa (%p) "
+				printf("rtrequest RTM_RESOLVE: wrong ifa (%p) "
 				    "was (%p)\n", ifa, (*ret_nrt)->rt_ifa);
 				(*ret_nrt)->rt_ifp->if_rtrequest(rt->rt_ifp,
 				    RTM_DELETE, *ret_nrt);
@@ -936,8 +1024,7 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 		 * the routing table because the radix MPATH code use
 		 * it to (re)order routes.
 		 */
-		if ((error = rt_setgate(rt, info->rti_info[RTAX_GATEWAY],
-		    tableid))) {
+		if ((error = rt_setgate(rt, info->rti_info[RTAX_GATEWAY]))) {
 			free(ndst, M_RTABLE, dlen);
 			pool_put(&rtentry_pool, rt);
 			return (error);
@@ -990,7 +1077,7 @@ rtrequest1(int req, struct rt_addrinfo *info, u_int8_t prio,
 }
 
 int
-rt_setgate(struct rtentry *rt, struct sockaddr *gate, unsigned int tableid)
+rt_setgate(struct rtentry *rt, struct sockaddr *gate)
 {
 	int glen = ROUNDUP(gate->sa_len);
 	struct sockaddr *sa;
@@ -1008,22 +1095,7 @@ rt_setgate(struct rtentry *rt, struct sockaddr *gate, unsigned int tableid)
 		rtfree(rt->rt_gwroute);
 		rt->rt_gwroute = NULL;
 	}
-	if (rt->rt_flags & RTF_GATEWAY) {
-		/* XXX is this actually valid to cross tables here? */
-		rt->rt_gwroute = rtalloc(gate, RT_REPORT|RT_RESOLVE, tableid);
-		/*
-		 * If we switched gateways, grab the MTU from the new
-		 * gateway route if the current MTU is 0 or greater
-		 * than the MTU of gateway.
-		 * Note that, if the MTU of gateway is 0, we will reset the
-		 * MTU of the route to run PMTUD again from scratch. XXX
-		 */
-		if (rt->rt_gwroute && !(rt->rt_rmx.rmx_locks & RTV_MTU) &&
-		    rt->rt_rmx.rmx_mtu &&
-		    rt->rt_rmx.rmx_mtu > rt->rt_gwroute->rt_rmx.rmx_mtu) {
-			rt->rt_rmx.rmx_mtu = rt->rt_gwroute->rt_rmx.rmx_mtu;
-		}
-	}
+
 	return (0);
 }
 
@@ -1038,26 +1110,8 @@ rt_checkgate(struct ifnet *ifp, struct rtentry *rt, struct sockaddr *dst,
 	rt0 = rt;
 
 	if (rt->rt_flags & RTF_GATEWAY) {
-		if (rt->rt_gwroute && !(rt->rt_gwroute->rt_flags & RTF_UP)) {
-			rtfree(rt->rt_gwroute);
-			rt->rt_gwroute = NULL;
-		}
-		if (rt->rt_gwroute == NULL) {
-			rt->rt_gwroute = rtalloc(rt->rt_gateway,
-			    RT_REPORT|RT_RESOLVE, rtableid);
-			if (rt->rt_gwroute == NULL)
-				return (EHOSTUNREACH);
-		}
-		/*
-		 * Next hop must be reachable, this also prevents rtentry
-		 * loops, for example when rt->rt_gwroute points to rt.
-		 */
-		if (((rt->rt_gwroute->rt_flags & (RTF_UP|RTF_GATEWAY)) !=
-		    RTF_UP) || (rt->rt_gwroute->rt_ifidx != ifp->if_index)) {
-			rtfree(rt->rt_gwroute);
-			rt->rt_gwroute = NULL;
+		if (rt->rt_gwroute == NULL)
 			return (EHOSTUNREACH);
-		}
 		rt = rt->rt_gwroute;
 	}
 
@@ -1128,7 +1182,7 @@ rt_ifa_add(struct ifaddr *ifa, int flags, struct sockaddr *dst)
 	if (flags & RTF_CONNECTED)
 		prio = RTP_CONNECTED;
 
-	error = rtrequest1(RTM_ADD, &info, prio, &rt, rtableid);
+	error = rtrequest(RTM_ADD, &info, prio, &rt, rtableid);
 	if (error == 0) {
 		/*
 		 * A local route is created for every address configured
@@ -1188,7 +1242,7 @@ rt_ifa_del(struct ifaddr *ifa, int flags, struct sockaddr *dst)
 	if (flags & RTF_CONNECTED)
 		prio = RTP_CONNECTED;
 
-	error = rtrequest1(RTM_DELETE, &info, prio, &rt, rtableid);
+	error = rtrequest(RTM_DELETE, &info, prio, &rt, rtableid);
 	if (error == 0) {
 		rt_sendmsg(rt, RTM_DELETE, rtableid);
 		if (flags & RTF_LOCAL)
@@ -1240,8 +1294,7 @@ rt_ifa_addlocal(struct ifaddr *ifa)
 	rt = rtalloc(ifa->ifa_addr, 0, ifa->ifa_ifp->if_rdomain);
 	if (rt == NULL || !ISSET(rt->rt_flags, flags))
 		error = rt_ifa_add(ifa, flags, ifa->ifa_addr);
-	if (rt)
-		rtfree(rt);
+	rtfree(rt);
 
 	return (error);
 }
@@ -1290,8 +1343,7 @@ rt_ifa_dellocal(struct ifaddr *ifa)
 	rt = rtalloc(ifa->ifa_addr, 0, ifa->ifa_ifp->if_rdomain);
 	if (rt != NULL && ISSET(rt->rt_flags, flags))
 		error = rt_ifa_del(ifa, flags, ifa->ifa_addr);
-	if (rt)
-		rtfree(rt);
+	rtfree(rt);
 
 	return (error);
 }
@@ -1315,7 +1367,7 @@ static int			rt_init_done = 0;
 		struct rt_addrinfo info;			\
 		bzero(&info, sizeof(info));			\
 		info.rti_info[RTAX_DST] = rt_key(r->rtt_rt);	\
-		rtrequest1(RTM_DELETE, &info,			\
+		rtrequest(RTM_DELETE, &info,			\
 		    r->rtt_rt->rt_priority, NULL, r->rtt_tableid);	\
 	}							\
 }
@@ -1614,11 +1666,6 @@ rt_if_remove_rtdelete(struct rtentry *rt, void *vifp, u_int id)
 		if (rtdeletemsg(rt, id) == 0 && cloning)
 			return (EAGAIN);
 	}
-
-	/*
-	 * XXX There should be no need to check for rt_ifa belonging to this
-	 * interface, because then rt_ifp is set, right?
-	 */
 
 	return (0);
 }

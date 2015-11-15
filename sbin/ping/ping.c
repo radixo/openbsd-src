@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping.c,v 1.128 2015/10/11 00:20:29 guenther Exp $	*/
+/*	$OpenBSD: ping.c,v 1.133 2015/11/05 21:53:35 florian Exp $	*/
 /*	$NetBSD: ping.c,v 1.20 1995/08/11 22:37:58 cgd Exp $	*/
 
 /*
@@ -52,7 +52,6 @@
  */
 
 #include <sys/types.h>
-#include <sys/queue.h>
 #include <sys/socket.h>
 #include <sys/time.h>
 
@@ -62,20 +61,20 @@
 #include <netinet/ip_var.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <signal.h>
-#include <unistd.h>
-#include <stdio.h>
+
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
-#include <poll.h>
-#include <string.h>
 #include <limits.h>
-#include <stdlib.h>
-
+#include <math.h>
+#include <poll.h>
+#include <signal.h>
 #include <siphash.h>
-#define KEYSTREAM_ONLY
-#include <crypto/chacha_private.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 struct tv64 {
 	u_int64_t	tv64_sec;
@@ -128,7 +127,7 @@ int moptions;
  * number of received sequence numbers we can keep track of.  Change 128
  * to 8192 for complete accuracy...
  */
-#define	MAX_DUP_CHK	(8 * 128)
+#define	MAX_DUP_CHK	(8 * 8192)
 int mx_dup_ck = MAX_DUP_CHK;
 char rcvd_tbl[MAX_DUP_CHK / 8];
 
@@ -156,16 +155,14 @@ struct itimerval interstr;	/* interval structure for use with setitimer */
 int timing;			/* flag to do timing */
 int timinginfo;
 unsigned int maxwait = MAXWAIT_DEFAULT;	/* max seconds to wait for response */
-quad_t tmin = 999999999;	/* minimum round trip time in usec */
-quad_t tmax = 0;		/* maximum round trip time in usec */
-quad_t tsum = 0;		/* sum of all times in usec, for doing average */
-quad_t tsumsq = 0;		/* sum of all times squared, for std. dev. */
-
+double tmin = 999999999.0;	/* minimum round trip time */
+double tmax = 0.0;		/* maximum round trip time */
+double tsum = 0.0;		/* sum of all times, for doing average */
+double tsumsq = 0.0;		/* sum of all times squared, for std. dev. */
 int bufspace = IP_MAXPACKET;
 
 struct tv64 tv64_offset;
 SIPHASH_KEY mac_key;
-chacha_ctx fill_stream;
 
 void fill(char *, char *);
 void catcher(int signo);
@@ -179,7 +176,6 @@ int check_icmph(struct ip *);
 void pr_icmph(struct icmp *);
 void pr_pack(char *, int, struct sockaddr_in *);
 void pr_retip(struct ip *);
-quad_t qsqrt(quad_t);
 void pr_iph(struct ip *);
 #ifndef SMALL
 int map_tos(char *, int *);
@@ -192,14 +188,14 @@ main(int argc, char *argv[])
 	struct hostent *hp;
 	struct sockaddr_in *to;
 	struct in_addr saddr;
-	int ch, optval = 1, packlen, preload, maxsize, df = 0, tos = 0;
+	int ch, i, optval = 1, packlen, preload, maxsize, df = 0, tos = 0;
 	u_char *datap, *packet, ttl = MAXTTL, loop = 1;
 	char *target, hnamebuf[HOST_NAME_MAX+1];
 	char rspace[3 + 4 * NROUTES + 1];	/* record route space */
 	socklen_t maxsizelen;
 	const char *errstr;
 	uid_t uid;
-	u_int rtableid;
+	u_int rtableid = 0;
 
 	if ((s = socket(AF_INET, SOCK_RAW, IPPROTO_ICMP)) < 0)
 		err(1, "socket");
@@ -238,7 +234,7 @@ main(int argc, char *argv[])
 			if (getuid())
 				errx(1, "%s", strerror(EPERM));
 			options |= F_FLOOD;
-			setbuf(stdout, (char *)NULL);
+			setvbuf(stdout, NULL, _IONBF, 0);
 			break;
 		case 'I':
 		case 'S':	/* deprecated */
@@ -275,8 +271,8 @@ main(int argc, char *argv[])
 				errx(1, "%s", strerror(EPERM));
 			preload = strtonum(optarg, 1, INT_MAX, &errstr);
 			if (errstr)
-				errx(1, "preload value is %s: %s",
-				    errstr, optarg);
+				errx(1, "preload value is %s: %s", errstr,
+				    optarg);
 			break;
 		case 'n':
 			options |= F_NUMERIC;
@@ -294,8 +290,8 @@ main(int argc, char *argv[])
 		case 's':		/* size of packet to send */
 			datalen = strtonum(optarg, 0, MAXPAYLOAD, &errstr);
 			if (errstr)
-				errx(1, "packet size is %s: %s",
-				    errstr, optarg);
+				errx(1, "packet size is %s: %s", errstr,
+				    optarg);
 			break;
 #ifndef SMALL
 		case 'T':
@@ -322,9 +318,8 @@ main(int argc, char *argv[])
 		case 'V':
 			rtableid = strtonum(optarg, 0, RT_TABLEID_MAX, &errstr);
 			if (errstr)
-				errx(1, "rtable value is %s: %s",
-				    errstr, optarg);
-
+				errx(1, "rtable value is %s: %s", errstr,
+				    optarg);
 			if (setsockopt(s, SOL_SOCKET, SO_RTABLE, &rtableid,
 			    sizeof(rtableid)) == -1)
 				err(1, "setsockopt SO_RTABLE");
@@ -403,11 +398,9 @@ main(int argc, char *argv[])
 	packlen = datalen + MAXIPLEN + MAXICMPLEN;
 	if (!(packet = malloc((size_t)packlen)))
 		err(1, "malloc");
-	if (!(options & F_PINGFILLED) && datalen > sizeof(struct payload)) {
-		u_int8_t key[32];
-		arc4random_buf(key, sizeof(key));
-		chacha_keysetup(&fill_stream, key, sizeof(key) * 8);
-	}
+	if (!(options & F_PINGFILLED))
+		for (i = sizeof(struct payload); i < datalen; ++i)
+			*datap++ = i;
 
 	ident = getpid() & 0xFFFF;
 
@@ -657,14 +650,6 @@ pinger(void)
 		SipHash24_Final(&payload.mac, &ctx);
 
 		memcpy(&outpack[8], &payload, sizeof(payload));
-
-		if (!(options & F_PINGFILLED) && datalen >= sizeof(payload)) {
-			u_int8_t *dp = &outpack[8 + sizeof(payload)];
-
-			chacha_ivsetup(&fill_stream, payload.mac, 0);
-			chacha_encrypt_bytes(&fill_stream, dp, dp,
-			    datalen - sizeof(payload));
-		}
 	}
 
 	cc = datalen + 8;			/* skips ICMP portion */
@@ -715,7 +700,7 @@ pr_pack(char *buf, int cc, struct sockaddr_in *from)
 	struct ip *ip, *ip2;
 	struct timespec ts, tp;
 	char *pkttime;
-	quad_t triptime = 0;
+	double triptime = 0;
 	int hlen, hlen2, dupflag;
 	struct payload payload;
 
@@ -769,7 +754,8 @@ pr_pack(char *buf, int cc, struct sockaddr_in *from)
 			    tv64_offset.tv64_nsec;
 
 			timespecsub(&ts, &tp, &ts);
-			triptime = (ts.tv_sec * 1000000) + (ts.tv_nsec / 1000);
+			triptime = ((double)ts.tv_sec) * 1000.0 +
+			    ((double)ts.tv_nsec) / 1000000.0;
 			tsum += triptime;
 			tsumsq += triptime * triptime;
 			if (triptime < tmin)
@@ -797,11 +783,8 @@ pr_pack(char *buf, int cc, struct sockaddr_in *from)
 			    inet_ntoa(*(struct in_addr *)&from->sin_addr.s_addr),
 			    ntohs(icp->icmp_seq));
 			(void)printf(" ttl=%d", ip->ip_ttl);
-			if (cc >= 8 + sizeof(struct payload)) {
-				(void)printf(" time=%d.%03d ms",
-				    (int)(triptime / 1000),
-				    (int)(triptime % 1000));
-			}
+			if (cc >= 8 + sizeof(struct payload))
+				(void)printf(" time=%.3f ms", triptime);
 			if (dupflag)
 				(void)printf(" (DUP!)");
 			/* check the data */
@@ -809,11 +792,6 @@ pr_pack(char *buf, int cc, struct sockaddr_in *from)
 				(void)printf(" (TRUNC!)");
 			cp = (u_char *)&icp->icmp_data[sizeof(struct payload)];
 			dp = &outpack[8 + sizeof(struct payload)];
-			if (!(options & F_PINGFILLED) && datalen >= sizeof(payload)) {
-				chacha_ivsetup(&fill_stream, payload.mac, 0);
-				chacha_encrypt_bytes(&fill_stream, dp, dp,
-				    datalen - sizeof(payload));
-			}
 			for (i = 8 + sizeof(struct payload);
 			    i < cc && i < datalen;
 			    ++i, ++cp, ++dp) {
@@ -1023,36 +1001,16 @@ summary(int header, int insig)
 	}
 	strlcat(buf, "\n", sizeof buf);
 	if (timinginfo) {
-		quad_t avg = tsum / timinginfo;
-		quad_t dev = qsqrt(tsumsq / timinginfo - avg * avg);
-
-		snprintf(buft, sizeof buft, "round-trip min/avg/max/std-dev = "
-		    "%d.%03d/%d.%03d/%d.%03d/%d.%03d ms\n",
-		    (int)(tmin / 1000), (int)(tmin % 1000),
-		    (int)(avg  / 1000), (int)(avg  % 1000),
-		    (int)(tmax / 1000), (int)(tmax % 1000),
-		    (int)(dev  / 1000), (int)(dev  % 1000));
-		strlcat(buf, buft, sizeof buf);
+		/* Only display average to microseconds */
+		double num = nreceived + nrepeats;
+		double avg = tsum / num;
+		double dev = sqrt(tsumsq / num - avg * avg);
+		snprintf(buft, sizeof(buft),
+		    "round-trip min/avg/max/std-dev = %.3f/%.3f/%.3f/%.3f ms\n",
+		    tmin, avg, tmax, dev);
+		strlcat(buf, buft, sizeof(buf));
 	}
 	write(STDOUT_FILENO, buf, strlen(buf));		/* XXX atomicio? */
-}
-
-quad_t
-qsqrt(quad_t qdev)
-{
-	quad_t y, x = 1;
-
-	if (!qdev)
-		return(0);
-
-	do { /* newton was a stinker */
-		y = x;
-		x = qdev / x;
-		x += y;
-		x /= 2;
-	} while ((x - y) > 1 || (x - y) < -1);
-
-	return(x);
 }
 
 /*

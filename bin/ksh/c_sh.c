@@ -1,4 +1,4 @@
-/*	$OpenBSD: c_sh.c,v 1.52 2015/10/19 14:42:16 mmcc Exp $	*/
+/*	$OpenBSD: c_sh.c,v 1.54 2015/11/01 15:38:53 mmcc Exp $	*/
 
 /*
  * built-in Bourne commands
@@ -8,6 +8,7 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 
+#include <ctype.h>
 #include <string.h>
 
 #include "sh.h"
@@ -617,7 +618,7 @@ c_set(char **wp)
 		while (*++wp != NULL)
 			*wp = str_save(*wp, &l->area);
 		l->argc = wp - owp - 1;
-		l->argv = alloc(sizeofN(char *, l->argc+2), &l->area);
+		l->argv = areallocarray(NULL, l->argc+2, sizeof(char *), &l->area);
 		for (wp = l->argv; (*wp++ = *owp++) != NULL; )
 			;
 	}
