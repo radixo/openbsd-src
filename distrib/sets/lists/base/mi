@@ -526,7 +526,6 @@
 ./usr/bin/skeyinfo
 ./usr/bin/skeyinit
 ./usr/bin/skeyprune
-./usr/bin/slogin
 ./usr/bin/sndiod
 ./usr/bin/sort
 ./usr/bin/spell
@@ -2539,6 +2538,7 @@
 ./usr/share/man/man2
 ./usr/share/man/man3
 ./usr/share/man/man3p
+./usr/share/man/man4/amd64/vmm.4
 ./usr/share/man/man7
 ./usr/share/man/man7/packages.7
 ./usr/share/man/man8
@@ -2593,7 +2593,6 @@
 ./usr/share/mk/bsd.xconf.mk
 ./usr/share/mk/bsd.xorg.mk
 ./usr/share/mk/sys.mk
-./usr/share/nls
 ./usr/share/snmp
 ./usr/share/snmp/mibs
 ./usr/share/snmp/mibs/OPENBSD-BASE-MIB.txt

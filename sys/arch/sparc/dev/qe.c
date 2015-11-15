@@ -1,4 +1,4 @@
-/*	$OpenBSD: qe.c,v 1.41 2015/09/14 11:18:49 stsp Exp $	*/
+/*	$OpenBSD: qe.c,v 1.43 2015/11/12 10:26:09 dlg Exp $	*/
 
 /*
  * Copyright (c) 1998, 2000 Jason L. Wright.
@@ -57,7 +57,6 @@
 #include "bpfilter.h"
 #if NBPFILTER > 0
 #include <net/bpf.h>
-#include <net/bpfdesc.h>
 #endif
 
 #include <machine/autoconf.h>
@@ -201,11 +200,9 @@ qestart(ifp)
 	bix = sc->sc_last_td;
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m);
+		IFQ_DEQUEUE(&ifp->if_snd, m);
 		if (m == NULL)
 			break;
-
-		IFQ_DEQUEUE(&ifp->if_snd, m);
 
 #if NBPFILTER > 0
 		/*

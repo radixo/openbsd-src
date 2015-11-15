@@ -1,4 +1,4 @@
-/*	$OpenBSD: funcs.h,v 1.18 2015/10/03 19:47:21 tedu Exp $	*/
+/*	$OpenBSD: funcs.h,v 1.27 2015/11/12 21:12:05 millert Exp $	*/
 
 /*
  * Copyright (c) 2004 by Internet Systems Consortium, Inc. ("ISC")
@@ -22,51 +22,31 @@
  *	We should reorg this into sections by module.
  */
 
-void		set_cron_uid(void),
-		set_cron_cwd(void),
-		load_database(cron_db *),
-		open_logfile(void),
-		sigpipe_func(void),
+void		load_database(cron_db **),
 		job_add(entry *, user *),
 		do_command(entry *, user *),
-		link_user(cron_db *, user *),
-		unlink_user(cron_db *, user *),
 		free_user(user *),
 		env_free(char **),
 		unget_char(int, FILE *),
 		free_entry(entry *),
-		acquire_daemonlock(int),
 		skip_comments(FILE *),
-		log_it(const char *, int, const char *, const char *),
-		log_close(void),
-		poke_daemon(const char *, unsigned char),
+		poke_daemon(unsigned char),
 		atrun(at_db *, double, time_t);
 
 int		job_runqueue(void),
 		get_char(FILE *),
 		get_string(char *, int, FILE *, char *),
-		swap_gids(void),
-		swap_gids_back(void),
 		load_env(char *, FILE *),
 		cron_pclose(FILE *, pid_t),
-		glue_strings(char *, size_t, const char *, const char *, char),
-		strcmp_until(const char *, const char *, char),
 		allowed(const char *, const char *, const char *),
-		open_socket(void),
 		safe_p(const char *, const char *),
-		scan_atjobs(at_db *, struct timespec *);
-
-int		strtot(const char *nptr, char **endptr, time_t *tp);
+		scan_atjobs(at_db **, struct timespec *);
 
 char		*env_get(char *, char **),
-		*arpadate(time_t *),
-		*mkprints(unsigned char *, unsigned int),
 		*first_word(char *, char *),
 		**env_init(void),
 		**env_copy(char **),
 		**env_set(char **, char *);
-
-void		mkprint(char *, unsigned char *, int);
 
 user		*load_user(int, struct passwd *, const char *),
 		*find_user(cron_db *, const char *);
@@ -75,4 +55,3 @@ entry		*load_entry(FILE *,
 		    void (*)(const char *), struct passwd *, char **);
 
 FILE		*cron_popen(char *, char *, struct passwd *, pid_t *);
-

@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.50 2015/08/21 11:59:28 reyk Exp $	*/
+/*	$OpenBSD: parse.y,v 1.52 2015/10/31 19:28:19 naddy Exp $	*/
 
 /*
  * Copyright (c) 2010-2013 Reyk Floeter <reyk@openbsd.org>
@@ -194,6 +194,8 @@ const struct ipsec_xf ipsecencxfs[] = {
 	{ "aes-256-gmac",	IKEV2_XFORMENCR_NULL_AES_GMAC,	32, 32, 4, 1 },
 	{ "blowfish",		IKEV2_XFORMENCR_BLOWFISH,	20, 20 },
 	{ "cast",		IKEV2_XFORMENCR_CAST,		16, 16 },
+	{ "chacha20-poly1305",	IKEV2_XFORMENCR_CHACHA20_POLY1305,
+								32, 32, 4, 1 },
 	{ "null",		IKEV2_XFORMENCR_NULL,		0, 0 },
 	{ NULL }
 };
@@ -252,7 +254,7 @@ const struct ipsec_xf methodxfs[] = {
 	{ "dss",		IKEV2_AUTH_DSS_SIG },
 	{ "ecdsa-256",		IKEV2_AUTH_ECDSA_256 },
 	{ "ecdsa-384",		IKEV2_AUTH_ECDSA_384 },
-	{ "ecdsa-512",		IKEV2_AUTH_ECDSA_512 },
+	{ "ecdsa-521",		IKEV2_AUTH_ECDSA_521 },
 	{ NULL }
 };
 

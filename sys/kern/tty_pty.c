@@ -1,4 +1,4 @@
-/*	$OpenBSD: tty_pty.c,v 1.70 2015/02/10 21:56:10 miod Exp $	*/
+/*	$OpenBSD: tty_pty.c,v 1.72 2015/10/28 11:22:08 deraadt Exp $	*/
 /*	$NetBSD: tty_pty.c,v 1.33.4.1 1996/06/02 09:08:11 mrg Exp $	*/
 
 /*
@@ -55,6 +55,7 @@
 #include <sys/stat.h>
 #include <sys/sysctl.h>
 #include <sys/poll.h>
+#include <sys/pledge.h>
 #include <sys/rwlock.h>
 
 #define BUFSIZ 100		/* Chunk size iomoved to/from user */
@@ -1101,6 +1102,7 @@ retry:
 		pti = pt_softc[minor(newdev)];
 		NDINIT(&cnd, LOOKUP, NOFOLLOW|LOCKLEAF, UIO_SYSSPACE,
 		    pti->pty_pn, p);
+		cnd.ni_pledge = PLEDGE_RPATH | PLEDGE_WPATH;
 		if ((error = ptm_vn_open(&cnd)) != 0) {
 			/*
 			 * Check if the master open failed because we lost
@@ -1127,6 +1129,7 @@ retry:
 		 */
 		NDINIT(&snd, LOOKUP, NOFOLLOW|LOCKLEAF, UIO_SYSSPACE,
 		    pti->pty_sn, p);
+		snd.ni_pledge = PLEDGE_RPATH | PLEDGE_WPATH;
 		if ((error = namei(&snd)) != 0)
 			goto bad;
 		if ((snd.ni_vp->v_mount->mnt_flag & MNT_RDONLY) == 0) {
@@ -1160,6 +1163,7 @@ retry:
 
 		NDINIT(&snd, LOOKUP, NOFOLLOW|LOCKLEAF, UIO_SYSSPACE,
 		    pti->pty_sn, p);
+		snd.ni_pledge = PLEDGE_RPATH | PLEDGE_WPATH;
 		/* now open it */
 		if ((error = ptm_vn_open(&snd)) != 0)
 			goto bad;

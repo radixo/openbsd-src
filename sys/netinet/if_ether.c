@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.178 2015/10/27 10:54:52 mpi Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.185 2015/11/06 23:45:21 bluhm Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -96,7 +96,7 @@ void in_arpinput(struct mbuf *);
 void revarpinput(struct mbuf *);
 void in_revarpinput(struct mbuf *);
 
-LIST_HEAD(, llinfo_arp) llinfo_arp;
+LIST_HEAD(, llinfo_arp) arp_list;
 struct	pool arp_pool;		/* pool for llinfo_arp structures */
 /* XXX hate magic numbers */
 struct	niqueue arpintrq = NIQUEUE_INITIALIZER(50, NETISR_ARP);
@@ -110,7 +110,7 @@ int	la_hold_total;
 /* revarp state */
 struct in_addr revarp_myip, revarp_srvip;
 int revarp_finished;
-struct ifnet *revarp_ifp;
+unsigned int revarp_ifidx;
 #endif /* NFSCLIENT */
 
 /*
@@ -126,10 +126,9 @@ arptimer(void *arg)
 
 	s = splsoftnet();
 	timeout_add_sec(to, arpt_prune);
-	for (la = LIST_FIRST(&llinfo_arp); la != NULL; la = nla) {
+	LIST_FOREACH_SAFE(la, &arp_list, la_list, nla) {
 		struct rtentry *rt = la->la_rt;
 
-		nla = LIST_NEXT(la, la_list);
 		if (rt->rt_expire && rt->rt_expire <= time_second)
 			arptfree(rt); /* timer has expired; clear */
 	}
@@ -142,7 +141,6 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 	struct sockaddr *gate = rt->rt_gateway;
 	struct llinfo_arp *la = (struct llinfo_arp *)rt->rt_llinfo;
 	struct ifaddr *ifa;
-	struct mbuf *m;
 
 	if (!arpinit_done) {
 		static struct timeout arptimer_to;
@@ -215,7 +213,7 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		la = pool_get(&arp_pool, PR_NOWAIT | PR_ZERO);
 		rt->rt_llinfo = (caddr_t)la;
 		if (la == NULL) {
-			log(LOG_DEBUG, "%s: malloc failed\n", __func__);
+			log(LOG_DEBUG, "%s: pool get failed\n", __func__);
 			break;
 		}
 		arp_inuse++;
@@ -223,7 +221,7 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		ml_init(&la->la_ml);
 		la->la_rt = rt;
 		rt->rt_flags |= RTF_LLINFO;
-		LIST_INSERT_HEAD(&llinfo_arp, la, la_list);
+		LIST_INSERT_HEAD(&arp_list, la, la_list);
 
 		TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
 			if ((ifa->ifa_addr->sa_family == AF_INET) &&
@@ -244,10 +242,7 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 		LIST_REMOVE(la, la_list);
 		rt->rt_llinfo = 0;
 		rt->rt_flags &= ~RTF_LLINFO;
-		while ((m = ml_dequeue(&la->la_ml)) != NULL) {
-			la_hold_total--;
-			m_freem(m);
-		}
+		la_hold_total -= ml_purge(&la->la_ml);
 		pool_put(&arp_pool, la);
 	}
 }
@@ -396,10 +391,7 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 		ml_enqueue(&la->la_ml, m);
 		la_hold_total++;
 	} else {
-		while ((mh = ml_dequeue(&la->la_ml)) != NULL) {
-			la_hold_total--;
-			m_freem(mh);
-		}
+		la_hold_total -= ml_purge(&la->la_ml);
 		m_freem(m);
 	}
 
@@ -432,10 +424,7 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 				rt->rt_flags |= RTF_REJECT;
 				rt->rt_expire += arpt_down;
 				la->la_asked = 0;
-				while ((mh = ml_dequeue(&la->la_ml)) != NULL) {
-					la_hold_total--;
-					m_freem(mh);
-				}
+				la_hold_total -= ml_purge(&la->la_ml);
 			}
 		}
 	}
@@ -506,20 +495,22 @@ in_arpinput(struct mbuf *m)
 	struct ifnet *ifp;
 	struct arpcom *ac;
 	struct ether_header *eh;
-	struct llinfo_arp *la = 0;
+	struct llinfo_arp *la = NULL;
 	struct rtentry *rt = NULL;
-	struct ifaddr *ifa;
 	struct sockaddr_dl *sdl;
 	struct sockaddr sa;
-	struct in_addr isaddr, itaddr, myaddr;
+	struct sockaddr_in sin;
+	struct in_addr isaddr, itaddr;
 	struct mbuf *mh;
 	u_int8_t *enaddr = NULL;
 #if NCARP > 0
-	u_int8_t *ether_shost = NULL;
+	uint8_t *ethshost = NULL;
 #endif
 	char addr[INET_ADDRSTRLEN];
-	int op, changed = 0;
-	unsigned int len;
+	int op, changed = 0, target = 0;
+	unsigned int len, rdomain;
+
+	rdomain = rtable_l2(m->m_pkthdr.ph_rtableid);
 
 	ifp = if_get(m->m_pkthdr.ph_ifidx);
 	if (ifp == NULL) {
@@ -535,6 +526,9 @@ in_arpinput(struct mbuf *m)
 
 	memcpy(&itaddr, ea->arp_tpa, sizeof(itaddr));
 	memcpy(&isaddr, ea->arp_spa, sizeof(isaddr));
+	memset(&sin, 0, sizeof(sin));
+	sin.sin_len = sizeof(sin);
+	sin.sin_family = AF_INET;
 
 	if (ETHER_IS_MULTICAST(&ea->arp_sha[0])) {
 		if (!memcmp(ea->arp_sha, etherbroadcastaddr,
@@ -546,72 +540,38 @@ in_arpinput(struct mbuf *m)
 		}
 	}
 
-	/* First try: check target against our addresses */
-	TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-		if (ifa->ifa_addr->sa_family != AF_INET)
-			continue;
-
-		if (itaddr.s_addr != ifatoia(ifa)->ia_addr.sin_addr.s_addr)
-			continue;
-
+	/* Check target against our interface addresses. */
+	sin.sin_addr = itaddr;
+	rt = rtalloc(sintosa(&sin), 0, rdomain);
+	if (rtisvalid(rt) && ISSET(rt->rt_flags, RTF_LOCAL) &&
+	    rt->rt_ifidx == ifp->if_index)
+		target = 1;
+	rtfree(rt);
+	rt = NULL;
+	
 #if NCARP > 0
-		if (ifp->if_type == IFT_CARP &&
-		    ((ifp->if_flags & (IFF_UP|IFF_RUNNING)) ==
-		    (IFF_UP|IFF_RUNNING))) {
-			if (op == ARPOP_REPLY)
-				break;
-			if (carp_iamatch(ifp, ea->arp_sha,
-			    &enaddr, &ether_shost))
-				break;
-			else
-				goto out;
-		}
-#endif
-		break;
-	}
-
-	/* Second try: check source against our addresses */
-	if (ifa == NULL) {
-		TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-			if (ifa->ifa_addr->sa_family != AF_INET)
-				continue;
-
-			if (isaddr.s_addr ==
-			    ifatoia(ifa)->ia_addr.sin_addr.s_addr)
-				break;
-		}
-	}
-
-	/* Third try: not one of our addresses, just find a usable ia */
-	if (ifa == NULL) {
-		TAILQ_FOREACH(ifa, &ifp->if_addrlist, ifa_list) {
-			if (ifa->ifa_addr->sa_family == AF_INET)
-				break;
-		}
-	}
-
-	if (ifa == NULL)
+	if (target && op == ARPOP_REQUEST && ifp->if_type == IFT_CARP &&
+	    !carp_iamatch(ifp, &ethshost))
 		goto out;
+#endif
 
 	if (!enaddr)
 		enaddr = ac->ac_enaddr;
-	myaddr = ifatoia(ifa)->ia_addr.sin_addr;
-
 	if (!memcmp(ea->arp_sha, enaddr, sizeof(ea->arp_sha)))
 		goto out;	/* it's from me, ignore it. */
 
-	if (myaddr.s_addr != INADDR_ANY && isaddr.s_addr == myaddr.s_addr) {
+	/* Do we have an ARP cache for the sender?  Create if we are target. */
+	rt = arplookup(isaddr.s_addr, target, 0, rdomain);
+
+	/* Check sender against our interface addresses. */
+	if (rtisvalid(rt) && ISSET(rt->rt_flags, RTF_LOCAL) &&
+	    rt->rt_ifidx == ifp->if_index && isaddr.s_addr != INADDR_ANY) {
 		inet_ntop(AF_INET, &isaddr, addr, sizeof(addr));
 		log(LOG_ERR,
 		   "duplicate IP address %s sent from ethernet address %s\n",
 		   addr, ether_sprintf(ea->arp_sha));
-		itaddr = myaddr;
-		goto reply;
-	}
-
-	rt = arplookup(isaddr.s_addr, itaddr.s_addr == myaddr.s_addr, 0,
-	    rtable_l2(m->m_pkthdr.ph_rtableid));
-	if (rt != NULL && (sdl = satosdl(rt->rt_gateway)) != NULL) {
+		itaddr = isaddr;
+	} else if (rt != NULL && (sdl = satosdl(rt->rt_gateway)) != NULL) {
 		la = (struct llinfo_arp *)rt->rt_llinfo;
 		if (sdl->sdl_alen) {
 			if (memcmp(ea->arp_sha, LLADDR(sdl), sdl->sdl_alen)) {
@@ -697,7 +657,7 @@ in_arpinput(struct mbuf *m)
 			}
 		}
 	}
-reply:
+
 	if (op != ARPOP_REQUEST) {
 out:
 		rtfree(rt);
@@ -707,13 +667,12 @@ out:
 	}
 
 	rtfree(rt);
-	if (itaddr.s_addr == myaddr.s_addr) {
-		/* I am the target */
+	if (target) {
+		/* We are the target and already have all info for the reply */
 		memcpy(ea->arp_tha, ea->arp_sha, sizeof(ea->arp_sha));
 		memcpy(ea->arp_sha, enaddr, sizeof(ea->arp_sha));
 	} else {
-		rt = arplookup(itaddr.s_addr, 0, SIN_PROXY,
-		    rtable_l2(m->m_pkthdr.ph_rtableid));
+		rt = arplookup(itaddr.s_addr, 0, SIN_PROXY, rdomain);
 		if (rt == NULL)
 			goto out;
 		if (rt->rt_ifp->if_type == IFT_CARP && ifp->if_type != IFT_CARP)
@@ -731,8 +690,8 @@ out:
 	eh = (struct ether_header *)sa.sa_data;
 	memcpy(eh->ether_dhost, ea->arp_tha, sizeof(eh->ether_dhost));
 #if NCARP > 0
-	if (ether_shost)
-		enaddr = ether_shost;
+	if (ethshost)
+		enaddr = ethshost;
 #endif
 	memcpy(eh->ether_shost, enaddr, sizeof(eh->ether_shost));
 
@@ -867,6 +826,7 @@ out:
 void
 in_revarpinput(struct mbuf *m)
 {
+	struct ifnet *ifp = NULL;
 	struct ether_arp *ar;
 	int op;
 
@@ -884,14 +844,16 @@ in_revarpinput(struct mbuf *m)
 		goto out;
 	}
 #ifdef NFSCLIENT
-	if (revarp_ifp == NULL)
+	if (revarp_ifidx == 0)
 		goto out;
-	if (revarp_ifp->if_index != m->m_pkthdr.ph_ifidx) /* !same interface */
+	if (revarp_ifidx != m->m_pkthdr.ph_ifidx) /* !same interface */
 		goto out;
 	if (revarp_finished)
 		goto wake;
-	if (memcmp(ar->arp_tha, ((struct arpcom *)revarp_ifp)->ac_enaddr,
-	    sizeof(ar->arp_tha)))
+	ifp = if_get(revarp_ifidx);
+	if (ifp == NULL)
+		goto out;
+	if (memcmp(ar->arp_tha, LLADDR(ifp->if_sadl), sizeof(ar->arp_tha)))
 		goto out;
 	memcpy(&revarp_srvip, ar->arp_spa, sizeof(revarp_srvip));
 	memcpy(&revarp_myip, ar->arp_tpa, sizeof(revarp_myip));
@@ -902,6 +864,7 @@ wake:	/* Do wakeup every time in case it was missed. */
 
 out:
 	m_freem(m);
+	if_put(ifp);
 }
 
 /*
@@ -956,15 +919,14 @@ revarpwhoarewe(struct ifnet *ifp, struct in_addr *serv_in,
 	if (revarp_finished)
 		return EIO;
 
-	revarp_ifp = if_ref(ifp);
+	revarp_ifidx = ifp->if_index;
 	while (count--) {
 		revarprequest(ifp);
 		result = tsleep((caddr_t)&revarp_myip, PSOCK, "revarp", hz/2);
 		if (result != EWOULDBLOCK)
 			break;
 	}
-	if_put(revarp_ifp);
-	revarp_ifp = NULL;
+	revarp_ifidx = 0;
 	if (!revarp_finished)
 		return ENETUNREACH;
 

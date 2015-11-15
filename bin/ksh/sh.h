@@ -1,4 +1,4 @@
-/*	$OpenBSD: sh.h,v 1.49 2015/10/23 01:14:07 mmcc Exp $	*/
+/*	$OpenBSD: sh.h,v 1.52 2015/11/07 20:48:28 mmcc Exp $	*/
 
 /*
  * Public Domain Bourne/Korn shell
@@ -27,7 +27,6 @@
 /* end of common headers */
 
 #define	NELEM(a) (sizeof(a) / sizeof((a)[0]))
-#define	sizeofN(type, n) (sizeof(type) * (n))
 #define	BIT(i)	(1<<(i))	/* define bit in flag */
 
 #define	NUFILE	32		/* Number of user-accessible files */
@@ -283,7 +282,7 @@ extern int really_exit;
  * fast character classes
  */
 #define	C_ALPHA	 BIT(0)		/* a-z_A-Z */
-#define	C_DIGIT	 BIT(1)		/* 0-9 */
+/* was	C_DIGIT */
 #define	C_LEX1	 BIT(2)		/* \0 \t\n|&;<>() */
 #define	C_VAR1	 BIT(3)		/* *@#!$-? */
 #define	C_IFSWS	 BIT(4)		/* \t \n (IFS white space) */
@@ -296,8 +295,8 @@ extern	short ctypes [];
 
 #define	ctype(c, t)	!!(ctypes[(unsigned char)(c)]&(t))
 #define	letter(c)	ctype(c, C_ALPHA)
-#define	digit(c)	ctype(c, C_DIGIT)
-#define	letnum(c)	ctype(c, C_ALPHA|C_DIGIT)
+#define	digit(c)	isdigit((unsigned char)(c))
+#define	letnum(c)	(ctype(c, C_ALPHA) || isdigit((unsigned char)(c)))
 
 extern int ifs0;	/* for "$*" */
 
@@ -390,6 +389,7 @@ extern	int	x_cols;	/* tty columns */
 Area *	ainit(Area *);
 void	afreeall(Area *);
 void *	alloc(size_t, Area *);
+void *	areallocarray(void *, size_t, size_t, Area *);
 void *	aresize(void *, size_t, Area *);
 void	afree(void *, Area *);
 /* c_ksh.c */
@@ -478,7 +478,7 @@ char  **hist_get_newest(int);
 /* io.c */
 void	errorf(const char *, ...)
 	    __attribute__((__noreturn__, __format__ (printf, 1, 2)));
-void	warningf(int, const char *, ...)
+void	warningf(bool, const char *, ...)
 	    __attribute__((__format__ (printf, 2, 3)));
 void	bi_errorf(const char *, ...)
 	    __attribute__((__format__ (printf, 1, 2)));

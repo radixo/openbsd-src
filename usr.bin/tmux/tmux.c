@@ -1,4 +1,4 @@
-/* $OpenBSD: tmux.c,v 1.147 2015/10/27 13:23:24 nicm Exp $ */
+/* $OpenBSD: tmux.c,v 1.152 2015/11/12 11:24:08 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -41,7 +41,7 @@ extern char	*malloc_options;
 struct options	*global_options;	/* server options */
 struct options	*global_s_options;	/* session options */
 struct options	*global_w_options;	/* window options */
-struct environ	 global_environ;
+struct environ	*global_environ;
 
 char		*shell_cmd;
 int		 debug_level;
@@ -191,8 +191,9 @@ find_home(void)
 int
 main(int argc, char **argv)
 {
-	char	*s, *path, *label, **var, tmp[PATH_MAX];
-	int	 opt, flags, keys;
+	char		*path, *label, **var, tmp[PATH_MAX];
+	const char	*s;
+	int		 opt, flags, keys;
 
 #ifdef DEBUG
 	malloc_options = (char *) "AFGJPX";
@@ -254,32 +255,37 @@ main(int argc, char **argv)
 	if (shell_cmd != NULL && argc != 0)
 		usage();
 
-	if (pledge("stdio rpath wpath cpath flock fattr unix sendfd recvfd "
+	if (0 && pledge("stdio rpath wpath cpath flock fattr unix sendfd recvfd "
 	    "proc exec tty ps", NULL) != 0)
 		err(1, "pledge");
 
-	if (!(flags & CLIENT_UTF8)) {
-		/*
-		 * If the user has set whichever of LC_ALL, LC_CTYPE or LANG
-		 * exist (in that order) to contain UTF-8, it is a safe
-		 * assumption that either they are using a UTF-8 terminal, or
-		 * if not they know that output from UTF-8-capable programs may
-		 * be wrong.
-		 */
-		if ((s = getenv("LC_ALL")) == NULL || *s == '\0') {
-			if ((s = getenv("LC_CTYPE")) == NULL || *s == '\0')
-				s = getenv("LANG");
-		}
-		if (s != NULL && (strcasestr(s, "UTF-8") != NULL ||
-		    strcasestr(s, "UTF8") != NULL))
+	/*
+	 * tmux is a UTF-8 terminal, so if TMUX is set, assume UTF-8.
+	 * Otherwise, if the user has set LC_ALL, LC_CTYPE or LANG to contain
+	 * UTF-8, it is a safe assumption that either they are using a UTF-8
+	 * terminal, or if not they know that output from UTF-8-capable
+	 * programs may be wrong.
+	 */
+	if (getenv("TMUX") != NULL)
+		flags |= CLIENT_UTF8;
+	else {
+		s = getenv("LC_ALL");
+		if (s == NULL || *s == '\0')
+			s = getenv("LC_CTYPE");
+		if (s == NULL || *s == '\0')
+			s = getenv("LANG");
+		if (s == NULL || *s == '\0')
+			s = "";
+		if (strcasestr(s, "UTF-8") != NULL ||
+		    strcasestr(s, "UTF8") != NULL)
 			flags |= CLIENT_UTF8;
 	}
 
-	environ_init(&global_environ);
+	global_environ = environ_create();
 	for (var = environ; *var != NULL; var++)
-		environ_put(&global_environ, *var);
+		environ_put(global_environ, *var);
 	if (getcwd(tmp, sizeof tmp) != NULL)
-		environ_set(&global_environ, "PWD", tmp);
+		environ_set(global_environ, "PWD", tmp);
 
 	global_options = options_create(NULL);
 	options_table_populate_tree(server_options_table, global_options);
@@ -290,13 +296,6 @@ main(int argc, char **argv)
 
 	global_w_options = options_create(NULL);
 	options_table_populate_tree(window_options_table, global_w_options);
-
-	/* Enable UTF-8 if the first client is on UTF-8 terminal. */
-	if (flags & CLIENT_UTF8) {
-		options_set_number(global_s_options, "status-utf8", 1);
-		options_set_number(global_s_options, "mouse-utf8", 1);
-		options_set_number(global_w_options, "utf8", 1);
-	}
 
 	/* Override keys to vi if VISUAL or EDITOR are set. */
 	if ((s = getenv("VISUAL")) != NULL || (s = getenv("EDITOR")) != NULL) {

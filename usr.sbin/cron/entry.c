@@ -1,4 +1,4 @@
-/*	$OpenBSD: entry.c,v 1.42 2015/10/06 14:58:37 tedu Exp $	*/
+/*	$OpenBSD: entry.c,v 1.47 2015/11/09 16:37:07 millert Exp $	*/
 
 /*
  * Copyright 1988,1990,1993,1994 by Paul Vixie
@@ -18,27 +18,52 @@
  * OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "cron.h"
+#include <sys/types.h>
+
+#include <bitstring.h>		/* for structs.h */
+#include <ctype.h>
+#include <pwd.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <syslog.h>
+#include <time.h>		/* for structs.h */
+#include <unistd.h>
+
+#include "pathnames.h"
+#include "macros.h"
+#include "structs.h"
+#include "funcs.h"
 
 typedef	enum ecode {
 	e_none, e_minute, e_hour, e_dom, e_month, e_dow,
 	e_cmd, e_timespec, e_username, e_option, e_memory
 } ecode_e;
 
-static const char *ecodes[] =
-	{
-		"no error",
-		"bad minute",
-		"bad hour",
-		"bad day-of-month",
-		"bad month",
-		"bad day-of-week",
-		"bad command",
-		"bad time specifier",
-		"bad username",
-		"bad option",
-		"out of memory"
-	};
+static const char *ecodes[] = {
+	"no error",
+	"bad minute",
+	"bad hour",
+	"bad day-of-month",
+	"bad month",
+	"bad day-of-week",
+	"bad command",
+	"bad time specifier",
+	"bad username",
+	"bad option",
+	"out of memory"
+};
+
+static const char *MonthNames[] = {
+	"Jan", "Feb", "Mar", "Apr", "May", "Jun",
+	"Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+	NULL
+};
+
+static const char *DowNames[] = {
+	"Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun",
+	NULL
+};
 
 static int	get_list(bitstr_t *, int, int, const char *[], int, FILE *),
 		get_range(bitstr_t *, int, int, const char *[], int, FILE *),
@@ -93,7 +118,7 @@ load_entry(FILE *file, void (*error_func)(const char *), struct passwd *pw,
 	 * of a list of minutes.
 	 */
 
-	e = calloc(sizeof(entry), sizeof(char));
+	e = calloc(sizeof(entry), 1);
 	if (e == NULL) {
 		ecode = e_memory;
 		goto eof;
@@ -266,7 +291,7 @@ load_entry(FILE *file, void (*error_func)(const char *), struct passwd *pw,
 	if (!env_get("SHELL", e->envp)) {
 		if (snprintf(envstr, sizeof envstr, "SHELL=%s", _PATH_BSHELL) >=
 		    sizeof(envstr))
-			log_it("CRON", getpid(), "error", "can't set SHELL");
+			syslog(LOG_ERR, "(CRON) ERROR (can't set SHELL)");
 		else {
 			if ((tenvp = env_set(e->envp, envstr)) == NULL) {
 				ecode = e_memory;
@@ -278,7 +303,7 @@ load_entry(FILE *file, void (*error_func)(const char *), struct passwd *pw,
 	if (!env_get("HOME", e->envp)) {
 		if (snprintf(envstr, sizeof envstr, "HOME=%s", pw->pw_dir) >=
 		    sizeof(envstr))
-			log_it("CRON", getpid(), "error", "can't set HOME");
+			syslog(LOG_ERR, "(CRON) ERROR (can't set HOME)");
 		else {
 			if ((tenvp = env_set(e->envp, envstr)) == NULL) {
 				ecode = e_memory;
@@ -289,7 +314,7 @@ load_entry(FILE *file, void (*error_func)(const char *), struct passwd *pw,
 	}
 	if (snprintf(envstr, sizeof envstr, "LOGNAME=%s", pw->pw_name) >=
 		sizeof(envstr))
-		log_it("CRON", getpid(), "error", "can't set LOGNAME");
+		syslog(LOG_ERR, "(CRON) ERROR (can't set LOGNAME)");
 	else {
 		if ((tenvp = env_set(e->envp, envstr)) == NULL) {
 			ecode = e_memory;
@@ -299,7 +324,7 @@ load_entry(FILE *file, void (*error_func)(const char *), struct passwd *pw,
 	}
 	if (snprintf(envstr, sizeof envstr, "USER=%s", pw->pw_name) >=
 		sizeof(envstr))
-		log_it("CRON", getpid(), "error", "can't set USER");
+		syslog(LOG_ERR, "(CRON) ERROR (can't set USER)");
 	else {
 		if ((tenvp = env_set(e->envp, envstr)) == NULL) {
 			ecode = e_memory;

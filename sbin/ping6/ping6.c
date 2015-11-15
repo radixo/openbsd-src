@@ -1,4 +1,4 @@
-/*	$OpenBSD: ping6.c,v 1.134 2015/10/25 19:58:56 florian Exp $	*/
+/*	$OpenBSD: ping6.c,v 1.140 2015/11/05 21:56:56 florian Exp $	*/
 /*	$KAME: ping6.c,v 1.163 2002/10/25 02:19:06 itojun Exp $	*/
 
 /*
@@ -81,39 +81,34 @@
  */
 
 #include <sys/types.h>
-#include <sys/uio.h>
 #include <sys/socket.h>
-
-#include <net/if.h>
-#include <net/route.h>
+#include <sys/time.h>
+#include <sys/uio.h>
 
 #include <netinet/in.h>
 #include <netinet/ip6.h>
 #include <netinet/icmp6.h>
 #include <netinet/ip_ah.h>
 #include <arpa/inet.h>
-#include <arpa/nameser.h>
 #include <netdb.h>
 
 #include <ctype.h>
 #include <err.h>
 #include <errno.h>
-#include <fcntl.h>
-#include <time.h>
+#include <limits.h>
 #include <math.h>
+#include <poll.h>
 #include <signal.h>
+#include <siphash.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
-#include <poll.h>
-
-#include <md5.h>
-#include <siphash.h>
 
 struct tv64 {
-	u_int64_t tv64_sec;
-	u_int64_t tv64_nsec;
+	u_int64_t	tv64_sec;
+	u_int64_t	tv64_nsec;
 };
 
 struct payload {
@@ -127,7 +122,7 @@ struct payload {
 #define ICMP6ECHOTMLEN sizeof(struct payload)
 #define	EXTRA		256	/* for AH and various other headers. weird. */
 #define	DEFDATALEN	ICMP6ECHOTMLEN
-#define MAXDATALEN	MAXPACKETLEN - IP6LEN - ICMP6ECHOLEN
+#define MAXPAYLOAD	MAXPACKETLEN - IP6LEN - ICMP6ECHOLEN
 #define	MAXWAIT_DEFAULT	10	/* secs to wait for response */
 
 #define	A(bit)		rcvd_tbl[(bit)>>3]	/* identify byte in array */
@@ -195,7 +190,6 @@ SIPHASH_KEY mac_key;
 /* for ancillary data(advanced API) */
 struct msghdr smsghdr;
 struct iovec smsgiov;
-char *scmsg;
 
 volatile sig_atomic_t seenalrm;
 volatile sig_atomic_t seenint;
@@ -233,8 +227,7 @@ main(int argc, char *argv[])
 	u_char *datap, *packet;
 	char *e, *target;
 	const char *errstr;
-	int ip6optlen = 0;
-	struct cmsghdr *scmsgp = NULL;
+	struct cmsghdr *scmsg = NULL;
 	struct in6_pktinfo *pktinfo = NULL;
 	double intval;
 	int mflag = 0, loop = 1;
@@ -244,7 +237,7 @@ main(int argc, char *argv[])
 	if ((s = socket(AF_INET6, SOCK_RAW, IPPROTO_ICMPV6)) < 0)
 		err(1, "socket");
 
-	/* revoke root privilege */
+	/* revoke privs */
 	uid = getuid();
 	if (setresuid(uid, uid, uid) == -1)
 		err(1, "setresuid");
@@ -271,12 +264,10 @@ main(int argc, char *argv[])
 			options |= F_AUD_RECV;
 			break;
 		case 'f':
-			if (getuid()) {
-				errno = EPERM;
-				errx(1, "Must be superuser to flood ping");
-			}
+			if (getuid())
+				errx(1, "%s", strerror(EPERM));
 			options |= F_FLOOD;
-			setbuf(stdout, (char *)NULL);
+			setvbuf(stdout, NULL, _IONBF, 0);
 			break;
 		case 'H':
 			options |= F_HOSTNAME;
@@ -330,11 +321,9 @@ main(int argc, char *argv[])
 			loop = 0;
 			break;
 		case 'l':
-			if (getuid()) {
-				errno = EPERM;
-				errx(1, "Must be superuser to preload");
-			}
-			preload = strtonum(optarg, 0, INT_MAX, &errstr);
+			if (getuid())
+				errx(1, "%s", strerror(EPERM));
+			preload = strtonum(optarg, 1, INT_MAX, &errstr);
 			if (errstr)
 				errx(1, "preload value is %s: %s", errstr,
 				    optarg);
@@ -353,9 +342,9 @@ main(int argc, char *argv[])
 			options |= F_QUIET;
 			break;
 		case 's':		/* size of packet to send */
-			datalen = strtonum(optarg, 1, MAXDATALEN, &errstr);
+			datalen = strtonum(optarg, 0, MAXPAYLOAD, &errstr);
 			if (errstr)
-				errx(1, "datalen value is %s: %s", errstr,
+				errx(1, "packet size is %s: %s", errstr,
 				    optarg);
 			break;
 		case 'V':
@@ -533,26 +522,17 @@ main(int argc, char *argv[])
 			err(1, "setsockopt(IPV6_RECVRTHDR)");
 	}
 
-	if (hoplimit != -1)
-		ip6optlen += CMSG_SPACE(sizeof(int));
-
-
-	/* set IP6 packet options */
-	if (ip6optlen) {
-		if ((scmsg = malloc(ip6optlen)) == 0)
+	if (hoplimit != -1) {
+		/* set IP6 packet options */
+		if ((scmsg = malloc( CMSG_SPACE(sizeof(int)))) == 0)
 			errx(1, "can't allocate enough memory");
 		smsghdr.msg_control = (caddr_t)scmsg;
-		smsghdr.msg_controllen = ip6optlen;
-		scmsgp = (struct cmsghdr *)scmsg;
-	}
+		smsghdr.msg_controllen =  CMSG_SPACE(sizeof(int));
 
-	if (hoplimit != -1) {
-		scmsgp->cmsg_len = CMSG_LEN(sizeof(int));
-		scmsgp->cmsg_level = IPPROTO_IPV6;
-		scmsgp->cmsg_type = IPV6_HOPLIMIT;
-		*(int *)(CMSG_DATA(scmsgp)) = hoplimit;
-
-		scmsgp = CMSG_NXTHDR(&smsghdr, scmsgp);
+		scmsg->cmsg_len = CMSG_LEN(sizeof(int));
+		scmsg->cmsg_level = IPPROTO_IPV6;
+		scmsg->cmsg_type = IPV6_HOPLIMIT;
+		*(int *)(CMSG_DATA(scmsg)) = hoplimit;
 	}
 
 	if (!(options & F_SRCADDR) && options & F_VERBOSE) {
@@ -1066,7 +1046,6 @@ pr_ip6opt(void *extbuf)
 	size_t extlen;
 	socklen_t len;
 	void *databuf;
-	size_t offset;
 	u_int16_t value2;
 	u_int32_t value4;
 
@@ -1087,16 +1066,12 @@ pr_ip6opt(void *extbuf)
 		 * options.
 		 */
 		case IP6OPT_JUMBO:
-			offset = 0;
-			offset = inet6_opt_get_val(databuf, offset,
-			    &value4, sizeof(value4));
+			inet6_opt_get_val(databuf, 0, &value4, sizeof(value4));
 			printf("    Jumbo Payload Opt: Length %u\n",
 			    (u_int32_t)ntohl(value4));
 			break;
 		case IP6OPT_ROUTER_ALERT:
-			offset = 0;
-			offset = inet6_opt_get_val(databuf, offset,
-						   &value2, sizeof(value2));
+			inet6_opt_get_val(databuf, 0, &value2, sizeof(value2));
 			printf("    Router Alert Opt: Type %u\n",
 			    ntohs(value2));
 			break;
@@ -1570,7 +1545,7 @@ fill(char *bp, char *patp)
 /* xxx */
 	if (ii > 0)
 		for (kk = 0;
-		    kk <= MAXDATALEN - (8 + sizeof(struct payload) + ii);
+		    kk <= MAXPAYLOAD - (8 + sizeof(struct payload) + ii);
 		    kk += ii)
 			for (jj = 0; jj < ii; ++jj)
 				bp[jj + kk] = pat[jj];

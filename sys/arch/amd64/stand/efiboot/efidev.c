@@ -1,4 +1,4 @@
-/*	$OpenBSD: efidev.c,v 1.5 2015/09/12 21:55:14 yasuoka Exp $	*/
+/*	$OpenBSD: efidev.c,v 1.7 2015/11/08 00:42:39 yasuoka Exp $	*/
 
 /*
  * Copyright (c) 1996 Michael Shalayeff
@@ -253,7 +253,7 @@ findopenbsd_gpt(efi_diskinfo_t ed, const char **err)
 	int			 i, part;
 	uint64_t		 lba;
 	uint32_t		 orig_csum, new_csum;
-	uint32_t		 ghpartsize, ghpartnum, ghpartspersec;
+	uint32_t		 ghsize, ghpartsize, ghpartnum, ghpartspersec;
 	const char		 openbsd_uuid_code[] = GPT_UUID_OPENBSD;
 	static struct uuid	*openbsd_uuid = NULL, openbsd_uuid_space;
 	static struct gpt_partition
@@ -296,10 +296,21 @@ findopenbsd_gpt(efi_diskinfo_t ed, const char **err)
 		return (-1);
 	}
 
+	if (letoh32(gh.gh_rev) != GPTREVISION) {
+		*err = "bad GPT revision\n";
+		return (-1);
+	}
+
+	ghsize = letoh32(gh.gh_size);
+	if (ghsize < GPTMINHDRSIZE || ghsize > sizeof(struct gpt_header)) {
+		*err = "bad GPT header size\n";
+		return (-1);
+	}
+
 	/* Check checksum */
 	orig_csum = gh.gh_csum;
 	gh.gh_csum = 0;
-	new_csum = crc32(0, (unsigned char *)&gh, letoh32(gh.gh_size));
+	new_csum = crc32(0, (unsigned char *)&gh, ghsize);
 	gh.gh_csum = orig_csum;
 	if (letoh32(orig_csum) != new_csum) {
 		*err = "bad GPT header checksum\n";
@@ -598,4 +609,36 @@ efiioctl(struct open_file *f, u_long cmd, void *data)
 {
 
 	return 0;
+}
+
+void
+efi_dump_diskinfo(void)
+{
+	efi_diskinfo_t	 ed;
+	struct diskinfo	*dip;
+	bios_diskinfo_t *bdi;
+	uint64_t	 siz;
+	const char	*sizu;
+
+	printf("Disk\tBlkSiz\tIoAlign\tSize\tFlags\tChecksum\n");
+	TAILQ_FOREACH(dip, &disklist, list) {
+		bdi = &dip->bios_info;
+		ed = dip->efi_info;
+
+		siz = ed->blkio->Media->LastBlock * ed->blkio->Media->BlockSize;
+		siz /= 1024 * 1024;
+		if (siz < 10000)
+			sizu = "MB";
+		else {
+			siz /= 1024;
+			sizu = "GB";
+		}
+		
+		printf("hd%d\t%u\t%u\t%u%s\t0x%x\t0x%x\t%s\n",
+		    (bdi->bios_number & 0x7f),
+		    ed->blkio->Media->BlockSize,
+		    ed->blkio->Media->IoAlign, siz, sizu,
+		    bdi->flags, bdi->checksum,
+		    (ed->blkio->Media->RemovableMedia)? "Removable" : "");
+	}
 }

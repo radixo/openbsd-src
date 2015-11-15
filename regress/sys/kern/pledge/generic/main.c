@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.5 2015/10/18 13:01:40 semarie Exp $ */
+/*	$OpenBSD: main.c,v 1.7 2015/10/29 10:23:55 semarie Exp $ */
 /*
  * Copyright (c) 2015 Sebastien Marie <semarie@openbsd.org>
  *
@@ -239,13 +239,13 @@ main(int argc, char *argv[])
 	/* kill under fattr is forbidden */
 	start_test(&ret, "fattr", NULL, test_kill);
 
-	/* kill under proc is allowed */
-	start_test(&ret, "proc", NULL, test_kill);
+	/* kill under stdio is allowed */
+	start_test(&ret, "stdio", NULL, test_kill);
 
 	/* stdio for open(2) */
 	start_test(&ret, "stdio rpath", NULL, test_rpath);
 	start_test(&ret, "stdio wpath", NULL, test_wpath);
-	start_test(&ret, "rpath cpath", NULL, test_cpath);
+	start_test(&ret, "cpath", NULL, test_cpath);
 
 	/*
 	 * test whitelist path

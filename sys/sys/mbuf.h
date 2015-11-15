@@ -1,4 +1,4 @@
-/*	$OpenBSD: mbuf.h,v 1.197 2015/10/08 11:36:15 dlg Exp $	*/
+/*	$OpenBSD: mbuf.h,v 1.201 2015/11/12 10:07:14 mpi Exp $	*/
 /*	$NetBSD: mbuf.h,v 1.19 1996/02/09 18:25:14 christos Exp $	*/
 
 /*
@@ -122,10 +122,10 @@ struct pkthdr_pf {
 /* record/packet header in first mbuf of chain; valid if M_PKTHDR set */
 struct	pkthdr {
 	void			*ph_cookie;	/* additional data */
-	SLIST_HEAD(packet_tags, m_tag) tags;	/* list of packet tags */
+	SLIST_HEAD(, m_tag)	 ph_tags;	/* list of packet tags */
 	int			 len;		/* total packet length */
-	u_int16_t		 tagsset;	/* mtags attached */
-	u_int16_t		 flowid;	/* pseudo unique flow id */
+	u_int16_t		 ph_tagsset;	/* mtags attached */
+	u_int16_t		 ph_flowid;	/* pseudo unique flow id */
 	u_int16_t		 csum_flags;	/* checksum flags */
 	u_int16_t		 ether_vtag;	/* Ethernet 802.1p+Q vlan tag */
 	u_int			 ph_rtableid;	/* routing table id */
@@ -315,7 +315,7 @@ struct mbuf {
 #define M_MOVE_HDR(to, from) do {					\
 	(to)->m_pkthdr = (from)->m_pkthdr;				\
 	(from)->m_flags &= ~M_PKTHDR;					\
-	SLIST_INIT(&(from)->m_pkthdr.tags);				\
+	SLIST_INIT(&(from)->m_pkthdr.ph_tags);				\
 } while (/* CONSTCOND */ 0)
 
 /*
@@ -410,7 +410,8 @@ struct	mbuf *m_get(int, int);
 struct	mbuf *m_getclr(int, int);
 struct	mbuf *m_gethdr(int, int);
 struct	mbuf *m_inithdr(struct mbuf *);
-int	      m_defrag(struct mbuf *, int);
+void	m_resethdr(struct mbuf *);
+int	m_defrag(struct mbuf *, int);
 struct	mbuf *m_prepend(struct mbuf *, int, int);
 struct	mbuf *m_pulldown(struct mbuf *, int, int, int *);
 struct	mbuf *m_pullup(struct mbuf *, int);
@@ -491,6 +492,7 @@ void			ml_enlist(struct mbuf_list *, struct mbuf_list *);
 struct mbuf *		ml_dechain(struct mbuf_list *);
 struct mbuf *		ml_filter(struct mbuf_list *,
 			    int (*)(void *, const struct mbuf *), void *);
+unsigned int		ml_purge(struct mbuf_list *);
 
 #define	ml_len(_ml)		((_ml)->ml_len)
 #define	ml_empty(_ml)		((_ml)->ml_len == 0)
@@ -521,6 +523,7 @@ void			mq_delist(struct mbuf_queue *, struct mbuf_list *);
 struct mbuf *		mq_dechain(struct mbuf_queue *);
 struct mbuf *		mq_filter(struct mbuf_queue *,
 			    int (*)(void *, const struct mbuf *), void *);
+unsigned int		mq_purge(struct mbuf_queue *);
 
 #define	mq_len(_mq)		ml_len(&(_mq)->mq_list)
 #define	mq_empty(_mq)		ml_empty(&(_mq)->mq_list)

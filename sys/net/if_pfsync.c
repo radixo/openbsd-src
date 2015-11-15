@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_pfsync.c,v 1.219 2015/06/16 11:09:39 mpi Exp $	*/
+/*	$OpenBSD: if_pfsync.c,v 1.221 2015/10/30 11:33:55 mikeb Exp $	*/
 
 /*
  * Copyright (c) 2002 Michael Shalayeff
@@ -253,8 +253,6 @@ int	pfsyncioctl(struct ifnet *, u_long, caddr_t);
 void	pfsyncstart(struct ifnet *);
 void	pfsync_syncdev_state(void *);
 
-struct mbuf *pfsync_if_dequeue(struct ifnet *);
-
 void	pfsync_deferred(struct pf_state *, int);
 void	pfsync_undefer(struct pfsync_deferral *, int);
 void	pfsync_defer_tmo(void *);
@@ -390,31 +388,13 @@ pfsync_clone_destroy(struct ifnet *ifp)
 	return (0);
 }
 
-struct mbuf *
-pfsync_if_dequeue(struct ifnet *ifp)
-{
-	struct mbuf *m;
-
-	IF_DEQUEUE(&ifp->if_snd, m);
-
-	return (m);
-}
-
 /*
  * Start output on the pfsync interface.
  */
 void
 pfsyncstart(struct ifnet *ifp)
 {
-	struct mbuf *m;
-	int s;
-
-	s = splnet();
-	while ((m = pfsync_if_dequeue(ifp)) != NULL) {
-		IF_DROP(&ifp->if_snd);
-		m_freem(m);
-	}
-	splx(s);
+	IFQ_PURGE(&ifp->if_snd);
 }
 
 void
@@ -754,42 +734,25 @@ int
 pfsync_in_clr(caddr_t buf, int len, int count, int flags)
 {
 	struct pfsync_clr *clr;
-	int i;
-
 	struct pf_state *st, *nexts;
-	struct pf_state_key *sk, *nextsk;
-	struct pf_state_item *si;
+	struct pfi_kif *kif;
 	u_int32_t creatorid;
+	int i;
 
 	for (i = 0; i < count; i++) {
 		clr = (struct pfsync_clr *)buf + len * i;
+		kif = NULL;
 		creatorid = clr->creatorid;
+		if (strlen(clr->ifname) &&
+		    (kif = pfi_kif_find(clr->ifname)) == NULL)
+			continue;
 
-		if (clr->ifname[0] == '\0') {
-			for (st = RB_MIN(pf_state_tree_id, &tree_id);
-			    st; st = nexts) {
-				nexts = RB_NEXT(pf_state_tree_id, &tree_id, st);
-				if (st->creatorid == creatorid) {
-					SET(st->state_flags, PFSTATE_NOSYNC);
-					pf_unlink_state(st);
-				}
-			}
-		} else {
-			if (pfi_kif_get(clr->ifname) == NULL)
-				continue;
-
-			/* XXX correct? */
-			for (sk = RB_MIN(pf_state_tree, &pf_statetbl);
-			    sk; sk = nextsk) {
-				nextsk = RB_NEXT(pf_state_tree,
-				    &pf_statetbl, sk);
-				TAILQ_FOREACH(si, &sk->states, entry) {
-					if (si->s->creatorid == creatorid) {
-						SET(si->s->state_flags,
-						    PFSTATE_NOSYNC);
-						pf_unlink_state(si->s);
-					}
-				}
+		for (st = RB_MIN(pf_state_tree_id, &tree_id); st; st = nexts) {
+			nexts = RB_NEXT(pf_state_tree_id, &tree_id, st);
+			if (st->creatorid == creatorid &&
+			    ((kif && st->kif == kif) || !kif)) {
+				SET(st->state_flags, PFSTATE_NOSYNC);
+				pf_unlink_state(st);
 			}
 		}
 	}

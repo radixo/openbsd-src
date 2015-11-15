@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-gre.c,v 1.8 2014/08/14 12:44:44 mpi Exp $	*/
+/*	$OpenBSD: print-gre.c,v 1.10 2015/11/05 11:52:24 jca Exp $	*/
 
 /*
  * Copyright (c) 2002 Jason L. Wright (jason@thought.net)
@@ -73,11 +73,14 @@ gre_print(const u_char *bp, u_int length)
 {
 	u_int len = length, vers;
 
+	if (bp + len > snapend)
+		len = snapend - bp;
+
 	if (len < 2) {
 		printf("[|gre]");
 		return;
 	}
-	vers = EXTRACT_16BITS(bp) & 7;
+	vers = EXTRACT_16BITS(bp) & GRE_VERS;
 
 	if (vers == 0)
 		gre_print_0(bp, len);

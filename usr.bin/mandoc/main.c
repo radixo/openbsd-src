@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.160 2015/10/22 21:02:55 schwarze Exp $ */
+/*	$OpenBSD: main.c,v 1.164 2015/11/07 17:58:52 schwarze Exp $ */
 /*
  * Copyright (c) 2008-2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2010-2012, 2014, 2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -24,6 +24,7 @@
 #include <assert.h>
 #include <ctype.h>
 #include <err.h>
+#include <errno.h>
 #include <fcntl.h>
 #include <glob.h>
 #include <signal.h>
@@ -92,8 +93,6 @@ static	int		  toptions(struct curparse *, char *);
 static	void		  usage(enum argmode) __attribute__((noreturn));
 static	int		  woptions(struct curparse *, char *);
 
-extern	char		 *__progname;
-
 static	const int sec_prios[] = {1, 4, 5, 8, 6, 3, 7, 2, 9};
 static	char		  help_arg[] = "help";
 static	char		 *help_argv[] = {help_arg, NULL};
@@ -107,6 +106,7 @@ main(int argc, char *argv[])
 	struct curparse	 curp;
 	struct mansearch search;
 	struct tag_files *tag_files;
+	const char	*progname;
 	char		*auxpaths;
 	char		*defos;
 	unsigned char	*uc;
@@ -121,14 +121,17 @@ main(int argc, char *argv[])
 	int		 show_usage;
 	int		 options;
 	int		 use_pager;
+	int		 status;
 	int		 c;
+	pid_t		 pager_pid;
 
-	if (0 == strncmp(__progname, "mandocdb", 8) ||
-	    0 == strncmp(__progname, "makewhatis", 10))
+	progname = getprogname();
+	if (strncmp(progname, "mandocdb", 8) == 0 ||
+	    strncmp(progname, "makewhatis", 10) == 0)
 		return mandocdb(argc, argv);
 
-	if (pledge("stdio rpath tmppath proc exec flock", NULL) == -1)
-		err(1, "pledge");
+	if (pledge("stdio rpath tmppath tty proc exec flock", NULL) == -1)
+		err((int)MANDOCLEVEL_SYSERR, "pledge");
 
 	/* Search options. */
 
@@ -139,13 +142,13 @@ main(int argc, char *argv[])
 	memset(&search, 0, sizeof(struct mansearch));
 	search.outkey = "Nd";
 
-	if (strcmp(__progname, "man") == 0)
+	if (strcmp(progname, "man") == 0)
 		search.argmode = ARG_NAME;
-	else if (strncmp(__progname, "apropos", 7) == 0)
+	else if (strncmp(progname, "apropos", 7) == 0)
 		search.argmode = ARG_EXPR;
-	else if (strncmp(__progname, "whatis", 6) == 0)
+	else if (strncmp(progname, "whatis", 6) == 0)
 		search.argmode = ARG_WORD;
-	else if (strncmp(__progname, "help", 4) == 0)
+	else if (strncmp(progname, "help", 4) == 0)
 		search.argmode = ARG_NAME;
 	else
 		search.argmode = ARG_FILE;
@@ -270,7 +273,7 @@ main(int argc, char *argv[])
 		use_pager = 0;
 
 	if (!use_pager && pledge("stdio rpath flock", NULL) == -1)
-		err(1, "pledge");
+		err((int)MANDOCLEVEL_SYSERR, "pledge");
 
 	/* Parse arguments. */
 
@@ -286,7 +289,7 @@ main(int argc, char *argv[])
 	 */
 
 	if (search.argmode == ARG_NAME) {
-		if (*__progname == 'h') {
+		if (*progname == 'h') {
 			if (argc == 0) {
 				argv = help_argv;
 				argc = 1;
@@ -387,9 +390,9 @@ main(int argc, char *argv[])
 
 	/* mandoc(1) */
 
-	if (pledge(use_pager ? "stdio rpath tmppath proc exec" :
+	if (pledge(use_pager ? "stdio rpath tmppath tty proc exec" :
 	    "stdio rpath", NULL) == -1)
-		err(1, "pledge");
+		err((int)MANDOCLEVEL_SYSERR, "pledge");
 
 	if (search.argmode == ARG_FILE && ! moptions(&options, auxpaths))
 		return (int)MANDOCLEVEL_BADARG;
@@ -484,7 +487,29 @@ out:
 	if (tag_files != NULL) {
 		fclose(stdout);
 		tag_write();
-		waitpid(spawn_pager(tag_files), NULL, 0);
+		pager_pid = spawn_pager(tag_files);
+		for (;;) {
+			if (waitpid(pager_pid, &status, WUNTRACED) == -1) {
+				if (errno == EINTR)
+					continue;
+				warn("wait");
+				rc = MANDOCLEVEL_SYSERR;
+				break;
+			}
+			if (!WIFSTOPPED(status))
+				break;
+
+			(void)tcsetpgrp(STDIN_FILENO, getpgid(0));
+			kill(0, WSTOPSIG(status));
+	
+			/*
+			 * I'm now stopped.
+			 * When getting SIGCONT, continue here:
+			 */
+
+			(void)tcsetpgrp(STDIN_FILENO, pager_pid);
+			kill(pager_pid, SIGCONT);
+		}
 		tag_unlink();
 	}
 
@@ -729,12 +754,12 @@ passthrough(const char *file, int fd, int synopsis_only)
 
 	FILE		*stream;
 	const char	*syscall;
-	char		*line;
-	size_t		 len, off;
-	ssize_t		 nw;
+	char		*line, *cp;
+	size_t		 linesz;
 	int		 print;
 
-	fflush(stdout);
+	line = NULL;
+	linesz = 0;
 
 	if ((stream = fdopen(fd, "r")) == NULL) {
 		close(fd);
@@ -743,45 +768,41 @@ passthrough(const char *file, int fd, int synopsis_only)
 	}
 
 	print = 0;
-	while ((line = fgetln(stream, &len)) != NULL) {
+	while (getline(&line, &linesz, stream) != -1) {
+		cp = line;
 		if (synopsis_only) {
 			if (print) {
-				if ( ! isspace((unsigned char)*line))
+				if ( ! isspace((unsigned char)*cp))
 					goto done;
-				while (len &&
-				    isspace((unsigned char)*line)) {
-					line++;
-					len--;
-				}
+				while (isspace((unsigned char)*cp))
+					cp++;
 			} else {
-				if ((len == sizeof(synb) &&
-				     ! strncmp(line, synb, len - 1)) ||
-				    (len == sizeof(synr) &&
-				     ! strncmp(line, synr, len - 1)))
+				if (strcmp(cp, synb) == 0 ||
+				    strcmp(cp, synr) == 0)
 					print = 1;
 				continue;
 			}
 		}
-		for (off = 0; off < len; off += nw)
-			if ((nw = write(STDOUT_FILENO, line + off,
-			    len - off)) == -1 || nw == 0) {
-				fclose(stream);
-				syscall = "write";
-				goto fail;
-			}
+		if (fputs(cp, stdout)) {
+			fclose(stream);
+			syscall = "fputs";
+			goto fail;
+		}
 	}
 
 	if (ferror(stream)) {
 		fclose(stream);
-		syscall = "fgetln";
+		syscall = "getline";
 		goto fail;
 	}
 
 done:
+	free(line);
 	fclose(stream);
 	return;
 
 fail:
+	free(line);
 	warn("%s: SYSERR: %s", file, syscall);
 	if (rc < MANDOCLEVEL_SYSERR)
 		rc = MANDOCLEVEL_SYSERR;
@@ -907,7 +928,7 @@ mmsg(enum mandocerr t, enum mandoclevel lvl,
 {
 	const char	*mparse_msg;
 
-	fprintf(stderr, "%s: %s:", __progname, file);
+	fprintf(stderr, "%s: %s:", getprogname(), file);
 
 	if (line)
 		fprintf(stderr, "%d:%d:", line, col + 1);
@@ -975,10 +996,15 @@ spawn_pager(struct tag_files *tag_files)
 	case -1:
 		err((int)MANDOCLEVEL_SYSERR, "fork");
 	case 0:
+		/* Set pgrp in both parent and child to avoid racing exec. */
+		(void)setpgid(0, 0);
 		break;
 	default:
-		if (pledge("stdio rpath tmppath", NULL) == -1)
-			err(1, "pledge");
+		(void)setpgid(pager_pid, 0);
+		if (tcsetpgrp(STDIN_FILENO, pager_pid) == -1)
+			err((int)MANDOCLEVEL_SYSERR, "tcsetpgrp");
+		if (pledge("stdio rpath tmppath tty proc", NULL) == -1)
+			err((int)MANDOCLEVEL_SYSERR, "pledge");
 		return pager_pid;
 	}
 

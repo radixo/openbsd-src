@@ -1,4 +1,4 @@
-/*	$OpenBSD: mandocdb.c,v 1.159 2015/10/20 02:00:49 schwarze Exp $ */
+/*	$OpenBSD: mandocdb.c,v 1.161 2015/11/06 16:27:13 schwarze Exp $ */
 /*
  * Copyright (c) 2011, 2012 Kristaps Dzonsons <kristaps@bsd.lv>
  * Copyright (c) 2011-2015 Ingo Schwarze <schwarze@openbsd.org>
@@ -177,8 +177,6 @@ static	int	 set_basedir(const char *, int);
 static	int	 treescan(void);
 static	size_t	 utf8(unsigned int, char [7]);
 
-extern	char		*__progname;
-
 static	char		 tempfilename[32];
 static	int		 nodb; /* no database changes */
 static	int		 mparse_options; /* abort the parse early */
@@ -329,7 +327,7 @@ mandocdb(int argc, char *argv[])
 {
 	struct manconf	  conf;
 	struct mparse	 *mp;
-	const char	 *path_arg;
+	const char	 *path_arg, *progname;
 	size_t		  j, sz;
 	int		  ch, i;
 
@@ -536,13 +534,13 @@ out:
 	ohash_delete(&mlinks);
 	return exitcode;
 usage:
+	progname = getprogname();
 	fprintf(stderr, "usage: %s [-aDnpQ] [-C file] [-Tutf8]\n"
 			"       %s [-aDnpQ] [-Tutf8] dir ...\n"
 			"       %s [-DnpQ] [-Tutf8] -d dir [file ...]\n"
 			"       %s [-Dnp] -u dir [file ...]\n"
 			"       %s [-Q] -t file ...\n",
-		       __progname, __progname, __progname,
-		       __progname, __progname);
+		        progname, progname, progname, progname, progname);
 
 	return (int)MANDOCLEVEL_BADARG;
 }
@@ -1271,7 +1269,9 @@ parse_cat(struct mpage *mpage, int fd)
 {
 	FILE		*stream;
 	char		*line, *p, *title;
-	size_t		 len, plen, titlesz;
+	size_t		 linesz, plen, titlesz;
+	ssize_t		 len;
+	int		 offs;
 
 	stream = (-1 == fd) ?
 	    fopen(mpage->mlinks->file, "r") :
@@ -1284,10 +1284,13 @@ parse_cat(struct mpage *mpage, int fd)
 		return;
 	}
 
+	line = NULL;
+	linesz = 0;
+
 	/* Skip to first blank line. */
 
-	while (NULL != (line = fgetln(stream, &len)))
-		if ('\n' == *line)
+	while (getline(&line, &linesz, stream) != -1)
+		if (*line == '\n')
 			break;
 
 	/*
@@ -1295,8 +1298,8 @@ parse_cat(struct mpage *mpage, int fd)
 	 * is the first section header.  Skip to it.
 	 */
 
-	while (NULL != (line = fgetln(stream, &len)))
-		if ('\n' != *line && ' ' != *line)
+	while (getline(&line, &linesz, stream) != -1)
+		if (*line != '\n' && *line != ' ')
 			break;
 
 	/*
@@ -1309,20 +1312,20 @@ parse_cat(struct mpage *mpage, int fd)
 	titlesz = 0;
 	title = NULL;
 
-	while (NULL != (line = fgetln(stream, &len))) {
-		if (' ' != *line || '\n' != line[len - 1])
+	while ((len = getline(&line, &linesz, stream)) != -1) {
+		if (*line != ' ')
 			break;
-		while (len > 0 && isspace((unsigned char)*line)) {
-			line++;
-			len--;
-		}
-		if (1 == len)
+		offs = 0;
+		while (isspace((unsigned char)line[offs]))
+			offs++;
+		if (line[offs] == '\0')
 			continue;
-		title = mandoc_realloc(title, titlesz + len);
-		memcpy(title + titlesz, line, len);
-		titlesz += len;
+		title = mandoc_realloc(title, titlesz + len - offs);
+		memcpy(title + titlesz, line + offs, len - offs);
+		titlesz += len - offs;
 		title[titlesz - 1] = ' ';
 	}
+	free(line);
 
 	/*
 	 * If no page content can be found, or the input line
@@ -1340,8 +1343,7 @@ parse_cat(struct mpage *mpage, int fd)
 		return;
 	}
 
-	title = mandoc_realloc(title, titlesz + 1);
-	title[titlesz] = '\0';
+	title[titlesz - 1] = '\0';
 
 	/*
 	 * Skip to the first dash.

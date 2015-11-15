@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1772 2015/09/27 14:31:04 kettenis Exp 
+ *	OpenBSD: pcidevs,v 1.1775 2015/11/09 00:37:44 mlarkin Exp 
  */
 
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
@@ -1276,6 +1276,42 @@ static const struct pci_known_product pci_known_products[] = {
 	    "AMD64 16h Host",
 	},
 	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_CCP,
+	    "CCP",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_16_3X_RC,
+	    "AMD64 16h Root Complex",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_16_3X_HB,
+	    "AMD64 16h Host",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_16_3X_LINK,
+	    "AMD64 16h Link Cfg",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_16_3X_ADDR,
+	    "AMD64 16h Address Map",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_16_3X_DRAM,
+	    "AMD64 16h DRAM Cfg",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_16_3X_MISC,
+	    "AMD64 16h Misc Cfg",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_16_3X_CPU_PM,
+	    "AMD64 16h CPU Power",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_16_3X_MISC_2,
+	    "AMD64 16h Misc Cfg",
+	},
+	{
 	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_AMD64_15_0x_LINK,
 	    "AMD64 15/0xh Link Cfg",
 	},
@@ -1662,6 +1698,14 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_HUDSON2_XHCI,
 	    "Hudson-2 xHCI",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_BOLTON_SDMMC,
+	    "Bolton SD/MMC",
+	},
+	{
+	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_BOLTON_XHCI,
+	    "Bolton xHCI",
 	},
 	{
 	    PCI_VENDOR_AMD, PCI_PRODUCT_AMD_RS780_HB,
@@ -2110,6 +2154,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_ASMEDIA, PCI_PRODUCT_ASMEDIA_ASM1042A,
 	    "ASM1042A xHCI",
+	},
+	{
+	    PCI_VENDOR_ASMEDIA, PCI_PRODUCT_ASMEDIA_ASM1042AE,
+	    "ASM1042AE xHCI",
 	},
 	{
 	    PCI_VENDOR_ASUSTEK, PCI_PRODUCT_ASUSTEK_HFCPCI,
@@ -5302,6 +5350,14 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_ATI, PCI_PRODUCT_ATI_RADEON_HD7290,
 	    "Radeon HD 7290",
+	},
+	{
+	    PCI_VENDOR_ATI, PCI_PRODUCT_ATI_RADEON_HDA,
+	    "Radeon HD Audio",
+	},
+	{
+	    PCI_VENDOR_ATI, PCI_PRODUCT_ATI_MULLINS_1,
+	    "Mullins",
 	},
 	{
 	    PCI_VENDOR_ATI, PCI_PRODUCT_ATI_ARUBA_1,
@@ -10860,6 +10916,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "I218-V",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE5G_H_PCIE_X16,
+	    "Core 5G PCIE",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE5G_M_GT1_1,
 	    "HD Graphics",
 	},
@@ -10868,8 +10928,16 @@ static const struct pci_known_product pci_known_products[] = {
 	    "Core 5G Host",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE5G_H_PCIE_X8,
+	    "Core 5G PCIE",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE5G_M_GT1_2,
 	    "HD Graphics",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE5G_H_PCIE_X4,
+	    "Core 5G PCIE",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE5G_D_GT1_1,
@@ -10890,6 +10958,10 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE5G_M_GT1_4,
 	    "HD Graphics",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE5G_H_HB,
+	    "Core 5G Host",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE5G_M_GT2_1,
@@ -20748,6 +20820,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "82C861",
 	},
 	{
+	    PCI_VENDOR_OPENBSD, PCI_PRODUCT_OPENBSD_PCHB,
+	    "VMM PCI Host Bridge",
+	},
+	{
 	    PCI_VENDOR_OPTION, PCI_PRODUCT_OPTION_F32,
 	    "3G+ UMTS HSDPA",
 	},
@@ -25242,6 +25318,10 @@ static const struct pci_known_vendor pci_known_vendors[] = {
 	{
 	    PCI_VENDOR_RHINO,
 	    "Rhino Equipment",
+	},
+	{
+	    PCI_VENDOR_OPENBSD,
+	    "OpenBSD",
 	},
 	{
 	    PCI_VENDOR_COMPAQ,

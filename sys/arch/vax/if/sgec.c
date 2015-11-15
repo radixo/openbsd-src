@@ -1,4 +1,4 @@
-/*	$OpenBSD: sgec.c,v 1.29 2015/06/24 09:40:54 mpi Exp $	*/
+/*	$OpenBSD: sgec.c,v 1.31 2015/11/07 12:01:22 dlg Exp $	*/
 /*      $NetBSD: sgec.c,v 1.5 2000/06/04 02:14:14 matt Exp $ */
 /*
  * Copyright (c) 1999 Ludd, University of Lule}, Sweden. All rights reserved.
@@ -63,7 +63,6 @@
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
-#include <net/bpfdesc.h>
 #endif
 
 #include <machine/bus.h>
@@ -384,7 +383,7 @@ zestart(ifp)
 			continue;
 		}
 		idx = sc->sc_nexttx;
-		IF_DEQUEUE(&sc->sc_if.if_snd, m);
+		IF_POLL(&sc->sc_if.if_snd, m);
 		if (m == NULL)
 			goto out;
 		/*
@@ -399,10 +398,10 @@ zestart(ifp)
 			panic("zestart"); /* XXX */
 
 		if ((i + sc->sc_inq) >= (TXDESCS - 1)) {
-			IF_PREPEND(&sc->sc_if.if_snd, m);
 			ifp->if_flags |= IFF_OACTIVE;
 			goto out;
 		}
+		IFQ_DEQUEUE(&sc->sc_if.if_snd, m);
 		
 #if NBPFILTER > 0
 		if (ifp->if_bpf)

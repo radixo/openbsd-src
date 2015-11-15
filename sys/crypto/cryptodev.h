@@ -1,4 +1,4 @@
-/*	$OpenBSD: cryptodev.h,v 1.59 2014/08/20 06:23:03 mikeb Exp $	*/
+/*	$OpenBSD: cryptodev.h,v 1.65 2015/11/13 12:21:16 mikeb Exp $	*/
 
 /*
  * The author of this code is Angelos D. Keromytis (angelos@cis.upenn.edu)
@@ -77,7 +77,8 @@
 #define BLOWFISH_BLOCK_LEN	8
 #define CAST128_BLOCK_LEN	8
 #define RIJNDAEL128_BLOCK_LEN	16
-#define EALG_MAX_BLOCK_LEN	16 /* Keep this updated */
+#define CHACHA20_BLOCK_LEN	64
+#define EALG_MAX_BLOCK_LEN	64 /* Keep this updated */
 
 /* Maximum hash algorithm result length */
 #define AALG_MAX_RESULT_LEN	64 /* Keep this updated */
@@ -91,29 +92,26 @@
 #define CRYPTO_RIPEMD160_HMAC	8
 #define CRYPTO_RIJNDAEL128_CBC	11 /* 128 bit blocksize */
 #define CRYPTO_AES_CBC		11 /* 128 bit blocksize -- the same as above */
-#define CRYPTO_ARC4		12
-#define CRYPTO_MD5		13
-#define CRYPTO_SHA1		14
-#define CRYPTO_DEFLATE_COMP	15 /* Deflate compression algorithm */
-#define CRYPTO_NULL		16
-#define CRYPTO_LZS_COMP		17 /* LZS compression algorithm */
-#define CRYPTO_SHA2_256_HMAC	18
-#define CRYPTO_SHA2_384_HMAC	19
-#define CRYPTO_SHA2_512_HMAC	20
-#define CRYPTO_AES_CTR		21
-#define CRYPTO_AES_XTS		22
-#define CRYPTO_AES_GCM_16	23
-#define CRYPTO_AES_128_GMAC	24
-#define CRYPTO_AES_192_GMAC	25
-#define CRYPTO_AES_256_GMAC	26
-#define CRYPTO_AES_GMAC		27
-#define CRYPTO_ESN		28 /* Support for Extended Sequence Numbers */
-#define CRYPTO_ALGORITHM_MAX	28 /* Keep updated */
+#define CRYPTO_DEFLATE_COMP	12 /* Deflate compression algorithm */
+#define CRYPTO_NULL		13
+#define CRYPTO_LZS_COMP		14 /* LZS compression algorithm */
+#define CRYPTO_SHA2_256_HMAC	15
+#define CRYPTO_SHA2_384_HMAC	16
+#define CRYPTO_SHA2_512_HMAC	17
+#define CRYPTO_AES_CTR		18
+#define CRYPTO_AES_XTS		19
+#define CRYPTO_AES_GCM_16	20
+#define CRYPTO_AES_128_GMAC	21
+#define CRYPTO_AES_192_GMAC	22
+#define CRYPTO_AES_256_GMAC	23
+#define CRYPTO_AES_GMAC		24
+#define CRYPTO_CHACHA20_POLY1305	25
+#define CRYPTO_CHACHA20_POLY1305_MAC	26
+#define CRYPTO_ESN		27 /* Support for Extended Sequence Numbers */
+#define CRYPTO_ALGORITHM_MAX	27 /* Keep updated */
 
 /* Algorithm flags */
 #define	CRYPTO_ALG_FLAG_SUPPORTED	0x01 /* Algorithm is supported */
-#define	CRYPTO_ALG_FLAG_RNG_ENABLE	0x02 /* Has HW RNG for DH/DSA */
-#define	CRYPTO_ALG_FLAG_DSA_SHA		0x04 /* Can do SHA on msg */
 
 /* Standard initialization structure beginning */
 struct cryptoini {
@@ -141,7 +139,6 @@ struct cryptodesc {
 #define	CRD_F_IV_PRESENT	0x02	/* When encrypting, IV is already in
 					   place, so don't copy. */
 #define	CRD_F_IV_EXPLICIT	0x04	/* IV explicitly provided */
-#define	CRD_F_DSA_SHA_NEEDED	0x08	/* Compute SHA-1 of buffer for DSA */
 #define CRD_F_COMP		0x10    /* Set when doing compression */
 #define CRD_F_ESN		0x20	/* Set when ESN field is provided */
 
@@ -179,7 +176,6 @@ struct cryptop {
 
 #define CRYPTO_F_IMBUF	0x0001	/* Input/output are mbuf chains, otherwise contig */
 #define CRYPTO_F_IOV	0x0002	/* Input/output are uio */
-#define CRYPTO_F_REL	0x0004	/* Must return data in same place */
 #define CRYPTO_F_NOQUEUE	0x0008	/* Don't use crypto queue/thread */
 #define CRYPTO_F_DONE	0x0010	/* request completed */
 
@@ -214,8 +210,6 @@ struct cryptocap {
 	u_int8_t	cc_flags;
 #define CRYPTOCAP_F_CLEANUP     0x01
 #define CRYPTOCAP_F_SOFTWARE    0x02
-#define CRYPTOCAP_F_ENCRYPT_MAC 0x04 /* Can do encrypt-then-MAC (IPsec) */
-#define CRYPTOCAP_F_MAC_ENCRYPT 0x08 /* Can do MAC-then-encrypt (TLS) */
 
 	int		(*cc_newsession) (u_int32_t *, struct cryptoini *);
 	int		(*cc_process) (struct cryptop *);
