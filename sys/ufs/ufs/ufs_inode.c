@@ -45,6 +45,7 @@
 #include <sys/namei.h>
 #include <sys/wapbl.h>
 
+#include <ufs/ffs/fs.h>
 #include <ufs/ufs/quota.h>
 #include <ufs/ufs/inode.h>
 #include <ufs/ufs/ufsmount.h>
@@ -54,8 +55,6 @@
 #include <ufs/ufs/dir.h>
 #include <ufs/ufs/dirhash.h>
 #endif
-
-#include <ufs/ffs/fs.h>
 
 /*
  * Last reference to an inode.  If necessary, write or delete it.
