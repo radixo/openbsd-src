@@ -1,4 +1,4 @@
-/*	$OpenBSD: commands.c,v 1.78 2015/11/13 17:01:12 deraadt Exp $	*/
+/*	$OpenBSD: commands.c,v 1.80 2015/11/20 12:43:37 jca Exp $	*/
 /*	$NetBSD: commands.c,v 1.14 1996/03/24 22:03:48 jtk Exp $	*/
 
 /*
@@ -1192,7 +1192,7 @@ static void
 close_connection(void)
 {
 	if (connected) {
-		(void) shutdown(net, 2);
+		(void) shutdown(net, SHUT_RDWR);
 		printf("Connection closed.\r\n");
 		(void)close(net);
 		connected = 0;
@@ -1751,6 +1751,10 @@ tn(int argc, char *argv[])
 
     if (connected) {
 	printf("?Already connected to %s\r\n", hostname);
+	return 0;
+    }
+    if (connections) {
+	printf("Repeated connections not supported\r\n");
 	return 0;
     }
     if (argc < 2) {

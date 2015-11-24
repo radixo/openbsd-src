@@ -1,4 +1,4 @@
-/* $OpenBSD: tty.c,v 1.192 2015/10/31 13:12:03 nicm Exp $ */
+/* $OpenBSD: tty.c,v 1.194 2015/11/18 14:27:44 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -172,7 +172,7 @@ tty_open(struct tty *tty, char **cause)
 }
 
 void
-tty_read_callback(unused struct bufferevent *bufev, void *data)
+tty_read_callback(__unused struct bufferevent *bufev, void *data)
 {
 	struct tty	*tty = data;
 
@@ -181,8 +181,8 @@ tty_read_callback(unused struct bufferevent *bufev, void *data)
 }
 
 void
-tty_error_callback(
-    unused struct bufferevent *bufev, unused short what, unused void *data)
+tty_error_callback(__unused struct bufferevent *bufev, __unused short what,
+    __unused void *data)
 {
 }
 
@@ -521,21 +521,15 @@ tty_update_mode(struct tty *tty, int mode, struct screen *s)
 		}
 		tty->cstyle = s->cstyle;
 	}
-	if (changed & (ALL_MOUSE_MODES|MODE_MOUSE_UTF8)) {
+	if (changed & ALL_MOUSE_MODES) {
 		if (mode & ALL_MOUSE_MODES) {
 			/*
-			 * Enable the UTF-8 (1005) extension if configured to.
 			 * Enable the SGR (1006) extension unconditionally, as
 			 * this is safe from misinterpretation. Do it in this
 			 * order, because in some terminals it's the last one
 			 * that takes effect and SGR is the preferred one.
 			 */
-			if (mode & MODE_MOUSE_UTF8)
-				tty_puts(tty, "\033[?1005h");
-			else
-				tty_puts(tty, "\033[?1005l");
 			tty_puts(tty, "\033[?1006h");
-
 			if (mode & MODE_MOUSE_BUTTON)
 				tty_puts(tty, "\033[?1002h");
 			else if (mode & MODE_MOUSE_STANDARD)
@@ -545,10 +539,7 @@ tty_update_mode(struct tty *tty, int mode, struct screen *s)
 				tty_puts(tty, "\033[?1002l");
 			else if (tty->mode & MODE_MOUSE_STANDARD)
 				tty_puts(tty, "\033[?1000l");
-
 			tty_puts(tty, "\033[?1006l");
-			if (tty->mode & MODE_MOUSE_UTF8)
-				tty_puts(tty, "\033[?1005l");
 		}
 	}
 	if (changed & MODE_KKEYPAD) {
@@ -591,7 +582,7 @@ tty_repeat_space(struct tty *tty, u_int n)
  * pane.
  */
 int
-tty_large_region(unused struct tty *tty, const struct tty_ctx *ctx)
+tty_large_region(__unused struct tty *tty, const struct tty_ctx *ctx)
 {
 	struct window_pane	*wp = ctx->wp;
 

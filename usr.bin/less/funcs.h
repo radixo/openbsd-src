@@ -38,6 +38,7 @@ extern	int is_at_equiv(int, int);
 extern	int apply_at_specials(int);
 extern	void putbs(void);
 extern	void match_brac(int, int, int, int);
+extern	int ch_get(void);
 extern	void ch_ungetchar(int);
 extern	void end_logfile(void);
 extern	void sync_logfile(void);
@@ -239,7 +240,6 @@ extern	void ierror(const char *, PARG *);
 extern	int query(const char *, PARG *);
 extern	int compile_pattern(char *, int, regex_t **);
 extern	void uncompile_pattern(regex_t **);
-extern	int is_null_pattern(void *);
 extern	int match_pattern(void *, char *, char *, int, char **, char **,
     int, int);
 extern	off_t position(int);

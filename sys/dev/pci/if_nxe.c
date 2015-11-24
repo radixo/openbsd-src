@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_nxe.c,v 1.67 2014/12/22 02:28:52 tedu Exp $ */
+/*	$OpenBSD: if_nxe.c,v 1.69 2015/11/20 03:35:23 dlg Exp $ */
 
 /*
  * Copyright (c) 2007 David Gwynne <dlg@openbsd.org>
@@ -41,7 +41,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -1322,17 +1321,18 @@ nxe_start(struct ifnet *ifp)
 	bzero(txd, sizeof(struct nxe_tx_desc));
 
 	do {
-		IFQ_POLL(&ifp->if_snd, m);
+		m = ifq_deq_begin(&ifp->if_snd);
 		if (m == NULL)
 			break;
 
 		pkt = nxe_pkt_get(sc->sc_tx_pkts);
 		if (pkt == NULL) {
+			ifq_deq_rollback(&ifp->if_snd, m);
 			SET(ifp->if_flags, IFF_OACTIVE);
 			break;
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		ifq_deq_commit(&ifp->if_snd, m);
 
 		dmap = pkt->pkt_dmap;
 		m = nxe_load_pkt(sc, dmap, m);

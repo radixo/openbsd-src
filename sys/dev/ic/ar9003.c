@@ -1,4 +1,4 @@
-/*	$OpenBSD: ar9003.c,v 1.33 2015/03/14 03:38:47 jsg Exp $	*/
+/*	$OpenBSD: ar9003.c,v 1.35 2015/11/24 13:33:17 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -44,10 +44,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>

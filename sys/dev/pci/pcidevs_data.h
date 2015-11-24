@@ -2,7 +2,7 @@
  * THIS FILE AUTOMATICALLY GENERATED.  DO NOT EDIT.
  *
  * generated from:
- *	OpenBSD: pcidevs,v 1.1775 2015/11/09 00:37:44 mlarkin Exp 
+ *	OpenBSD: pcidevs,v 1.1778 2015/11/24 07:47:49 daniel Exp 
  */
 
 /*	$NetBSD: pcidevs,v 1.30 1997/06/24 06:20:24 thorpej Exp $	*/
@@ -6432,6 +6432,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "BCM4322",
 	},
 	{
+	    PCI_VENDOR_BROADCOM, PCI_PRODUCT_BROADCOM_BCM4331,
+	    "BCM4331",
+	},
+	{
 	    PCI_VENDOR_BROADCOM, PCI_PRODUCT_BROADCOM_SERIAL,
 	    "Serial",
 	},
@@ -10792,6 +10796,10 @@ static const struct pci_known_product pci_known_products[] = {
 	    "82580",
 	},
 	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82524EF,
+	    "82524EF Thunderbolt",
+	},
+	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82580_COPPER_DUAL,
 	    "82580",
 	},
@@ -11014,6 +11022,14 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_80960RP_ATU,
 	    "80960RP ATU",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE6G_D_GT2_1,
+	    "HD Graphics 530",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_CORE6G_HB,
+	    "Core 6G Host",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_82840_HB,
@@ -16330,6 +16346,118 @@ static const struct pci_known_product pci_known_products[] = {
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_PINEVIEW_M_IGC_2,
 	    "Pineview Video",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_AHCI,
+	    "100 Series AHCI",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_1,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_2,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_3,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_4,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_5,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_6,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_7,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_8,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_9,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_10,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_11,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_12,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_13,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_14,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_15,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_16,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PMC,
+	    "100 Series PMC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_SMB,
+	    "100 Series SMBus",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_XHCI,
+	    "100 Series xHCI",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_THERM,
+	    "100 Series Thermal",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_MEI_1,
+	    "100 Series MEI",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_H170_LPC,
+	    "H170 LPC",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_17,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_18,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_19,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_PCIE_20,
+	    "100 Series PCIE",
+	},
+	{
+	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_100SERIES_HDA,
+	    "100 Series HD Audio",
 	},
 	{
 	    PCI_VENDOR_INTEL, PCI_PRODUCT_INTEL_21152,

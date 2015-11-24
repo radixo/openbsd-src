@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_udav.c,v 1.72 2015/06/24 09:40:54 mpi Exp $ */
+/*	$OpenBSD: if_udav.c,v 1.74 2015/11/20 03:35:23 dlg Exp $ */
 /*	$NetBSD: if_udav.c,v 1.3 2004/04/23 17:25:25 itojun Exp $	*/
 /*	$nabe: if_udav.c,v 1.3 2003/08/21 16:57:19 nabe Exp $	*/
 /*
@@ -57,7 +57,6 @@
 #include <sys/device.h>
 
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
 
@@ -918,16 +917,17 @@ udav_start(struct ifnet *ifp)
 	if (ifp->if_flags & IFF_OACTIVE)
 		return;
 
-	IFQ_POLL(&ifp->if_snd, m_head);
+	m_head = ifq_deq_begin(&ifp->if_snd);
 	if (m_head == NULL)
 		return;
 
 	if (udav_send(sc, m_head, 0)) {
+		ifq_deq_rollback(&ifp->if_snd, m_head);
 		ifp->if_flags |= IFF_OACTIVE;
 		return;
 	}
 
-	IFQ_DEQUEUE(&ifp->if_snd, m_head);
+	ifq_deq_commit(&ifp->if_snd, m_head);
 
 #if NBPFILTER > 0
 	if (ifp->if_bpf)

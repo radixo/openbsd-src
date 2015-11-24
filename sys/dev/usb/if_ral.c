@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ral.c,v 1.134 2015/11/04 12:12:00 dlg Exp $	*/
+/*	$OpenBSD: if_ral.c,v 1.136 2015/11/24 13:33:18 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2005, 2006
@@ -41,10 +41,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>

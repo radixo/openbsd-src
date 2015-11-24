@@ -1,4 +1,4 @@
-/*	$OpenBSD: fxp.c,v 1.122 2015/08/29 20:55:34 deraadt Exp $	*/
+/*	$OpenBSD: fxp.c,v 1.125 2015/11/24 13:33:17 mpi Exp $	*/
 /*	$NetBSD: if_fxp.c,v 1.2 1997/06/05 02:01:55 thorpej Exp $	*/
 
 /*
@@ -50,10 +50,8 @@
 
 #include <net/if.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
-#include <netinet/ip.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -689,19 +687,22 @@ fxp_start(struct ifnet *ifp)
 
 		txs = txs->tx_next;
 
-		IFQ_POLL(&ifp->if_snd, m0);
+		m0 = ifq_deq_begin(&ifp->if_snd);
 		if (m0 == NULL)
 			break;
 
 		if (bus_dmamap_load_mbuf(sc->sc_dmat, txs->tx_map,
 		    m0, BUS_DMA_NOWAIT) != 0) {
 			MGETHDR(m, M_DONTWAIT, MT_DATA);
-			if (m == NULL)
+			if (m == NULL) {
+				ifq_deq_rollback(&ifp->if_snd, m0);
 				break;
+			}
 			if (m0->m_pkthdr.len > MHLEN) {
 				MCLGET(m, M_DONTWAIT);
 				if (!(m->m_flags & M_EXT)) {
 					m_freem(m);
+					ifq_deq_rollback(&ifp->if_snd, m0);
 					break;
 				}
 			}
@@ -710,11 +711,12 @@ fxp_start(struct ifnet *ifp)
 			if (bus_dmamap_load_mbuf(sc->sc_dmat, txs->tx_map,
 			    m, BUS_DMA_NOWAIT) != 0) {
 				m_freem(m);
+				ifq_deq_rollback(&ifp->if_snd, m0);
 				break;
 			}
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m0);
+		ifq_deq_commit(&ifp->if_snd, m0);
 		if (m != NULL) {
 			m_freem(m0);
 			m0 = m;

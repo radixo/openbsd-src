@@ -1,4 +1,4 @@
-/*	$OpenBSD: print-arp.c,v 1.12 2009/10/27 23:59:55 deraadt Exp $	*/
+/*	$OpenBSD: print-arp.c,v 1.14 2015/11/15 20:35:36 mmcc Exp $	*/
 
 /*
  * Copyright (c) 1988, 1989, 1990, 1991, 1992, 1993, 1994, 1995, 1996, 1997
@@ -31,7 +31,6 @@ struct rtentry;
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
 
-#include <memory.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -51,11 +50,11 @@ struct rtentry;
 static u_char ezero[6];
 
 void
-arp_print(register const u_char *bp, u_int length, u_int caplen)
+arp_print(const u_char *bp, u_int length, u_int caplen)
 {
-	register const struct ether_arp *ap;
-	register const struct ether_header *eh;
-	register u_short pro, hrd, op;
+	const struct ether_arp *ap;
+	const struct ether_header *eh;
+	u_short pro, hrd, op;
 
 	ap = (struct ether_arp *)bp;
 	if ((u_char *)(ap + 1) > snapend) {
