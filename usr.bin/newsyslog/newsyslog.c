@@ -1,4 +1,4 @@
-/*	$OpenBSD: newsyslog.c,v 1.94 2015/02/08 23:40:34 deraadt Exp $	*/
+/*	$OpenBSD: newsyslog.c,v 1.95 2015/08/20 22:32:41 deraadt Exp $	*/
 
 /*
  * Copyright (c) 1999, 2002, 2003 Todd C. Miller <Todd.Miller@courtesan.com>

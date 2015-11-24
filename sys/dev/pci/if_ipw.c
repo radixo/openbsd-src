@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ipw.c,v 1.109 2015/09/01 07:09:55 deraadt Exp $	*/
+/*	$OpenBSD: if_ipw.c,v 1.112 2015/11/24 13:33:17 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2004-2008
@@ -45,10 +45,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -1299,19 +1297,20 @@ ipw_start(struct ifnet *ifp)
 		return;
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m);
-		if (m == NULL)
-			break;
-
 		if (sc->txfree < 1 + IPW_MAX_NSEG) {
 			ifp->if_flags |= IFF_OACTIVE;
 			break;
 		}
+
 		IFQ_DEQUEUE(&ifp->if_snd, m);
+		if (m == NULL)
+			break;
+
 #if NBPFILTER > 0
 		if (ifp->if_bpf != NULL)
 			bpf_mtap(ifp->if_bpf, m, BPF_DIRECTION_OUT);
 #endif
+
 		m = ieee80211_encap(ifp, m, &ni);
 		if (m == NULL)
 			continue;

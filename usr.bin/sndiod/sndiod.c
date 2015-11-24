@@ -1,4 +1,4 @@
-/*	$OpenBSD: sndiod.c,v 1.10 2015/10/02 09:36:24 ratchov Exp $	*/
+/*	$OpenBSD: sndiod.c,v 1.15 2015/11/23 12:33:20 ratchov Exp $	*/
 /*
  * Copyright (c) 2008-2012 Alexandre Ratchov <alex@caoua.org>
  *
@@ -255,7 +255,7 @@ getbasepath(char *base, size_t size)
 {
 	uid_t uid;
 	struct stat sb;
-	mode_t mask;
+	mode_t mask, omask;
 
 	uid = geteuid();
 	if (uid == 0) {
@@ -265,10 +265,12 @@ getbasepath(char *base, size_t size)
 		mask = 077;
 		snprintf(base, SOCKPATH_MAX, SOCKPATH_DIR "-%u", uid);
 	}
-	if (mkdir(base, 0777 & ~mask) < 0) {
+	omask = umask(mask);
+	if (mkdir(base, 0777) < 0) {
 		if (errno != EEXIST)
 			err(1, "mkdir(\"%s\")", base);
 	}
+	umask(omask);	
 	if (stat(base, &sb) < 0)
 		err(1, "stat(\"%s\")", base);
 	if (sb.st_uid != uid || (sb.st_mode & mask) != 0)
@@ -333,7 +335,7 @@ main(int argc, char **argv)
 {
 	int c, background, unit;
 	int pmin, pmax, rmin, rmax;
-	char base[SOCKPATH_MAX], path[SOCKPATH_MAX];
+	char base[SOCKPATH_MAX], path[SOCKPATH_MAX], *tcpaddr;
 	unsigned int mode, dup, mmc, vol;
 	unsigned int hold, autovol, bufsz, round, rate;
 	const char *str;
@@ -363,25 +365,24 @@ main(int argc, char **argv)
 	rmax = 1;
 	aparams_init(&par);
 	mode = MODE_PLAY | MODE_REC;
+	tcpaddr = NULL;
 
 	setsig();
 	filelist_init();
 
-	while ((c = getopt(argc, argv, "a:b:c:C:de:f:j:L:m:Mq:r:s:t:U:v:w:x:z:")) != -1) {
+	while ((c = getopt(argc, argv, "a:b:c:C:de:f:j:L:m:q:r:s:t:U:v:w:x:z:")) != -1) {
 		switch (c) {
 		case 'd':
 			log_level++;
 			background = 0;
 			break;
 		case 'U':
-			if (listen_list)
-				errx(1, "-U must come before -L");
 			unit = strtonum(optarg, 0, 15, &str);
 			if (str)
 				errx(1, "%s: unit number is %s", optarg, str);
 			break;
 		case 'L':
-			listen_new_tcp(optarg, AUCAT_PORT + unit);
+			tcpaddr = optarg;
 			break;
 		case 'm':
 			mode = opt_mode();
@@ -443,9 +444,6 @@ main(int argc, char **argv)
 		case 'f':
 			mkdev(optarg, &par, 0, bufsz, round, rate, hold, autovol);
 			break;
-		case 'M':
-			/* XXX: for compatibility with aucat, remove this */
-			break;
 		default:
 			fputs(usagestr, stderr);
 			return 1;
@@ -468,6 +466,13 @@ main(int argc, char **argv)
 	getbasepath(base, sizeof(base));
 	snprintf(path, SOCKPATH_MAX, "%s/" SOCKPATH_FILE "%u", base, unit);
 	listen_new_un(path);
+	if (tcpaddr) {
+#ifdef USE_TCP
+		listen_new_tcp(tcpaddr, AUCAT_PORT + unit);
+#else
+		errx(1, "-L option disabled at compilation time");
+#endif
+	}
 	if (geteuid() == 0)
 		privdrop();
 	midi_init();

@@ -1,4 +1,4 @@
-/*	$OpenBSD: fdisk.c,v 1.87 2015/11/14 17:42:31 krw Exp $	*/
+/*	$OpenBSD: fdisk.c,v 1.94 2015/11/19 17:52:56 krw Exp $	*/
 
 /*
  * Copyright (c) 1997 Tobias Weingartner
@@ -19,13 +19,14 @@
 #include <sys/types.h>
 #include <sys/fcntl.h>
 #include <sys/disklabel.h>
+
+#include <err.h>
+#include <paths.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <paths.h>
-#include <stdint.h>
-#include <err.h>
 
 #include "disk.h"
 #include "part.h"
@@ -41,7 +42,6 @@ static unsigned char builtin_mbr[] = {
 };
 
 u_int32_t b_arg;
-int	g_flag;
 int	y_flag;
 
 static void
@@ -66,13 +66,12 @@ usage(void)
 	exit(1);
 }
 
-
 int
 main(int argc, char *argv[])
 {
 	ssize_t len;
 	int ch, fd, error;
-	int i_flag = 0, e_flag = 0, f_flag = 0, u_flag = 0;
+	int e_flag = 0, f_flag = 0, g_flag = 0, i_flag = 0, u_flag = 0;
 	int c_arg = 0, h_arg = 0, s_arg = 0;
 	u_int32_t l_arg = 0;
 	char *query;
@@ -82,6 +81,11 @@ main(int argc, char *argv[])
 	char *mbrfile = NULL;
 #endif
 	struct dos_mbr dos_mbr;
+	struct mbr mbr;
+
+	/* "proc exec" for man page display */
+	if (pledge("stdio rpath wpath disklabel proc exec", NULL) == -1)
+		err(1, "pledge");
 
 	while ((ch = getopt(argc, argv, "ieguf:c:h:s:l:b:y")) != -1) {
 		const char *errstr;
@@ -161,10 +165,16 @@ main(int argc, char *argv[])
 	disk.name = argv[0];
 	DISK_open();
 
+	error = MBR_read(0, &dos_mbr);
+	if (error)
+		errx(1, "Can't read sector 0!");
+	MBR_parse(&dos_mbr, 0, 0, &mbr);
+
 	/* Get the GPT if present. */
-	if (GPT_get_gpt()) {
-		memset(&gh, 0, sizeof(gh));
-		memset(&gp, 0, sizeof(gp));
+	if (MBR_protective_mbr(&mbr) == 0)
+		GPT_get_gpt();
+
+	if (letoh64(gh.gh_sig) != GPTSIGNATURE) {
 		if (DL_GETDSIZE(&dl) > disk.size)
 			warnx("disk too large (%llu sectors). size truncated.",
 			    (unsigned long long)DL_GETDSIZE(&dl));
@@ -178,36 +188,25 @@ main(int argc, char *argv[])
 	}
 
 	/* Create initial/default MBR. */
-	if (i_flag == 0) {
-		error = MBR_read(0, &dos_mbr);
-		if (error)
-			errx(1, "Can't read sector 0!");
-		MBR_parse(&dos_mbr, 0, 0, &initial_mbr);
-	}
-
-	if (mbrfile != NULL && (fd = open(mbrfile, O_RDONLY)) == -1) {
-		warn("%s", mbrfile);
-		warnx("using builtin MBR");
-		memset(&initial_mbr, 0, sizeof(initial_mbr));
-		mbrfile = NULL;
-	}
 	if (mbrfile == NULL) {
-		if (MBR_protective_mbr(&initial_mbr) != 0) {
-			memcpy(&dos_mbr, builtin_mbr, sizeof(dos_mbr));
-		}
+		memcpy(&dos_mbr, builtin_mbr, sizeof(dos_mbr));
 	} else {
-		len = read(fd, &dos_mbr, sizeof(dos_mbr));
-		if (len == -1)
-			err(1, "Unable to read MBR from '%s'", mbrfile);
-		else if (len != sizeof(dos_mbr))
-			errx(1, "Unable to read complete MBR from '%s'",
-			    mbrfile);
-		close(fd);
+		fd = open(mbrfile, O_RDONLY);
+		if (fd == -1) {
+			warn("%s", mbrfile);
+			warnx("using builtin MBR");
+			memcpy(&dos_mbr, builtin_mbr, sizeof(dos_mbr));
+		} else {
+			len = read(fd, &dos_mbr, sizeof(dos_mbr));
+			close(fd);
+			if (len == -1)
+				err(1, "Unable to read MBR from '%s'", mbrfile);
+			else if (len != sizeof(dos_mbr))
+				errx(1, "Unable to read complete MBR from '%s'",
+				    mbrfile);
+		}
 	}
-	if (f_flag || MBR_protective_mbr(&initial_mbr) != 0)  {
-		memset(&gh, 0, sizeof(struct gpt_header));
-		MBR_parse(&dos_mbr, 0, 0, &initial_mbr);
-	}
+	MBR_parse(&dos_mbr, 0, 0, &initial_mbr);
 
 	query = NULL;
 	if (i_flag) {
@@ -221,7 +220,7 @@ main(int argc, char *argv[])
 			    "partition table?";
 		}
 	} else if (u_flag) {
-		MBR_pcopy(&initial_mbr);
+		memcpy(initial_mbr.part, mbr.part, sizeof(initial_mbr.part));
 		query = "Do you wish to write new MBR?";
 	}
 	if (query && ask_yn(query))

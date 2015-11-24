@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_vmx.c,v 1.34 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_vmx.c,v 1.38 2015/11/24 13:45:06 mpi Exp $	*/
 
 /*
  * Copyright (c) 2013 Tsubai Masanari
@@ -17,7 +17,6 @@
  */
 
 #include "bpfilter.h"
-#include "vlan.h"
 
 #include <sys/param.h>
 #include <sys/device.h>
@@ -25,12 +24,11 @@
 #include <sys/socket.h>
 #include <sys/sockio.h>
 #include <sys/systm.h>
+#include <sys/atomic.h>
 
 #include <net/bpf.h>
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>

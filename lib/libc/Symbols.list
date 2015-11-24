@@ -645,8 +645,10 @@ getprogname
 getpwent
 getpwnam
 getpwnam_r
+getpwnam_shadow
 getpwuid
 getpwuid_r
+getpwuid_shadow
 getttyent
 getttynam
 getusershell
@@ -935,8 +937,6 @@ __mb_cur_max
 __mb_len_max_runtime
 __mlocale_changed
 __nlocale_changed
-_towctrans_ext
-_wctrans_init
 btowc
 iswalnum
 iswalpha
@@ -1457,6 +1457,17 @@ hcreate
 hdestroy
 heapsort
 hsearch
+icdb_new
+icdb_open
+icdb_lookup
+icdb_get
+icdb_nentries
+icdb_entries
+icdb_update
+icdb_add
+icdb_rehash
+icdb_save
+icdb_close
 imaxabs
 imaxdiv
 initstate

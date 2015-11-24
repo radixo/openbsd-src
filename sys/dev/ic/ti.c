@@ -1,4 +1,4 @@
-/*	$OpenBSD: ti.c,v 1.18 2015/10/25 12:48:46 mpi Exp $	*/
+/*	$OpenBSD: ti.c,v 1.20 2015/11/20 03:35:22 dlg Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998, 1999
@@ -85,7 +85,6 @@
 #include <sys/queue.h>
 
 #include <net/if.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -1961,7 +1960,7 @@ ti_start(struct ifnet *ifp)
 	prodidx = sc->ti_tx_saved_prodidx;
 
 	while(sc->ti_cdata.ti_tx_chain[prodidx] == NULL) {
-		IFQ_POLL(&ifp->if_snd, m_head);
+		m_head = ifq_deq_begin(&ifp->if_snd);
 		if (m_head == NULL)
 			break;
 
@@ -1976,12 +1975,13 @@ ti_start(struct ifnet *ifp)
 			error = ti_encap_tigon2(sc, m_head, &prodidx);
 
 		if (error) {
+			ifq_deq_rollback(&ifp->if_snd, m_head);
 			ifp->if_flags |= IFF_OACTIVE;
 			break;
 		}
 
 		/* now we are committed to transmit the packet */
-		IFQ_DEQUEUE(&ifp->if_snd, m_head);
+		ifq_deq_commit(&ifp->if_snd, m_head);
 		pkts++;
 
 		/*

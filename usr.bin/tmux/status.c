@@ -1,4 +1,4 @@
-/* $OpenBSD: status.c,v 1.139 2015/11/12 11:09:11 nicm Exp $ */
+/* $OpenBSD: status.c,v 1.142 2015/11/20 12:01:19 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -145,7 +145,7 @@ status_prompt_save_history(void)
 
 /* Status timer callback. */
 void
-status_timer_callback(unused int fd, unused short events, void *arg)
+status_timer_callback(__unused int fd, __unused short events, void *arg)
 {
 	struct client	*c = arg;
 	struct session	*s = c->session;
@@ -574,13 +574,15 @@ status_message_set(struct client *c, const char *fmt, ...)
 	}
 
 	delay = options_get_number(c->session->options, "display-time");
-	tv.tv_sec = delay / 1000;
-	tv.tv_usec = (delay % 1000) * 1000L;
+	if (delay > 0) {
+		tv.tv_sec = delay / 1000;
+		tv.tv_usec = (delay % 1000) * 1000L;
 
-	if (event_initialized(&c->message_timer))
-		evtimer_del(&c->message_timer);
-	evtimer_set(&c->message_timer, status_message_callback, c);
-	evtimer_add(&c->message_timer, &tv);
+		if (event_initialized(&c->message_timer))
+			evtimer_del(&c->message_timer);
+		evtimer_set(&c->message_timer, status_message_callback, c);
+		evtimer_add(&c->message_timer, &tv);
+	}
 
 	c->tty.flags |= (TTY_NOCURSOR|TTY_FREEZE);
 	c->flags |= CLIENT_STATUS;
@@ -604,7 +606,7 @@ status_message_clear(struct client *c)
 
 /* Clear status line message after timer expires. */
 void
-status_message_callback(unused int fd, unused short event, void *data)
+status_message_callback(__unused int fd, __unused short event, void *data)
 {
 	struct client	*c = data;
 
@@ -1205,19 +1207,7 @@ status_prompt_complete_list(u_int *size, const char *s)
 			list[(*size)++] = (*cmdent)->name;
 		}
 	}
-	for (oe = server_options_table; oe->name != NULL; oe++) {
-		if (strncmp(oe->name, s, strlen(s)) == 0) {
-			list = xreallocarray(list, (*size) + 1, sizeof *list);
-			list[(*size)++] = oe->name;
-		}
-	}
-	for (oe = session_options_table; oe->name != NULL; oe++) {
-		if (strncmp(oe->name, s, strlen(s)) == 0) {
-			list = xreallocarray(list, (*size) + 1, sizeof *list);
-			list[(*size)++] = oe->name;
-		}
-	}
-	for (oe = window_options_table; oe->name != NULL; oe++) {
+	for (oe = options_table; oe->name != NULL; oe++) {
 		if (strncmp(oe->name, s, strlen(s)) == 0) {
 			list = xreallocarray(list, (*size) + 1, sizeof *list);
 			list[(*size)++] = oe->name;

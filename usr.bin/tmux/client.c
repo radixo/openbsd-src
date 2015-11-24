@@ -1,4 +1,4 @@
-/* $OpenBSD: client.c,v 1.103 2015/10/31 13:43:38 nicm Exp $ */
+/* $OpenBSD: client.c,v 1.105 2015/11/15 14:32:48 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -289,7 +289,7 @@ client_main(struct event_base *base, int argc, char **argv, int flags)
 	 *
 	 * "sendfd" is dropped later in client_dispatch_wait().
 	 */
-	if (0 && pledge("stdio unix sendfd proc exec tty", NULL) != 0)
+	if (pledge("stdio unix sendfd proc exec tty", NULL) != 0)
 		fatal("pledge failed");
 
 	/* Free stuff that is not used in the client. */
@@ -410,7 +410,8 @@ client_send_identify(const char *ttynam, const char *cwd)
 
 /* Callback for client stdin read events. */
 void
-client_stdin_callback(unused int fd, unused short events, unused void *arg)
+client_stdin_callback(__unused int fd, __unused short events,
+    __unused void *arg)
 {
 	struct msg_stdin_data	data;
 
@@ -512,7 +513,7 @@ client_signal(int sig)
 
 /* Callback for client read events. */
 void
-client_dispatch(struct imsg *imsg, unused void *arg)
+client_dispatch(struct imsg *imsg, __unused void *arg)
 {
 	if (imsg == NULL) {
 		client_exitreason = CLIENT_EXIT_LOST_SERVER;
@@ -541,7 +542,7 @@ client_dispatch_wait(struct imsg *imsg)
 	 * get the first message from the server.
 	 */
 	if (!pledge_applied) {
-		if (0 && pledge("stdio unix proc exec tty", NULL) != 0)
+		if (pledge("stdio unix proc exec tty", NULL) != 0)
 			fatal("pledge failed");
 		pledge_applied = 1;
 	};
