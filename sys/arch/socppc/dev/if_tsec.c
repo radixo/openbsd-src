@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_tsec.c,v 1.38 2015/10/25 13:22:09 mpi Exp $	*/
+/*	$OpenBSD: if_tsec.c,v 1.40 2015/11/20 03:35:22 dlg Exp $	*/
 
 /*
  * Copyright (c) 2008 Mark Kettenis
@@ -38,7 +38,6 @@
 
 #include <net/if.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <dev/ofw/openfirm.h>
 
@@ -527,24 +526,25 @@ tsec_start(struct ifnet *ifp)
 
 	idx = sc->sc_tx_prod;
 	while ((sc->sc_txdesc[idx].td_status & TSEC_TX_TO1) == 0) {
-		IFQ_POLL(&ifp->if_snd, m);
+		m = ifq_deq_begin(&ifp->if_snd);
 		if (m == NULL)
 			break;
 
 		error = tsec_encap(sc, m, &idx);
 		if (error == ENOBUFS) {
+			ifq_deq_rollback(&ifp->if_snd, m);
 			ifp->if_flags |= IFF_OACTIVE;
 			break;
 		} 
 		if (error == EFBIG) {
-			IFQ_DEQUEUE(&ifp->if_snd, m);
+			ifq_deq_commit(&ifp->if_snd, m);
 			m_freem(m); /* give up: drop it */
 			ifp->if_oerrors++;
 			continue;
 		}
 
 		/* Now we are committed to transmit the packet. */
-		IFQ_DEQUEUE(&ifp->if_snd, m);
+		ifq_deq_commit(&ifp->if_snd, m);
 
 #if NBPFILTER > 0
 		if (ifp->if_bpf)

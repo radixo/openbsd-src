@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_sq.c,v 1.17 2015/09/18 20:50:02 miod Exp $	*/
+/*	$OpenBSD: if_sq.c,v 1.20 2015/11/21 00:59:25 dlg Exp $	*/
 /*	$NetBSD: if_sq.c,v 1.42 2011/07/01 18:53:47 dyoung Exp $	*/
 
 /*
@@ -52,7 +52,6 @@
 #include <net/if.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #if NBPFILTER > 0
 #include <net/bpf.h>
@@ -671,7 +670,7 @@ sq_start(struct ifnet *ifp)
 		/*
 		 * Grab a packet off the queue.
 		 */
-		IFQ_POLL(&ifp->if_snd, m0);
+		m0 = ifq_deq_begin(&ifp->if_snd);
 		if (m0 == NULL)
 			break;
 		m = NULL;
@@ -696,6 +695,7 @@ sq_start(struct ifnet *ifp)
 		    BUS_DMA_NOWAIT) != 0) {
 			MGETHDR(m, M_DONTWAIT, MT_DATA);
 			if (m == NULL) {
+				ifq_deq_rollback(&ifp->if_snd, m0);
 				printf("%s: unable to allocate Tx mbuf\n",
 				    sc->sc_dev.dv_xname);
 				break;
@@ -703,6 +703,7 @@ sq_start(struct ifnet *ifp)
 			if (len > MHLEN) {
 				MCLGET(m, M_DONTWAIT);
 				if ((m->m_flags & M_EXT) == 0) {
+					ifq_deq_rollback(&ifp->if_snd, m0);
 					printf("%s: unable to allocate Tx "
 					    "cluster\n",
 					    sc->sc_dev.dv_xname);
@@ -722,6 +723,7 @@ sq_start(struct ifnet *ifp)
 
 			if ((err = bus_dmamap_load_mbuf(sc->sc_dmat, dmamap,
 			    m, BUS_DMA_NOWAIT)) != 0) {
+				ifq_deq_rollback(&ifp->if_snd, m0);
 				printf("%s: unable to load Tx buffer, "
 				    "error = %d\n",
 				    sc->sc_dev.dv_xname, err);
@@ -734,6 +736,7 @@ sq_start(struct ifnet *ifp)
 		 * the packet.
 		 */
 		if (dmamap->dm_nsegs > sc->sc_nfreetx) {
+			ifq_deq_rollback(&ifp->if_snd, m0);
 			/*
 			 * Not enough free descriptors to transmit this
 			 * packet.  We haven't committed to anything yet,
@@ -751,7 +754,7 @@ sq_start(struct ifnet *ifp)
 			break;
 		}
 
-		IFQ_DEQUEUE(&ifp->if_snd, m0);
+		ifq_deq_commit(&ifp->if_snd, m0);
 #if NBPFILTER > 0
 		/*
 		 * Pass the packet to any BPF listeners.

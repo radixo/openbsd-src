@@ -1,4 +1,4 @@
-/*	$OpenBSD: ifconfig.c,v 1.303 2015/10/23 01:19:04 dlg Exp $	*/
+/*	$OpenBSD: ifconfig.c,v 1.305 2015/11/23 10:33:23 mpi Exp $	*/
 /*	$NetBSD: ifconfig.c,v 1.40 1997/10/01 02:19:43 enami Exp $	*/
 
 /*

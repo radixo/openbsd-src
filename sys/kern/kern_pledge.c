@@ -1,4 +1,4 @@
-/*	$OpenBSD: kern_pledge.c,v 1.108 2015/11/14 07:02:23 deraadt Exp $	*/
+/*	$OpenBSD: kern_pledge.c,v 1.121 2015/11/23 07:23:24 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2015 Nicholas Marriott <nicm@openbsd.org>
@@ -36,6 +36,9 @@
 #include <sys/ioctl.h>
 #include <sys/termios.h>
 #include <sys/tty.h>
+#include <sys/device.h>
+#include <sys/disklabel.h>
+#include <sys/dkio.h>
 #include <sys/mtio.h>
 #include <net/bpf.h>
 #include <net/route.h>
@@ -53,6 +56,9 @@
 #include <sys/syscall.h>
 #include <sys/syscallargs.h>
 #include <sys/systm.h>
+
+#include <dev/biovar.h>
+
 #define PLEDGENAMES
 #include <sys/pledge.h>
 
@@ -114,6 +120,7 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 	[SYS_mprotect] = PLEDGE_STDIO,
 	[SYS_mquery] = PLEDGE_STDIO,
 	[SYS_munmap] = PLEDGE_STDIO,
+	[SYS_msync] = PLEDGE_STDIO,
 	[SYS_break] = PLEDGE_STDIO,
 
 	[SYS_umask] = PLEDGE_STDIO,
@@ -268,6 +275,8 @@ const u_int pledge_syscalls[SYS_MAXSYSCALL] = {
 
 	[SYS_chroot] = PLEDGE_ID,	/* also requires PLEDGE_PROC */
 
+	[SYS_revoke] = PLEDGE_TTY,	/* also requires PLEDGE_RPATH */
+
 	/*
 	 * Classify as RPATH|WPATH, because of path information leakage.
 	 * WPATH due to unknown use of mk*temp(3) on non-/tmp paths..
@@ -317,6 +326,7 @@ static const struct {
 } pledgereq[] = {
 	{ "abort",		0 },	/* XXX reserve for later */
 	{ "cpath",		PLEDGE_CPATH },
+	{ "disklabel",		PLEDGE_DISKLABEL },
 	{ "dns",		PLEDGE_DNS },
 	{ "exec",		PLEDGE_EXEC },
 	{ "fattr",		PLEDGE_FATTR },
@@ -635,8 +645,8 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 			return (0);
 		}
 
-		/* readpassphrase(3), getpw*(3) */
-		if ((p->p_p->ps_pledge & (PLEDGE_TTY | PLEDGE_GETPW)) &&
+		/* readpassphrase(3), getpass(3) */
+		if ((p->p_p->ps_pledge & PLEDGE_TTY) &&
 		    (ni->ni_pledge & ~(PLEDGE_RPATH | PLEDGE_WPATH)) == 0 &&
 		    strcmp(path, "/dev/tty") == 0) {
 			return (0);
@@ -650,6 +660,8 @@ pledge_namei(struct proc *p, struct nameidata *ni, char *origpath)
 			if (strcmp(path, "/etc/pwd.db") == 0)
 				return (0);
 			if (strcmp(path, "/etc/group") == 0)
+				return (0);
+			if (strcmp(path, "/etc/netid") == 0)
 				return (0);
 		}
 
@@ -974,45 +986,70 @@ pledge_sysctl(struct proc *p, int miblen, int *mib, void *new)
 			return (0);
 	}
 
+	if ((p->p_p->ps_pledge & PLEDGE_DISKLABEL)) {
+		if (miblen == 2 &&		/* kern.rawpartition */
+		    mib[0] == CTL_KERN &&
+		    mib[1] == KERN_RAWPARTITION)
+			return (0);
+#ifdef CPU_CHR2BLK
+		if (miblen == 3 &&		/* machdep.chr2blk */
+		    mib[0] == CTL_MACHDEP &&
+		    mib[1] == CPU_CHR2BLK)
+			return (0);
+#endif /* CPU_CHR2BLK */
+	}
+
 	if (miblen >= 3 &&			/* ntpd(8) to read sensors */
 	    mib[0] == CTL_HW && mib[1] == HW_SENSORS)
 		return (0);
 
-	if (miblen == 2 &&			/* getdomainname() */
+	if (miblen == 2 &&		/* getdomainname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_DOMAINNAME)
 		return (0);
-	if (miblen == 2 &&			/* gethostname() */
+	if (miblen == 2 &&		/* gethostname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_HOSTNAME)
 		return (0);
 	if (miblen == 6 &&		/* if_nameindex() */
 	    mib[0] == CTL_NET && mib[1] == PF_ROUTE &&
 	    mib[2] == 0 && mib[3] == 0 && mib[4] == NET_RT_IFNAMES)
 		return (0);
-	if (miblen == 2 &&			/* uname() */
+	if (miblen == 2 &&		/* uname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_OSTYPE)
 		return (0);
-	if (miblen == 2 &&			/* uname() */
+	if (miblen == 2 &&		/* uname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_OSRELEASE)
 		return (0);
-	if (miblen == 2 &&			/* uname() */
+	if (miblen == 2 &&		/* uname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_OSVERSION)
 		return (0);
-	if (miblen == 2 &&			/* uname() */
+	if (miblen == 2 &&		/* uname() */
 	    mib[0] == CTL_KERN && mib[1] == KERN_VERSION)
 		return (0);
-	if (miblen == 2 &&			/* kern.clockrate */
+	if (miblen == 2 &&		/* kern.clockrate */
 	    mib[0] == CTL_KERN && mib[1] == KERN_CLOCKRATE)
 		return (0);
-	if (miblen == 2 &&			/* uname() */
+	if (miblen == 2 &&		/* kern.argmax */
+	    mib[0] == CTL_KERN && mib[1] == KERN_ARGMAX)
+		return (0);
+	if (miblen == 2 &&		/* kern.ngroups */
+	    mib[0] == CTL_KERN && mib[1] == KERN_NGROUPS)
+		return (0);
+	if (miblen == 2 &&		/* kern.sysvshm */
+	    mib[0] == CTL_KERN && mib[1] == KERN_SYSVSHM)
+		return (0);
+	if (miblen == 2 &&		/* kern.posix1version */
+	    mib[0] == CTL_KERN && mib[1] == KERN_POSIX1)
+		return (0);
+	if (miblen == 2 &&		/* uname() */
 	    mib[0] == CTL_HW && mib[1] == HW_MACHINE)
 		return (0);
-	if (miblen == 2 &&			/* getpagesize() */
+	if (miblen == 2 &&		/* getpagesize() */
 	    mib[0] == CTL_HW && mib[1] == HW_PAGESIZE)
 		return (0);
-	if (miblen == 2 &&			/* setproctitle() */
+	if (miblen == 2 &&		/* setproctitle() */
 	    mib[0] == CTL_VM && mib[1] == VM_PSSTRINGS)
 		return (0);
-	if (miblen == 2 &&			/* hw.ncpu */
+	if (miblen == 2 &&		/* hw.ncpu */
 	    mib[0] == CTL_HW && mib[1] == HW_NCPU)
 		return (0);
 	if (miblen == 2 &&		/* kern.loadavg / getloadavg(3) */
@@ -1121,6 +1158,30 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 		}
 	}
 
+	if ((p->p_p->ps_pledge & PLEDGE_DISKLABEL)) {
+		switch (com) {
+		case DIOCGDINFO:
+		case DIOCGPDINFO:
+		case DIOCRLDINFO:
+		case DIOCWDINFO:
+		case BIOCINQ:
+		case BIOCVOL:
+			if (fp->f_type == DTYPE_VNODE &&
+			    ((vp->v_type == VCHR &&
+			    cdevsw[major(vp->v_rdev)].d_type == D_DISK) ||
+			    (vp->v_type == VBLK &&
+			    bdevsw[major(vp->v_rdev)].d_type == D_DISK)))
+				return (0);
+			break;
+		case DIOCMAP:
+			if (fp->f_type == DTYPE_VNODE &&
+			    vp->v_type == VCHR &&
+			    cdevsw[major(vp->v_rdev)].d_ioctl == diskmapioctl)
+				return (0);
+			break;
+		}
+	}
+
 	if ((p->p_p->ps_pledge & PLEDGE_TTY)) {
 		switch (com) {
 #if NPTY > 0
@@ -1151,6 +1212,7 @@ pledge_ioctl(struct proc *p, long com, struct file *fp)
 				return (0);
 			return (ENOTTY);
 		case TIOCSWINSZ:
+		case TIOCEXT:		/* mail, libedit .. */
 		case TIOCCBRK:		/* cu */
 		case TIOCSBRK:		/* cu */
 		case TIOCCDTR:		/* cu */
@@ -1302,16 +1364,34 @@ pledge_sockopt(struct proc *p, int set, int level, int optname)
 }
 
 int
-pledge_socket(struct proc *p, int dns)
+pledge_socket(struct proc *p, int domain, int state)
 {
-	if ((p->p_p->ps_flags & PS_PLEDGE) == 0)
-		return (0);
+	if (! ISSET(p->p_p->ps_flags, PS_PLEDGE))
+		return 0;
 
-	if (dns && (p->p_p->ps_pledge & PLEDGE_DNS))
+	if (ISSET(state, SS_DNS)) {
+		if (ISSET(p->p_p->ps_pledge, PLEDGE_DNS))
+			return 0;
+		return pledge_fail(p, EPERM, PLEDGE_DNS);
+	}
+
+	switch (domain) {
+	case -1:		/* accept on any domain */
 		return (0);
-	if ((p->p_p->ps_pledge & (PLEDGE_INET|PLEDGE_UNIX|PLEDGE_YPACTIVE)))
-		return (0);
-	return pledge_fail(p, EPERM, dns ? PLEDGE_DNS : PLEDGE_INET);
+	case AF_INET:
+	case AF_INET6:
+		if (ISSET(p->p_p->ps_pledge, PLEDGE_INET) ||
+		    ISSET(p->p_p->ps_pledge, PLEDGE_YPACTIVE))
+			return 0;
+		return pledge_fail(p, EPERM, PLEDGE_INET);
+
+	case AF_UNIX:
+		if (ISSET(p->p_p->ps_pledge, PLEDGE_UNIX))
+			return 0;
+		return pledge_fail(p, EPERM, PLEDGE_UNIX);
+	}
+
+	return pledge_fail(p, EINVAL, PLEDGE_INET);
 }
 
 int

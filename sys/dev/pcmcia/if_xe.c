@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_xe.c,v 1.52 2015/07/08 07:21:50 mpi Exp $	*/
+/*	$OpenBSD: if_xe.c,v 1.54 2015/11/20 03:35:23 dlg Exp $	*/
 
 /*
  * Copyright (c) 1999 Niklas Hallqvist, Brandon Creighton, Job de Haas
@@ -58,7 +58,6 @@
 
 #include <net/if.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -1090,7 +1089,7 @@ xe_start(ifp)
 		return;
 
 	/* Peek at the next packet. */
-	IFQ_POLL(&ifp->if_snd, m0);
+	m0 = ifq_deq_begin(&ifp->if_snd);
 	if (m0 == NULL)
 		return;
 
@@ -1107,13 +1106,14 @@ xe_start(ifp)
 	PAGE(sc, 0);
 	space = bus_space_read_2(bst, bsh, offset + TSO0) & 0x7fff;
 	if (len + pad + 2 > space) {
+		ifq_deq_rollback(&ifp->if_snd, m0);
 		DPRINTF(XED_FIFO,
 		    ("%s: not enough space in output FIFO (%d > %d)\n",
 		    sc->sc_dev.dv_xname, len + pad + 2, space));
 		return;
 	}
 
-	IFQ_DEQUEUE(&ifp->if_snd, m0);
+	ifq_deq_commit(&ifp->if_snd, m0);
 
 #if NBPFILTER > 0
 	if (ifp->if_bpf)

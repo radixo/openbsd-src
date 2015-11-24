@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.25 2014/11/19 03:42:40 bentley Exp $	*/
+/*	$OpenBSD: main.c,v 1.29 2015/11/19 19:30:44 bentley Exp $	*/
 
 /*-
  * Copyright (c) 1992, 1993, 1994
@@ -54,6 +54,11 @@ editor(GS *gp, int argc, char *argv[])
 	u_int flags;
 	int ch, flagchk, lflag, secure, startup, readonly, rval, silent;
 	char *tag_f, *wsizearg, path[256];
+
+	if (pledge("stdio rpath wpath cpath fattr flock getpw tty proc exec", NULL) == -1) {
+		perror("pledge");
+		goto err;
+	}
 
 	static const char *optstr[3] = {
 #ifdef DEBUG
@@ -217,6 +222,12 @@ editor(GS *gp, int argc, char *argv[])
 		}
 	argc -= optind;
 	argv += optind;
+
+	if (secure)
+		if (pledge("stdio rpath wpath cpath fattr flock getpw tty", NULL) == -1) {
+			perror("pledge");
+			goto err;
+		}
 
 	/*
 	 * -s option is only meaningful to ex.

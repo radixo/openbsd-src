@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_iwi.c,v 1.126 2015/09/01 07:09:55 deraadt Exp $	*/
+/*	$OpenBSD: if_iwi.c,v 1.129 2015/11/24 13:33:17 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2004-2008
@@ -45,10 +45,8 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_arp.h>
 #include <net/if_dl.h>
 #include <net/if_media.h>
-#include <net/if_types.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -1389,15 +1387,15 @@ iwi_start(struct ifnet *ifp)
 		return;
 
 	for (;;) {
-		IFQ_POLL(&ifp->if_snd, m0);
-		if (m0 == NULL)
-			break;
-
-		if (sc->txq[0].queued >= IWI_TX_RING_COUNT - 8) {
+		if (sc->txq[0].queued + IWI_MAX_NSEG + 2 >= IWI_TX_RING_COUNT) {
 			ifp->if_flags |= IFF_OACTIVE;
 			break;
 		}
+
 		IFQ_DEQUEUE(&ifp->if_snd, m0);
+		if (m0 == NULL)
+			break;
+
 #if NBPFILTER > 0
 		if (ifp->if_bpf != NULL)
 			bpf_mtap(ifp->if_bpf, m0, BPF_DIRECTION_OUT);
