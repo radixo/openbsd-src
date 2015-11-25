@@ -1,4 +1,4 @@
-/* $OpenBSD: server.c,v 1.150 2015/11/18 14:27:44 nicm Exp $ */
+/* $OpenBSD: server.c,v 1.153 2015/11/24 21:52:06 nicm Exp $ */
 
 /*
  * Copyright (c) 2007 Nicholas Marriott <nicm@users.sourceforge.net>
@@ -173,7 +173,7 @@ server_start(struct event_base *base, int lockfd, char *lockfile)
 	}
 	close(pair[0]);
 
-	if (debug_level > 3)
+	if (log_get_level() > 3)
 		tty_create_log();
 	if (pledge("stdio rpath wpath cpath fattr unix getpw recvfd proc exec "
 	    "tty ps", NULL) != 0)
@@ -187,7 +187,7 @@ server_start(struct event_base *base, int lockfd, char *lockfile)
 	mode_key_init_trees();
 	key_bindings_init();
 
-	start_time = time(NULL);
+	gettimeofday(&start_time, NULL);
 
 	server_fd = server_create_socket();
 	if (server_fd == -1)
@@ -195,9 +195,11 @@ server_start(struct event_base *base, int lockfd, char *lockfile)
 	server_update_socket();
 	server_client_create(pair[1]);
 
-	unlink(lockfile);
-	free(lockfile);
-	close(lockfd);
+	if (lockfd >= 0) {
+		unlink(lockfile);
+		free(lockfile);
+		close(lockfd);
+	}
 
 	start_cfg();
 
