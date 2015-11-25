@@ -167,7 +167,7 @@ ffs_wapbl_sync_metadata(struct mount *mp, daddr_t *deallocblks,
 	ufs_wapbl_verify_inodes(mp, "ffs_wapbl_sync_metadata");
 #endif
 
-	for (i = 0; i< dealloccnt; i++) {
+	for (i = 0; i < dealloccnt; i++) {
 		/*
 		 * blkfree errors are unreported, might silently fail
 		 * if it cannot read the cylinder group block
