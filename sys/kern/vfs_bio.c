@@ -77,7 +77,6 @@ void buf_put(struct buf *);
 struct buf *bio_doread(struct vnode *, daddr_t, int, int);
 struct buf *buf_get(struct vnode *, daddr_t, size_t);
 void bread_cluster_callback(struct buf *);
-static inline int injournal(struct buf *);
 
 struct bcachestats bcstats;  /* counters */
 long lodirtypages;      /* dirty page count low water mark */
@@ -559,7 +558,7 @@ bwrite(struct buf *bp)
 	/*
 	 * If using WAPBL, convert it to a delayed write 
 	 */
-	if (mp && mp->mnt_wapbl && injournal(bp)) {
+	if (mp && mp->mnt_wapbl) {
 		if (bp->b_iodone != mp->mnt_wapbl_op->wo_wapbl_biodone) {
 			bdwrite(bp);
 			return 0;
@@ -640,21 +639,6 @@ bwrite(struct buf *bp)
 }
 
 /*
- * Consider a buffer for an entry in the (WAPBL) journal. We do not want to log
- * regular data blocks.
- */
-static inline int
-injournal(struct buf *bp)
-{
-	struct vnode *vp = bp->b_vp;
-
-	if (wapbl_vphaswapbl(vp) && (vp->v_type != VREG || bp->b_lblkno < 0))
-		return (1);
-
-	return (0);
-}
-
-/*
  * Delayed write.
  *
  * The buffer is marked dirty, but is not queued for I/O.
@@ -679,7 +663,7 @@ bdwrite(struct buf *bp)
 		return;
 	}
 
-	if (injournal(bp)) {
+	if (wapbl_vphaswapbl(bp->b_vp)) {
 		struct mount *mp = wapbl_vptomp(bp->b_vp);
 
 		if (bp->b_iodone != mp->mnt_wapbl_op->wo_wapbl_biodone)
@@ -1273,7 +1257,7 @@ buf_adjcnt(struct buf *bp, long ncount)
 	KASSERT(ncount <= bp->b_bufsize);
 	long ocount = bp->b_bcount;
 	bp->b_bcount = ncount;
-	if (injournal(bp))
+	if (wapbl_vphaswapbl(bp->b_vp))
 		WAPBL_RESIZE_BUF(wapbl_vptomp(bp->b_vp), bp, bp->b_bufsize,
 		    ocount);
 }
