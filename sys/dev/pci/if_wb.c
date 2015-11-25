@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_wb.c,v 1.63 2015/10/25 13:04:28 mpi Exp $	*/
+/*	$OpenBSD: if_wb.c,v 1.65 2015/11/24 17:11:39 mpi Exp $	*/
 
 /*
  * Copyright (c) 1997, 1998
@@ -99,7 +99,6 @@
 #include <sys/timeout.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 
 #include <netinet/in.h>
 #include <netinet/if_ether.h>
@@ -1066,7 +1065,7 @@ void wb_txeoc(sc)
 	ifp->if_timer = 0;
 
 	if (sc->wb_cdata.wb_tx_head == NULL) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		sc->wb_cdata.wb_tx_tail = NULL;
 	} else {
 		if (WB_TXOWN(sc->wb_cdata.wb_tx_head) == WB_UNSENT) {
@@ -1286,7 +1285,7 @@ void wb_start(ifp)
 	 * punt.
 	 */
 	if (sc->wb_cdata.wb_tx_free->wb_mbuf != NULL) {
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 		return;
 	}
 
@@ -1469,7 +1468,7 @@ void wb_init(xsc)
 	WB_SETBIT(sc, WB_NETCFG, WB_NETCFG_TX_ON);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	splx(s);
 
@@ -1594,7 +1593,8 @@ void wb_stop(sc)
 
 	timeout_del(&sc->wb_tick_tmo);
 
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	WB_CLRBIT(sc, WB_NETCFG, (WB_NETCFG_RX_ON|WB_NETCFG_TX_ON));
 	CSR_WRITE_4(sc, WB_IMR, 0x00000000);

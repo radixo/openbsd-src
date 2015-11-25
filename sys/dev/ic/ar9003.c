@@ -1,4 +1,4 @@
-/*	$OpenBSD: ar9003.c,v 1.35 2015/11/24 13:33:17 mpi Exp $	*/
+/*	$OpenBSD: ar9003.c,v 1.37 2015/11/24 17:11:39 mpi Exp $	*/
 
 /*-
  * Copyright (c) 2010 Damien Bergamini <damien.bergamini@free.fr>
@@ -44,7 +44,6 @@
 #include <net/bpf.h>
 #endif
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #include <netinet/in.h>
@@ -1165,7 +1164,7 @@ ar9003_tx_intr(struct athn_softc *sc)
 	while (ar9003_tx_process(sc) == 0);
 
 	if (!SIMPLEQ_EMPTY(&sc->txbufs)) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		ifp->if_start(ifp);
 	}
 }

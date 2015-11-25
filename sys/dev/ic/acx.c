@@ -1,4 +1,4 @@
-/*	$OpenBSD: acx.c,v 1.114 2015/11/04 12:11:59 dlg Exp $ */
+/*	$OpenBSD: acx.c,v 1.116 2015/11/24 17:11:39 mpi Exp $ */
 
 /*
  * Copyright (c) 2006 Jonathan Gray <jsg@openbsd.org>
@@ -104,7 +104,6 @@
 #include <machine/intr.h>
 
 #include <net/if.h>
-#include <net/if_dl.h>
 #include <net/if_media.h>
 
 #if NBPFILTER > 0
@@ -478,7 +477,7 @@ acx_init(struct ifnet *ifp)
 	acx_enable_intr(sc);
 
 	ifp->if_flags |= IFF_RUNNING;
-	ifp->if_flags &= ~IFF_OACTIVE;
+	ifq_clr_oactive(&ifp->if_snd);
 
 	if (ic->ic_opmode != IEEE80211_M_MONITOR)
 		/* start background scanning */
@@ -611,7 +610,8 @@ acx_stop(struct acx_softc *sc)
 
 	sc->sc_txtimer = 0;
 	ifp->if_timer = 0;
-	ifp->if_flags &= ~(IFF_RUNNING | IFF_OACTIVE);
+	ifp->if_flags &= ~IFF_RUNNING;
+	ifq_clr_oactive(&ifp->if_snd);
 	ieee80211_new_state(&sc->sc_ic, IEEE80211_S_INIT, -1);
 
 	/* disable card if possible */
@@ -911,7 +911,7 @@ acx_start(struct ifnet *ifp)
 
 	if ((sc->sc_flags & ACX_FLAG_FW_LOADED) == 0 ||
 	    (ifp->if_flags & IFF_RUNNING) == 0 ||
-	    (ifp->if_flags & IFF_OACTIVE))
+	    ifq_is_oactive(&ifp->if_snd))
 		return;
 
 	/*
@@ -1067,7 +1067,7 @@ encapped:
 	bd->tx_free_start = idx;
 
 	if (bd->tx_used_count == ACX_TX_DESC_CNT)
-		ifp->if_flags |= IFF_OACTIVE;
+		ifq_set_oactive(&ifp->if_snd);
 
 	if (trans && sc->sc_txtimer == 0)
 		sc->sc_txtimer = 5;
@@ -1217,7 +1217,7 @@ acx_txeof(struct acx_softc *sc)
 	sc->sc_txtimer = bd->tx_used_count == 0 ? 0 : 5;
 
 	if (bd->tx_used_count != ACX_TX_DESC_CNT) {
-		ifp->if_flags &= ~IFF_OACTIVE;
+		ifq_clr_oactive(&ifp->if_snd);
 		acx_start(ifp);
 	}
 }
