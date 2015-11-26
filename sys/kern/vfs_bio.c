@@ -1206,6 +1206,13 @@ bcstats_print(
 }
 #endif
 
+void
+buf_adjcnt(struct buf *bp, long ncount)
+{
+	KASSERT(ncount <= bp->b_bufsize);
+	bp->b_bcount = ncount;
+}
+
 /* bufcache freelist code below */
 /*
  * Copyright (c) 2014 Ted Unangst <tedu@openbsd.org>

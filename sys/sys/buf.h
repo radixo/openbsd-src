@@ -292,6 +292,7 @@ void	brelse(struct buf *);
 void	bufinit(void);
 void	buf_dirty(struct buf *);
 void    buf_undirty(struct buf *);
+void	buf_adjcnt(struct buf *, long);
 int	bwrite(struct buf *);
 struct buf *getblk(struct vnode *, daddr_t, int, int, int);
 struct buf *geteblk(int);

@@ -262,7 +262,7 @@ ffs_truncate(struct inode *oip, off_t length, int flags, struct ucred *cred)
 		(void) uvm_vnp_uncache(ovp);
 		if (ovp->v_type != VDIR)
 			memset(bp->b_data + offset, 0, size - offset);
-		bp->b_bcount = size;
+		buf_adjcnt(bp, size);
 		if (aflags & B_SYNC)
 			bwrite(bp);
 		else
