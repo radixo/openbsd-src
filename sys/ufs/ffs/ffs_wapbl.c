@@ -719,7 +719,7 @@ wapbl_allocate_log_file(struct mount *mp, struct vnode *vp,
 
 	error = ufs_alloc(vp, 0, logsize, B_CONTIG, curproc->p_ucred);
 	if (error) {
-		printf("%s: GOP_ALLOC error %d\n", __func__, error);
+		printf("%s: ufs_alloc error %d\n", __func__, error);
 		return error;
 	}
 
