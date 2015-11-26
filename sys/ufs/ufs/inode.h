@@ -48,6 +48,12 @@
 /*
  * Per-filesystem inode extensions.
  */
+struct ffs_inode_ext {
+	/* follow two fields are used by contiguous allocation code only. */
+	daddr_t ffs_first_data_blk;     /* first data block on disk. */
+	daddr_t ffs_first_indir_blk;    /* first indirect block on disk. */
+};
+
 struct ext2fs_inode_ext {
 	u_int32_t	ext2fs_last_lblk;	/* last logical blk allocated */
 	u_int32_t	ext2fs_last_blk;	/* last blk allocated on disk */
@@ -102,10 +108,13 @@ struct inode {
 	 */
 	union {
 		/* Other extensions could go here... */
+		struct ffs_inode_ext ffs;
 		struct ext2fs_inode_ext   e2fs;
 		struct dirhash *dirhash;
 	} inode_ext;
 
+#define i_ffs_first_data_blk	inode_ext.ffs.ffs_first_data_blk
+#define i_ffs_first_indir_blk	inode_ext.ffs.ffs_first_indir_blk
 #define i_e2fs_last_lblk	inode_ext.e2fs.ext2fs_last_lblk
 #define i_e2fs_last_blk		inode_ext.e2fs.ext2fs_last_blk
 #define i_e2fs_uid		inode_ext.e2fs.ext2fs_effective_uid
@@ -130,10 +139,10 @@ struct inode {
 };
 
 struct inode_vtbl {
-	int (* iv_truncate)(struct inode *, off_t, int, 
+	int (* iv_truncate)(struct inode *, off_t, int,
 	    struct ucred *);
 	int (* iv_update)(struct inode *, int waitfor);
-	int (* iv_inode_alloc)(struct inode *, mode_t mode, 
+	int (* iv_inode_alloc)(struct inode *, mode_t mode,
 	    struct ucred *, struct vnode **);
 	int (* iv_inode_free)(struct inode *, ufsino_t ino, mode_t mode);
 	int (* iv_buf_alloc)(struct inode *, off_t, int, struct ucred *,
@@ -157,7 +166,7 @@ struct inode_vtbl {
 #define UFS_BUF_ALLOC(ip, startoffset, size, cred, flags, bpp) \
     ((ip)->i_vtbl->iv_buf_alloc)((ip), (startoffset), (size), (cred), \
         (flags), (bpp))
- 
+
 #define UFS_BUFATOFF(ip, offset, res, bpp) \
     ((ip)->i_vtbl->iv_bufatoff)((ip), (offset), (res), (bpp))
 
