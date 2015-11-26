@@ -717,7 +717,7 @@ wapbl_allocate_log_file(struct mount *mp, struct vnode *vp,
 	VTOI(vp)->i_ffs_first_data_blk = addr;
 	VTOI(vp)->i_ffs_first_indir_blk = indir_addr;
 
-	error = ufs_gop_alloc(vp, 0, logsize, B_CONTIG, curproc->p_ucred);
+	error = ufs_alloc(vp, 0, logsize, B_CONTIG, curproc->p_ucred);
 	if (error) {
 		printf("%s: GOP_ALLOC error %d\n", __func__, error);
 		return error;

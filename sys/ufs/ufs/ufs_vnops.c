@@ -2136,7 +2136,7 @@ bad:
  * Allocate len bytes at offset off.
  */
 int
-ufs_gop_alloc(struct vnode *vp, off_t off, off_t len, int flags,
+ufs_alloc(struct vnode *vp, off_t off, off_t len, int flags,
     struct ucred *cred)
 {
         struct inode *ip = VTOI(vp);
