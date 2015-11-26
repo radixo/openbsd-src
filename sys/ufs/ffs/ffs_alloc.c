@@ -63,16 +63,19 @@
 	    (fs)->fs_fsmnt, (cp));				\
 } while (0)
 
-daddr_t		ffs_alloccg(struct inode *, int, daddr_t, int);
+daddr_t		ffs_alloccg(struct inode *, int, daddr_t, int, int);
 struct buf *	ffs_cgread(struct fs *, struct inode *, int);
-daddr_t		ffs_alloccgblk(struct inode *, struct buf *, daddr_t);
-daddr_t		ffs_clusteralloc(struct inode *, int, daddr_t, int);
+daddr_t		ffs_alloccgblk(struct inode *, struct buf *, daddr_t, int);
+daddr_t		ffs_clusteralloc(struct inode *, int, daddr_t, int, int);
 ufsino_t	ffs_dirpref(struct inode *);
 daddr_t		ffs_fragextend(struct inode *, int, daddr_t, int, int);
-daddr_t		ffs_hashalloc(struct inode *, int, daddr_t, int,
-		    daddr_t (*)(struct inode *, int, daddr_t, int));
-daddr_t		ffs_nodealloccg(struct inode *, int, daddr_t, int);
+daddr_t		ffs_hashalloc(struct inode *, int, daddr_t, int, int,
+                    daddr_t (*)(struct inode *, int, daddr_t, int, int));
+daddr_t		ffs_nodealloccg(struct inode *, int, daddr_t, int, int);
 daddr_t		ffs_mapsearch(struct fs *, struct cg *, daddr_t, int);
+void		ffs_blkfree_subr(struct fs *, struct vnode *,
+		    struct inode *, daddr_t bno, long size);
+
 
 int ffs1_reallocblks(void *);
 #ifdef FFS2
@@ -106,7 +109,7 @@ static const struct timeval	fserr_interval = { 2, 0 };
  *      available block is located.
  */
 int
-ffs_alloc(struct inode *ip, daddr_t lbn, daddr_t bpref, int size,
+ffs_alloc(struct inode *ip, daddr_t lbn, daddr_t bpref, int size, int flags,
     struct ucred *cred, daddr_t *bnp)
 {
 	static struct timeval fsfull_last;
@@ -147,7 +150,7 @@ ffs_alloc(struct inode *ip, daddr_t lbn, daddr_t bpref, int size,
 		cg = dtog(fs, bpref);
 
 	/* Try allocating a block. */
-	bno = ffs_hashalloc(ip, cg, bpref, size, ffs_alloccg);
+	bno = ffs_hashalloc(ip, cg, bpref, size, flags, ffs_alloccg);
 	if (bno > 0) {
 		/* allocation successful, update inode data */
 		DIP_ADD(ip, blocks, btodb(size));
@@ -159,6 +162,14 @@ ffs_alloc(struct inode *ip, daddr_t lbn, daddr_t bpref, int size,
 	/* Restore user's disk quota because allocation failed. */
 	(void) ufs_quota_free_blocks(ip, btodb(size), cred);
 
+#ifdef WAPBL
+	if (flags & B_CONTIG) {
+		/*
+		 * Fail silently -- it's up to our caller to report errors.
+		 */
+		return (ENOSPC);
+	}
+#endif /* WAPBL */
 nospace:
 	if (ratecheck(&fsfull_last, &fserr_interval)) {
 		ffs_fserr(fs, cred->cr_uid, "file system full");
@@ -178,7 +189,7 @@ nospace:
  */
 int
 ffs_realloccg(struct inode *ip, daddr_t lbprev, daddr_t bpref, int osize,
-    int nsize, struct ucred *cred, struct buf **bpp, daddr_t *blknop)
+    int nsize, int flags, struct ucred *cred, struct buf **bpp, daddr_t *blknop)
 {
 	static struct timeval fsfull_last;
 	struct fs *fs;
@@ -295,7 +306,7 @@ ffs_realloccg(struct inode *ip, daddr_t lbprev, daddr_t bpref, int osize,
 		panic("ffs_realloccg: bad optim");
 		/* NOTREACHED */
 	}
-	bno = ffs_hashalloc(ip, cg, bpref, request, ffs_alloccg);
+	bno = ffs_hashalloc(ip, cg, bpref, request, flags, ffs_alloccg);
 	if (bno <= 0)
 		goto nospace;
 
@@ -434,7 +445,7 @@ ffs1_reallocblks(void *v)
 	/*
 	 * Find the preferred location for the cluster.
 	 */
-	pref = ffs1_blkpref(ip, start_lbn, soff, sbap);
+	pref = ffs1_blkpref(ip, start_lbn, soff, 0, sbap);
 	/*
 	 * If the block range spans two block maps, get the second map.
 	 */
@@ -454,7 +465,7 @@ ffs1_reallocblks(void *v)
 	/*
 	 * Search the block map looking for an allocation of the desired size.
 	 */
-	if ((newblk = ffs_hashalloc(ip, dtog(fs, pref), pref, len,
+	if ((newblk = ffs_hashalloc(ip, dtog(fs, pref), pref, len, 0,
 	    ffs_clusteralloc)) == 0)
 		goto fail;
 	/*
@@ -660,13 +671,13 @@ ffs2_reallocblks(void *v)
 	/*
 	 * Find the preferred location for the cluster.
 	 */
-	pref = ffs2_blkpref(ip, start_lbn, soff, sbap);
+	pref = ffs2_blkpref(ip, start_lbn, soff, 0, sbap);
 
 	/*
 	 * Search the block map looking for an allocation of the desired size.
 	 */
 	if ((newblk = ffs_hashalloc(ip, dtog(fs, pref), pref,
-	    len, ffs_clusteralloc)) == 0)
+	    len, 0, ffs_clusteralloc)) == 0)
 		goto fail;
 
 	/*
@@ -855,7 +866,7 @@ ffs_inode_alloc(struct inode *pip, mode_t mode, struct ucred *cred,
 		if (fs->fs_contigdirs[cg] > 0)
 			fs->fs_contigdirs[cg]--;
 	}
-	ino = (ufsino_t)ffs_hashalloc(pip, cg, ipref, mode, ffs_nodealloccg);
+	ino = (ufsino_t)ffs_hashalloc(pip, cg, ipref, mode, 0, ffs_nodealloccg);
 	if (ino == 0)
 		goto noinodes;
 	error = VFS_VGET(pvp->v_mount, ino, vpp);
@@ -1060,7 +1071,7 @@ end:
  * allocated.
  */
 int32_t
-ffs1_blkpref(struct inode *ip, daddr_t lbn, int indx, int32_t *bap)
+ffs1_blkpref(struct inode *ip, daddr_t lbn, int indx, int flags, int32_t *bap)
 {
 	struct fs *fs;
 	int cg, inocg, avgbfree, startcg;
@@ -1068,6 +1079,28 @@ ffs1_blkpref(struct inode *ip, daddr_t lbn, int indx, int32_t *bap)
 
 	KASSERT(indx <= 0 || bap != NULL);
 	fs = ip->i_fs;
+
+#ifdef WAPBL
+	/*
+	 * If allocating a contiguous file with B_CONTIG, use the hints
+	 * in the inode extentions to return the desired block.
+	 *
+	 * For metadata (indirect blocks) return the address of where
+	 * the first indirect block resides - we'll scan for the next
+	 * available slot if we need to allocate more than one indirect
+	 * block.  For data, return the address of the actual block
+	 * relative to the address of the first data block.
+	 */
+	if (flags & B_CONTIG) {
+		KASSERT(ip->i_ffs_first_data_blk != 0);
+		KASSERT(ip->i_ffs_first_indir_blk != 0);
+		if (flags & B_METAONLY)
+			return ip->i_ffs_first_indir_blk;
+		else
+			return ip->i_ffs_first_data_blk + blkstofrags(fs, lbn);
+	}
+#endif /* WAPBL */
+	
 	/*
 	 * Allocation of indirect blocks is indicated by passing negative
 	 * values in indx: -1 for single indirect, -2 for double indirect,
@@ -1160,7 +1193,7 @@ ffs1_blkpref(struct inode *ip, daddr_t lbn, int indx, int32_t *bap)
  */
 #ifdef FFS2
 int64_t
-ffs2_blkpref(struct inode *ip, daddr_t lbn, int indx, int64_t *bap)
+ffs2_blkpref(struct inode *ip, daddr_t lbn, int indx, int flags, int64_t *bap)
 {
 	struct fs *fs;
 	int cg, inocg, avgbfree, startcg;
@@ -1168,6 +1201,28 @@ ffs2_blkpref(struct inode *ip, daddr_t lbn, int indx, int64_t *bap)
 
 	KASSERT(indx <= 0 || bap != NULL);
 	fs = ip->i_fs;
+
+#ifdef WAPBL
+	/*
+	 * If allocating a contiguous file with B_CONTIG, use the hints
+	 * in the inode extentions to return the desired block.
+	 *
+	 * For metadata (indirect blocks) return the address of where
+	 * the first indirect block resides - we'll scan for the next
+	 * available slot if we need to allocate more than one indirect
+	 * block.  For data, return the address of the actual block
+	 * relative to the address of the first data block.
+	 */
+	if (flags & B_CONTIG) {
+		KASSERT(ip->i_ffs_first_data_blk != 0);
+		KASSERT(ip->i_ffs_first_indir_blk != 0);
+		if (flags & B_METAONLY)
+			return ip->i_ffs_first_indir_blk;
+		else
+			return ip->i_ffs_first_data_blk + blkstofrags(fs, lbn);
+	}
+#endif /* WAPBL */
+	
 	/*
 	 * Allocation of indirect blocks is indicated by passing negative
 	 * values in indx: -1 for single indirect, -2 for double indirect,
@@ -1267,8 +1322,8 @@ ffs2_blkpref(struct inode *ip, daddr_t lbn, int indx, int64_t *bap)
  *   3) brute force search for a free block.
  */
 daddr_t
-ffs_hashalloc(struct inode *ip, int cg, daddr_t pref, int size,
-    daddr_t (*allocator)(struct inode *, int, daddr_t, int))
+ffs_hashalloc(struct inode *ip, int cg, daddr_t pref, int size, int flags,
+    daddr_t (*allocator)(struct inode *, int, daddr_t, int, int))
 {
 	struct fs *fs;
 	daddr_t result;
@@ -1278,9 +1333,15 @@ ffs_hashalloc(struct inode *ip, int cg, daddr_t pref, int size,
 	/*
 	 * 1: preferred cylinder group
 	 */
-	result = (*allocator)(ip, cg, pref, size);
+	result = (*allocator)(ip, cg, pref, size, flags);
 	if (result)
 		return (result);
+
+#ifdef WAPBL
+	if (flags & B_CONTIG)
+		return (result);
+#endif /* WAPBL */
+	
 	/*
 	 * 2: quadratic rehash
 	 */
@@ -1288,7 +1349,7 @@ ffs_hashalloc(struct inode *ip, int cg, daddr_t pref, int size,
 		cg += i;
 		if (cg >= fs->fs_ncg)
 			cg -= fs->fs_ncg;
-		result = (*allocator)(ip, cg, 0, size);
+		result = (*allocator)(ip, cg, 0, size, flags);
 		if (result)
 			return (result);
 	}
@@ -1299,7 +1360,7 @@ ffs_hashalloc(struct inode *ip, int cg, daddr_t pref, int size,
 	 */
 	cg = (icg + 2) % fs->fs_ncg;
 	for (i = 2; i < fs->fs_ncg; i++) {
-		result = (*allocator)(ip, cg, 0, size);
+		result = (*allocator)(ip, cg, 0, size, flags);
 		if (result)
 			return (result);
 		cg++;
@@ -1398,7 +1459,7 @@ ffs_fragextend(struct inode *ip, int cg, daddr_t bprev, int osize, int nsize)
  * and if it is, allocate it.
  */
 daddr_t
-ffs_alloccg(struct inode *ip, int cg, daddr_t bpref, int size)
+ffs_alloccg(struct inode *ip, int cg, daddr_t bpref, int size, int flags)
 {
 	struct fs *fs;
 	struct cg *cgp;
@@ -1423,7 +1484,7 @@ ffs_alloccg(struct inode *ip, int cg, daddr_t bpref, int size)
 
 	if (size == fs->fs_bsize) {
 		/* allocate and return a complete data block */
-		bno = ffs_alloccgblk(ip, bp, bpref);
+		bno = ffs_alloccgblk(ip, bp, bpref, flags);
 		bdwrite(bp);
 		return (bno);
 	}
@@ -1445,7 +1506,7 @@ ffs_alloccg(struct inode *ip, int cg, daddr_t bpref, int size)
 			brelse(bp);
 			return (0);
 		}
-		bno = ffs_alloccgblk(ip, bp, bpref);
+		bno = ffs_alloccgblk(ip, bp, bpref, flags);
 		bpref = dtogd(fs, bno);
 		for (i = frags; i < fs->fs_frag; i++)
 			setbit(cg_blksfree(cgp), bpref + i);
@@ -1487,7 +1548,7 @@ ffs_alloccg(struct inode *ip, int cg, daddr_t bpref, int size)
  * blocks may be fragmented by the routine that allocates them.
  */
 daddr_t
-ffs_alloccgblk(struct inode *ip, struct buf *bp, daddr_t bpref)
+ffs_alloccgblk(struct inode *ip, struct buf *bp, daddr_t bpref, int flags)
 {
 	struct fs *fs;
 	struct cg *cgp;
@@ -1514,6 +1575,15 @@ ffs_alloccgblk(struct inode *ip, struct buf *bp, daddr_t bpref)
 	bno = dtogd(fs, blknum(fs, bpref));
 	if (ffs_isblock(fs, blksfree, fragstoblks(fs, bno)))
 		goto gotit;
+#ifdef WAPBL
+	/*
+	 * if the requested data block isn't available and we are trying to
+	 * allocate a contiguous file,  return an error.
+	 */
+	if ((flags & (B_CONTIG | B_METAONLY)) == B_CONTIG)
+		return (0);
+#endif /* WAPBL */
+
 	/*
 	 * Take the next available block in this cylinder group.
 	 */
@@ -1556,7 +1626,7 @@ gotit:
  * take the first one that we find following bpref.
  */
 daddr_t
-ffs_clusteralloc(struct inode *ip, int cg, daddr_t bpref, int len)
+ffs_clusteralloc(struct inode *ip, int cg, daddr_t bpref, int len, int flags)
 {
 	struct fs *fs;
 	struct cg *cgp;
@@ -1651,7 +1721,7 @@ ffs_clusteralloc(struct inode *ip, int cg, daddr_t bpref, int len)
 
 	len = blkstofrags(fs, len);
 	for (i = 0; i < len; i += fs->fs_frag)
-		if (ffs_alloccgblk(ip, bp, bno + i) != bno + i)
+		if (ffs_alloccgblk(ip, bp, bno + i, flags) != bno + i)
 			panic("ffs_clusteralloc: lost block");
 	bdwrite(bp);
 	return (bno);
@@ -1663,7 +1733,7 @@ fail:
 
 /* inode allocation routine */
 daddr_t
-ffs_nodealloccg(struct inode *ip, int cg, daddr_t ipref, int mode)
+ffs_nodealloccg(struct inode *ip, int cg, daddr_t ipref, int mode, int flags)
 {
 	struct fs *fs;
 	struct cg *cgp;

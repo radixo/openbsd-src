@@ -48,6 +48,13 @@
 /*
  * Per-filesystem inode extensions.
  */
+struct ffs_inode_ext {
+	daddr_t *ffs_snapblklist;       /* Collect expunged snapshot blocks. */
+	/* follow two fields are used by contiguous allocation code only. */
+	daddr_t ffs_first_data_blk;     /* first data block on disk. */
+	daddr_t ffs_first_indir_blk;    /* first indirect block on disk. */
+};
+
 struct ext2fs_inode_ext {
 	u_int32_t	ext2fs_last_lblk;	/* last logical blk allocated */
 	u_int32_t	ext2fs_last_blk;	/* last blk allocated on disk */
@@ -102,10 +109,13 @@ struct inode {
 	 */
 	union {
 		/* Other extensions could go here... */
+		struct ffs_inode_ext ffs;
 		struct ext2fs_inode_ext   e2fs;
 		struct dirhash *dirhash;
 	} inode_ext;
 
+#define i_ffs_first_data_blk	inode_ext.ffs.ffs_first_data_blk
+#define i_ffs_first_indir_blk	inode_ext.ffs.ffs_first_indir_blk
 #define i_e2fs_last_lblk	inode_ext.e2fs.ext2fs_last_lblk
 #define i_e2fs_last_blk		inode_ext.e2fs.ext2fs_last_blk
 #define i_e2fs_uid		inode_ext.e2fs.ext2fs_effective_uid
