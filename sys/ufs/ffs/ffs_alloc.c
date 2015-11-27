@@ -164,12 +164,14 @@ ffs_alloc(struct inode *ip, daddr_t lbn, daddr_t bpref, int size, int flags,
 	/* Restore user's disk quota because allocation failed. */
 	(void) ufs_quota_free_blocks(ip, btodb(size), cred);
 
+#ifdef WAPBL
 	if (flags & B_CONTIG) {
 		/*
 		 * Fail silently -- it's up to our caller to report errors.
 		 */
 		return (ENOSPC);
 	}
+#endif /* WAPBL */
 nospace:
 	if (ratecheck(&fsfull_last, &fserr_interval)) {
 		ffs_fserr(fs, cred->cr_uid, "file system full");
@@ -1121,6 +1123,7 @@ ffs1_blkpref(struct inode *ip, daddr_t lbn, int indx, int flags, int32_t *bap)
 	KASSERT(indx <= 0 || bap != NULL);
 	fs = ip->i_fs;
 
+#ifdef WAPBL
 	/*
 	 * If allocating a contiguous file with B_CONTIG, use the hints
 	 * in the inode extentions to return the desired block.
@@ -1139,6 +1142,7 @@ ffs1_blkpref(struct inode *ip, daddr_t lbn, int indx, int flags, int32_t *bap)
 		else
 			return ip->i_ffs_first_data_blk + blkstofrags(fs, lbn);
 	}
+#endif /* WAPBL */
 	
 	/*
 	 * Allocation of indirect blocks is indicated by passing negative
@@ -1241,6 +1245,7 @@ ffs2_blkpref(struct inode *ip, daddr_t lbn, int indx, int flags, int64_t *bap)
 	KASSERT(indx <= 0 || bap != NULL);
 	fs = ip->i_fs;
 
+#ifdef WAPBL
 	/*
 	 * If allocating a contiguous file with B_CONTIG, use the hints
 	 * in the inode extentions to return the desired block.
@@ -1259,6 +1264,7 @@ ffs2_blkpref(struct inode *ip, daddr_t lbn, int indx, int flags, int64_t *bap)
 		else
 			return ip->i_ffs_first_data_blk + blkstofrags(fs, lbn);
 	}
+#endif /* WAPBL */
 	
 	/*
 	 * Allocation of indirect blocks is indicated by passing negative
@@ -1374,8 +1380,10 @@ ffs_hashalloc(struct inode *ip, int cg, daddr_t pref, int size, int flags,
 	if (result)
 		return (result);
 
+#ifdef WAPBL
 	if (flags & B_CONTIG)
 		return (result);
+#endif /* WAPBL */
 	
 	/*
 	 * 2: quadratic rehash
@@ -1610,6 +1618,15 @@ ffs_alloccgblk(struct inode *ip, struct buf *bp, daddr_t bpref, int flags)
 	bno = dtogd(fs, blknum(fs, bpref));
 	if (ffs_isblock(fs, blksfree, fragstoblks(fs, bno)))
 		goto gotit;
+#ifdef WAPBL
+	/*
+	 * if the requested data block isn't available and we are trying to
+	 * allocate a contiguous file,  return an error.
+	 */
+	if ((flags & (B_CONTIG | B_METAONLY)) == B_CONTIG)
+		return (0);
+#endif /* WAPBL */
+
 	/*
 	 * if the requested data block isn't available and we are trying to
 	 * allocate a contiguous file,  return an error.

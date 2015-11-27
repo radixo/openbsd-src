@@ -143,11 +143,12 @@ buf_map(struct buf *bp)
 		pmap_update(pmap_kernel());
 		bp->b_data = (caddr_t)va;
 	} else {
-		if (!ISSET(bp->b_flags, B_LOCKED)) {
-			TAILQ_REMOVE(&buf_valist, bp, b_valist);
-			bcstats.kvaslots_avail--;
-		} else
+#ifdef WAPBL
+		if (ISSET(bp->b_flags, B_LOCKED)) 
 			return;
+#endif /* WAPBL */
+		TAILQ_REMOVE(&buf_valist, bp, b_valist);
+		bcstats.kvaslots_avail--;
 	}
 
 	bcstats.busymapped++;

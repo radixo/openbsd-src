@@ -327,11 +327,13 @@ ffs1_balloc(struct inode *ip, off_t startoffset, int size, struct ucred *cred,
 		}
 	}
 
+#ifdef WAPBL
 	if (flags & B_METAONLY) {
 		KASSERT(bpp != NULL);
 		*bpp = bp;
 		return (0);
 	}
+#endif /* WAPBL */
 	
 	/*
 	 * Get the data block, allocating if necessary.
@@ -729,11 +731,13 @@ ffs2_balloc(struct inode *ip, off_t off, int size, struct ucred *cred,
 			bdwrite(bp);
 	}
 
+#ifdef WAPBL
 	if (flags & B_METAONLY) {
 		KASSERT(bpp != NULL);
 		*bpp = bp;
 		return (0);
 	}
+#endif /* WAPBL */
 	
 	/*
 	 * Get the data block, allocating if necessary.

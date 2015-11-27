@@ -759,9 +759,11 @@ brelse(struct buf *bp)
 	 * Determine which queue the buffer should be on, then put it there.
 	 */
 
+#ifdef WAPBL
 	/* If it's locked, don't report an error; try again later */
 	if (ISSET(bp->b_flags, (B_LOCKED|B_ERROR)) == (B_LOCKED|B_ERROR))
 		CLR(bp->b_flags, B_ERROR);
+#endif /* WAPBL */
 	
 	/* If it's not cacheable, or an error, mark it invalid. */
 	if (ISSET(bp->b_flags, (B_NOCACHE|B_ERROR)))
