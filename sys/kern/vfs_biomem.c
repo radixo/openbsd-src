@@ -89,7 +89,7 @@ buf_acquire_nomap(struct buf *bp)
 {
 	splassert(IPL_BIO);
 	SET(bp->b_flags, B_BUSY);
-	if (bp->b_data != NULL && !(bp->b_flags & B_LOCKED)) {
+	if (bp->b_data != NULL && !ISSET(bp->b_flags, B_LOCKED)) {
 		TAILQ_REMOVE(&buf_valist, bp, b_valist);
 		bcstats.kvaslots_avail--;
 		bcstats.busymapped++;
@@ -143,7 +143,7 @@ buf_map(struct buf *bp)
 		pmap_update(pmap_kernel());
 		bp->b_data = (caddr_t)va;
 	} else {
-		if (!(bp->b_flags & B_LOCKED)) {
+		if (!ISSET(bp->b_flags, B_LOCKED)) {
 			TAILQ_REMOVE(&buf_valist, bp, b_valist);
 			bcstats.kvaslots_avail--;
 		} else
@@ -160,7 +160,7 @@ buf_release(struct buf *bp)
 	KASSERT(bp->b_flags & B_BUSY);
 	splassert(IPL_BIO);
 
-	if (bp->b_data && !(bp->b_flags & B_LOCKED)) {
+	if (bp->b_data != NULL && !ISSET(bp->b_flags, B_LOCKED)) {
 		bcstats.busymapped--;
 		TAILQ_INSERT_TAIL(&buf_valist, bp, b_valist);
 		bcstats.kvaslots_avail++;
@@ -194,7 +194,7 @@ buf_dealloc_mem(struct buf *bp)
 	bp->b_data = NULL;
 
 	if (data) {
-		KASSERT(!(bp->b_flags & B_LOCKED));
+		KASSERT(!ISSET(bp->b_flags, B_LOCKED));
 		if (bp->b_flags & B_BUSY)
 			bcstats.busymapped--;
 		pmap_kremove((vaddr_t)data, bp->b_bufsize);
@@ -241,7 +241,7 @@ buf_fix_mapping(struct buf *bp, vsize_t newsize)
 		 * buffers read in by bread_cluster
 		 */
 		bp->b_bufsize = newsize;
-		KASSERT(!(bp->b_flags & B_LOCKED));
+		KASSERT(!ISSET(bp->b_flags, B_LOCKED));
 	}
 }
 
