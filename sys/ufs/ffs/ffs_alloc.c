@@ -1628,12 +1628,6 @@ ffs_alloccgblk(struct inode *ip, struct buf *bp, daddr_t bpref, int flags)
 #endif /* WAPBL */
 
 	/*
-	 * if the requested data block isn't available and we are trying to
-	 * allocate a contiguous file,  return an error.
-	 */
-	if ((flags & (B_CONTIG | B_METAONLY)) == B_CONTIG)
-		return (0);
-	/*
 	 * Take the next available block in this cylinder group.
 	 */
 	bno = ffs_mapsearch(fs, cgp, bpref, (int) fs->fs_frag);

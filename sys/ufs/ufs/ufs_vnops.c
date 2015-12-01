@@ -2164,7 +2164,6 @@ ufs_alloc(struct vnode *vp, off_t off, off_t len, int flags,
                  */
 
                 if (DIP(ip, size) < off + bsize) {
-                        /* ip->i_size = off + bsize; */
 			DIP_ASSIGN(ip, size, off + bsize);
                 }
 
