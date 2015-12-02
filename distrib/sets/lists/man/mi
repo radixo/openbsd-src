@@ -1267,17 +1267,6 @@
 ./usr/share/man/man4/auixp.4
 ./usr/share/man/man4/autri.4
 ./usr/share/man/man4/auvia.4
-./usr/share/man/man4/aviion
-./usr/share/man/man4/aviion/autoconf.4
-./usr/share/man/man4/aviion/dart.4
-./usr/share/man/man4/aviion/intro.4
-./usr/share/man/man4/aviion/kmem.4
-./usr/share/man/man4/aviion/le.4
-./usr/share/man/man4/aviion/mem.4
-./usr/share/man/man4/aviion/nvram.4
-./usr/share/man/man4/aviion/oaic.4
-./usr/share/man/man4/aviion/syscon.4
-./usr/share/man/man4/aviion/vme.4
 ./usr/share/man/man4/axe.4
 ./usr/share/man/man4/axen.4
 ./usr/share/man/man4/az.4
@@ -2251,7 +2240,6 @@
 ./usr/share/man/man5/sysctl.conf.5
 ./usr/share/man/man5/syslog.conf.5
 ./usr/share/man/man5/table.5
-./usr/share/man/man5/table_passwd.5
 ./usr/share/man/man5/term.5
 ./usr/share/man/man5/termcap.5
 ./usr/share/man/man5/terminfo.5
@@ -2337,11 +2325,6 @@
 ./usr/share/man/man8/authpf-noip.8
 ./usr/share/man/man8/authpf.8
 ./usr/share/man/man8/autoinstall.8
-./usr/share/man/man8/aviion
-./usr/share/man/man8/aviion/MAKEDEV.8
-./usr/share/man/man8/aviion/a2coff.8
-./usr/share/man/man8/aviion/installboot.8
-./usr/share/man/man8/aviion/vdmtool.8
 ./usr/share/man/man8/badsect.8
 ./usr/share/man/man8/bgpctl.8
 ./usr/share/man/man8/bgpd.8
@@ -2595,7 +2578,6 @@
 ./usr/share/man/man8/rpc.rusersd.8
 ./usr/share/man/man8/rpc.rwalld.8
 ./usr/share/man/man8/rpc.statd.8
-./usr/share/man/man8/rpc.yppasswdd.8
 ./usr/share/man/man8/rpcinfo.8
 ./usr/share/man/man8/rquotad.8
 ./usr/share/man/man8/rrestore.8
@@ -2655,8 +2637,6 @@
 ./usr/share/man/man8/sshd.8
 ./usr/share/man/man8/ssl.8
 ./usr/share/man/man8/starttls.8
-./usr/share/man/man8/stdethers.8
-./usr/share/man/man8/stdhosts.8
 ./usr/share/man/man8/sticky.8
 ./usr/share/man/man8/swapctl.8
 ./usr/share/man/man8/swapon.8

@@ -1,4 +1,4 @@
-/*	$OpenBSD: landisk_installboot.c,v 1.4 2015/10/11 15:36:58 deraadt Exp $	*/
+/*	$OpenBSD: landisk_installboot.c,v 1.6 2015/11/26 19:03:10 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2013 Joel Sing <jsing@openbsd.org>

@@ -1,4 +1,4 @@
-/*	$OpenBSD: parse.y,v 1.2 2015/11/24 10:17:15 espie Exp $	*/
+/*	$OpenBSD: parse.y,v 1.5 2015/12/01 20:52:44 halex Exp $	*/
 
 /*
  * Copyright (c) 2007-2015 Reyk Floeter <reyk@openbsd.org>
@@ -130,15 +130,16 @@ varset		: STRING '=' STRING		{
 main		: VM STRING			{
 			memset(&res, 0, sizeof(res));
 			res.name = $2;
+			res.nifs = -1;
 		} '{' optnl vm_opts_l '}'	{
 			if (res.disable) {
-				yyerror("vm \"%s\" disabled", res.name);
-				YYACCEPT;
+				warnx("%s:%d: vm \"%s\" disabled",
+				    file->name, yylval.lineno, res.name);
+			} else {
+				res.action = CMD_START;
+				if (vmmaction(&res) != 0)
+					errx(1, "vmmaction");
 			}
-
-			res.action = CMD_START;
-			if (vmmaction(&res) != 0)
-				errx(1, "vmmaction");
 		}
 		;
 
@@ -164,7 +165,7 @@ vm_opts		: disable			{
 			res.path = $2;
 		}
 		| NIFS NUMBER			{
-			if (res.nifs) {
+			if (res.nifs != -1) {
 				yyerror("argument specified more than once");
 				YYERROR;
 			}

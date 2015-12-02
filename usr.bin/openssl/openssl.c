@@ -1,4 +1,4 @@
-/* $OpenBSD: openssl.c,v 1.20 2015/11/21 16:03:06 jca Exp $ */
+/* $OpenBSD: openssl.c,v 1.22 2015/12/01 01:24:47 beck Exp $ */
 /* Copyright (C) 1995-1998 Eric Young (eay@cryptsoft.com)
  * All rights reserved.
  *

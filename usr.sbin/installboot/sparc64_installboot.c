@@ -1,4 +1,4 @@
-/*	$OpenBSD: sparc64_installboot.c,v 1.3 2015/01/16 00:05:12 deraadt Exp $	*/
+/*	$OpenBSD: sparc64_installboot.c,v 1.5 2015/11/26 19:03:10 deraadt Exp $	*/
 
 /*
  * Copyright (c) 2012, 2013 Joel Sing <jsing@openbsd.org>

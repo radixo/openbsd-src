@@ -1,4 +1,4 @@
-/*	$OpenBSD: growfs.c,v 1.45 2015/11/20 17:37:08 mmcc Exp $	*/
+/*	$OpenBSD: growfs.c,v 1.47 2015/11/27 17:27:01 deraadt Exp $	*/
 /*
  * Copyright (c) 2000 Christoph Herrmann, Thomas-Henning von Kamptz
  * Copyright (c) 1980, 1989, 1993 The Regents of the University of California.
@@ -109,7 +109,7 @@ union dinode {
 	else \
 		(dp)->dp2.field = (val); \
 	} while (0)
-static daddr_t 	inoblk;			/* inode block address */
+static daddr_t		inoblk;			/* inode block address */
 static char		inobuf[MAXBSIZE];	/* inode block */
 ino_t			maxino;			/* last valid inode */
 
@@ -151,6 +151,8 @@ static void	indirchk(daddr_t, daddr_t, daddr_t, daddr_t,
 		    struct gfs_bpp *, int, int, unsigned int);
 static void	ffs1_sb_update(struct fs *, daddr_t);
 
+int	colwidth;
+
 /*
  * Here we actually start growing the filesystem. We basically read the
  * cylinder summary from the first cylinder group as we want to update
@@ -168,7 +170,6 @@ growfs(int fsi, int fso, unsigned int Nflag)
 	int	i;
 	int	cylno, j;
 	time_t	utime;
-	int	width;
 	char	tmpbuf[100];
 
 	time(&utime);
@@ -212,7 +213,6 @@ growfs(int fsi, int fso, unsigned int Nflag)
 	if (!quiet)
 		printf("super-block backups (for fsck -b #) at:\n");
 	i = 0;
-	width = charsperline();
 
 	/*
 	 * Iterate for only the new cylinder groups.
@@ -226,7 +226,7 @@ growfs(int fsi, int fso, unsigned int Nflag)
 		    cylno < (sblock.fs_ncg - 1) ? "," : "");
 		if (j >= sizeof(tmpbuf))
 			j = sizeof(tmpbuf) - 1;
-		if (j == -1 || i + j >= width) {
+		if (j == -1 || i + j >= colwidth) {
 			printf("\n");
 			i = 0;
 		}
@@ -433,7 +433,7 @@ initcg(int cylno, time_t utime, int fso, unsigned int Nflag)
 		}
 	}
 	for (d = dupper; d + sblock.fs_frag <= acg.cg_ndblk;
-	     d += sblock.fs_frag) {
+	    d += sblock.fs_frag) {
 		blkno = d / sblock.fs_frag;
 		setblock(&sblock, cg_blksfree(&acg), blkno);
 		if (sblock.fs_contigsumsize > 0)
@@ -499,7 +499,7 @@ initcg(int cylno, time_t utime, int fso, unsigned int Nflag)
 		} else {
 			dp2->di_gen = arc4random();
 			dp2++;
-		}  
+		}
 	}
 	wtfs(fsbtodb(&sblock, cgsblock(&sblock, cylno)), iobufsize,
 	    iobuf, fso, Nflag);
@@ -507,7 +507,7 @@ initcg(int cylno, time_t utime, int fso, unsigned int Nflag)
 	/* Initialize inodes for FFS1. */
 	if (sblock.fs_magic == FS_UFS1_MAGIC) {
 		for (i = 2 * sblock.fs_frag; i < sblock.fs_ipg / INOPF(&sblock);
-		     i += sblock.fs_frag) {
+		    i += sblock.fs_frag) {
 			dp1 = (struct ufs1_dinode *)&iobuf[start];
 			for (j = 0; j < INOPB(&sblock); j++) {
 				dp1->di_gen = arc4random();
@@ -1118,7 +1118,7 @@ updcsloc(time_t utime, int fsi, int fso, unsigned int Nflag)
 	/*
 	 * Allocate the space for the array of blocks to be relocated.
 	 */
- 	bp = calloc(((dupper-odupper) / sblock.fs_frag + 2),
+	bp = calloc(((dupper-odupper) / sblock.fs_frag + 2),
 	    sizeof(struct gfs_bpp));
 	if (bp == NULL)
 		errx(1, "calloc failed");
@@ -1712,7 +1712,7 @@ main(int argc, char **argv)
 	struct stat	st;
 	struct disklabel	*lp;
 	struct partition	*pp;
-	int	i,fsi,fso;
+	int	i, fsi, fso;
 	char	reply[5];
 	const char *errstr;
 #ifdef FSMAXSNAP
@@ -1749,6 +1749,8 @@ main(int argc, char **argv)
 	if (argc != 1)
 		usage();
 
+	colwidth = charsperline();
+
 	/*
 	 * Rather than guessing, use opendev() to get the device
 	 * name, which we open for reading.
@@ -1766,6 +1768,9 @@ main(int argc, char **argv)
 		if (fso < 0)
 			err(1, "%s", device);
 	}
+
+	if (pledge("stdio disklabel", NULL) == -1)
+		err(1, "pledge");
 
 	/*
 	 * Now we have a file descriptor for our device, fstat() it to
@@ -1941,7 +1946,7 @@ main(int argc, char **argv)
 	 */
 	pp->p_fragblock =
 	    DISKLABELV1_FFS_FRAGBLOCK(sblock.fs_fsize, sblock.fs_frag);
-        pp->p_cpg = sblock.fs_fpg;
+	pp->p_cpg = sblock.fs_fpg;
 
 	return_disklabel(fso, lp, Nflag);
 

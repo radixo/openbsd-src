@@ -1,4 +1,4 @@
-/* $OpenBSD: rebound.c,v 1.44 2015/11/16 21:27:42 tedu Exp $ */
+/* $OpenBSD: rebound.c,v 1.46 2015/11/27 21:12:08 tedu Exp $ */
 /*
  * Copyright (c) 2015 Ted Unangst <tedu@openbsd.org>
  *
@@ -436,8 +436,10 @@ launch(const char *confname, int ud, int ld, int kq)
 
 	parent = getpid();
 	if (!debug) {
-		if ((child = fork()))
+		if ((child = fork())) {
+			fclose(conf);
 			return child;
+		}
 		close(kq);
 	}
 
@@ -616,7 +618,7 @@ main(int argc, char **argv)
 	struct timespec ts, *timeout = NULL;
 	const char *conffile = "/etc/rebound.conf";
 
-	if (pledge("stdio rpath inet proc id", NULL) == -1)
+	if (pledge("stdio rpath getpw inet proc id", NULL) == -1)
 		logerr("pledge failed");
 
 	while ((ch = getopt(argc, argv, "c:d")) != -1) {

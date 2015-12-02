@@ -176,6 +176,7 @@
 ./etc/rc.d/rarpd
 ./etc/rc.d/rbootd
 ./etc/rc.d/rc.subr
+./etc/rc.d/rebound
 ./etc/rc.d/relayd
 ./etc/rc.d/ripd
 ./etc/rc.d/route6d
@@ -199,7 +200,6 @@
 ./etc/rc.d/xdm
 ./etc/rc.d/ypbind
 ./etc/rc.d/ypldap
-./etc/rc.d/yppasswdd
 ./etc/rc.d/ypserv
 ./etc/rmt
 ./etc/rpc
@@ -2131,9 +2131,6 @@
 ./usr/libexec/sftp-server
 ./usr/libexec/smtpd
 ./usr/libexec/smtpd/makemap
-./usr/libexec/smtpd/table-ldap
-./usr/libexec/smtpd/table-passwd
-./usr/libexec/smtpd/table-sqlite
 ./usr/libexec/spamd
 ./usr/libexec/spamd-setup
 ./usr/libexec/spamlogd
@@ -2376,7 +2373,6 @@
 ./usr/sbin/rpc.bootparamd
 ./usr/sbin/rpc.lockd
 ./usr/sbin/rpc.statd
-./usr/sbin/rpc.yppasswdd
 ./usr/sbin/rtadvd
 ./usr/sbin/sa
 ./usr/sbin/sasyncd
@@ -2391,8 +2387,6 @@
 ./usr/sbin/snmpd
 ./usr/sbin/spamdb
 ./usr/sbin/sshd
-./usr/sbin/stdethers
-./usr/sbin/stdhosts
 ./usr/sbin/sysctl
 ./usr/sbin/syslogc
 ./usr/sbin/syslogd

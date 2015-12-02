@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.189 2015/11/20 10:50:08 mpi Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.193 2015/12/02 13:29:26 claudio Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -161,14 +161,6 @@ arp_rtrequest(struct ifnet *ifp, int req, struct rtentry *rt)
 	switch (req) {
 
 	case RTM_ADD:
-		/*
-		 * XXX: If this is a manually added route to interface
-		 * such as older version of routed or gated might provide,
-		 * restore cloning bit.
-		 */
-		if ((rt->rt_flags & RTF_HOST) == 0 && rt_mask(rt) &&
-		    satosin(rt_mask(rt))->sin_addr.s_addr != 0xffffffff)
-			rt->rt_flags |= RTF_CLONING;
 		if (rt->rt_flags & RTF_CLONING ||
 		    ((rt->rt_flags & (RTF_LLINFO | RTF_LOCAL)) && !la)) {
 			/*
@@ -693,7 +685,7 @@ arptfree(struct rtentry *rt)
 		la->la_asked = 0;
 	}
 
-	rtdeletemsg(rt, ifp->if_rdomain);
+	rtdeletemsg(rt, ifp, ifp->if_rdomain);
 	if_put(ifp);
 }
 
@@ -712,15 +704,12 @@ arplookup(u_int32_t addr, int create, int proxy, u_int tableid)
 	sin.sin_family = AF_INET;
 	sin.sin_addr.s_addr = addr;
 	sin.sin_other = proxy ? SIN_PROXY : 0;
-	flags = (create) ? (RT_REPORT|RT_RESOLVE) : 0;
+	flags = (create) ? RT_RESOLVE : 0;
 
 	rt = rtalloc((struct sockaddr *)&sin, flags, tableid);
-	if (rt == NULL)
-		return (NULL);
-	if ((rt->rt_flags & RTF_GATEWAY) || (rt->rt_flags & RTF_LLINFO) == 0 ||
+	if (!rtisvalid(rt) || ISSET(rt->rt_flags, RTF_GATEWAY) ||
+	    !ISSET(rt->rt_flags, RTF_LLINFO) ||
 	    rt->rt_gateway->sa_family != AF_LINK) {
-		if (create && (rt->rt_flags & RTF_CLONED))
-			rtdeletemsg(rt, tableid);
 		rtfree(rt);
 		return (NULL);
 	}
