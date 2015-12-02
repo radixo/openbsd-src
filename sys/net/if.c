@@ -1,4 +1,4 @@
-/*	$OpenBSD: if.c,v 1.412 2015/11/21 01:08:49 dlg Exp $	*/
+/*	$OpenBSD: if.c,v 1.416 2015/12/02 08:47:00 claudio Exp $	*/
 /*	$NetBSD: if.c,v 1.35 1996/05/07 05:26:04 thorpej Exp $	*/
 
 /*
@@ -378,7 +378,7 @@ if_map_dtor(void *null, void *m)
 	unsigned int i;
 
 	/*
-	 * dont need the kernel lock to use update_locked since this is
+	 * dont need to serialize the use of update_locked since this is
 	 * the last reference to this map. there's nothing to race against.
 	 */
 	for (i = 0; i < if_map->limit; i++)
@@ -663,7 +663,7 @@ if_input_local(struct ifnet *ifp, struct mbuf *m, sa_family_t af)
 	case AF_MPLS:
 		ifp->if_ipackets++;
 		ifp->if_ibytes += m->m_pkthdr.len;
-		mpls_input(ifp, m);
+		mpls_input(m);
 		return (0);
 #endif /* MPLS */
 	default:
@@ -869,6 +869,9 @@ if_detach(struct ifnet *ifp)
 	ifq_clr_oactive(&ifp->if_snd);
 
 	s = splnet();
+	/* Other CPUs must not have a reference before we start destroying. */
+	if_idxmap_remove(ifp);
+
 	ifp->if_start = if_detached_start;
 	ifp->if_ioctl = if_detached_ioctl;
 	ifp->if_watchdog = NULL;
@@ -938,8 +941,6 @@ if_detach(struct ifnet *ifp)
 
 	/* Announce that the interface is gone. */
 	rt_ifannouncemsg(ifp, IFAN_DEPARTURE);
-
-	if_idxmap_remove(ifp);
 	splx(s);
 
 	ifq_destroy(&ifp->if_snd);
@@ -1166,6 +1167,7 @@ ifa_ifwithaddr(struct sockaddr *addr, u_int rtableid)
 	struct ifaddr *ifa;
 	u_int rdomain;
 
+	KERNEL_ASSERT_LOCKED();
 	rdomain = rtable_l2(rtableid);
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		if (ifp->if_rdomain != rdomain)
@@ -1199,6 +1201,7 @@ ifa_ifwithdstaddr(struct sockaddr *addr, u_int rdomain)
 	struct ifnet *ifp;
 	struct ifaddr *ifa;
 
+	KERNEL_ASSERT_LOCKED();
 	rdomain = rtable_l2(rdomain);
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		if (ifp->if_rdomain != rdomain)
@@ -1227,6 +1230,7 @@ ifa_ifwithnet(struct sockaddr *sa, u_int rtableid)
 	char *cplim, *addr_data = sa->sa_data;
 	u_int rdomain;
 
+	KERNEL_ASSERT_LOCKED();
 	rdomain = rtable_l2(rtableid);
 	TAILQ_FOREACH(ifp, &ifnet, if_list) {
 		if (ifp->if_rdomain != rdomain)

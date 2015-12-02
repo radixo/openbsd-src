@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_var.h,v 1.57 2015/11/23 15:53:35 mpi Exp $	*/
+/*	$OpenBSD: if_var.h,v 1.59 2015/11/27 15:00:12 mpi Exp $	*/
 /*	$NetBSD: if.h,v 1.23 1996/05/07 02:40:27 thorpej Exp $	*/
 
 /*
@@ -68,15 +68,10 @@
 
 #include <sys/time.h>
 
-struct proc;
 struct rtentry;
-struct socket;
 struct timeout;
-struct ether_header;
 struct arpcom;
-struct rt_addrinfo;
 struct ifnet;
-struct hfsc_if;
 struct task;
 
 /*
@@ -404,12 +399,6 @@ struct if_clone *
 
 int     sysctl_mq(int *, u_int, void *, size_t *, void *, size_t,
 	    struct mbuf_queue *);
-
-int	loioctl(struct ifnet *, u_long, caddr_t);
-void	loopattach(int);
-int	looutput(struct ifnet *,
-	    struct mbuf *, struct sockaddr *, struct rtentry *);
-void	lortrequest(struct ifnet *, int, struct rtentry *);
 
 void	ifa_add(struct ifnet *, struct ifaddr *);
 void	ifa_del(struct ifnet *, struct ifaddr *);

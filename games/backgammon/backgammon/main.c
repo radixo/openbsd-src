@@ -1,4 +1,4 @@
-/*	$OpenBSD: main.c,v 1.17 2013/08/29 20:22:09 naddy Exp $	*/
+/*	$OpenBSD: main.c,v 1.20 2015/12/01 00:31:46 tb Exp $	*/
 
 /*
  * Copyright (c) 1980, 1993
@@ -81,12 +81,13 @@ static const char again[] = ".\nWould you like to play again?";
 static const char svpromt[] = "Would you like to save this game?";
 
 int
-main (argc,argv)
-	int     argc;
-	char  **argv;
+main (int argc, char **argv)
 {
 	int     i,l;		/* non-descript indices */
 	char    c;		/* non-descript character storage */
+
+	if (pledge("stdio rpath wpath cpath tty exec", NULL) == -1)
+		err(1, "pledge");
 
 	signal(SIGINT, getout);	/* trap interrupts */
 
@@ -108,6 +109,9 @@ main (argc,argv)
 
 	/* check if restored game and save flag for later */
 	if ((rfl = rflag)) {
+		if (pledge("stdio rpath wpath cpath tty", NULL) == -1)
+			err(1, "pledge");
+
 		wrboard();	/* print board */
 		/* if new game, pretend to be a non-restored game */
 		if (cturn == 0)
@@ -130,6 +134,10 @@ main (argc,argv)
 				}
 			}
 		}
+
+		if (pledge("stdio rpath wpath cpath tty", NULL) == -1)
+			err(1, "pledge");
+
 		init();		/* initialize board */
 
 		if (pnum == 2) {/* ask for color(s) */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: snmp.c,v 1.22 2015/01/22 15:21:05 reyk Exp $	*/
+/*	$OpenBSD: snmp.c,v 1.24 2015/11/28 09:52:07 reyk Exp $	*/
 
 /*
  * Copyright (c) 2008 - 2014 Reyk Floeter <reyk@openbsd.org>
@@ -134,8 +134,7 @@ snmp_init(struct relayd *env, enum privsep_procid id)
 
 	snmp_procid = id;
 
-	proc_compose_imsg(env->sc_ps, snmp_procid, -1,
-	    IMSG_SNMPSOCK, -1, NULL, 0);
+	proc_compose(env->sc_ps, snmp_procid, IMSG_SNMPSOCK, NULL, 0);
 }
 
 void
@@ -144,7 +143,7 @@ snmp_setsock(struct relayd *env, enum privsep_procid id)
 	struct sockaddr_un	 sun;
 	int			 s = -1;
 
-	if ((s = socket(AF_UNIX, SOCK_STREAM, 0)) == -1)
+	if ((s = socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK, 0)) == -1)
 		goto done;
 
 	bzero(&sun, sizeof(sun));
@@ -153,14 +152,12 @@ snmp_setsock(struct relayd *env, enum privsep_procid id)
 	    sizeof(sun.sun_path)) >= sizeof(sun.sun_path))
 		fatalx("invalid socket path");
 
-	socket_set_blockmode(s, BM_NONBLOCK);
-
 	if (connect(s, (struct sockaddr *)&sun, sizeof(sun)) == -1) {
 		close(s);
 		s = -1;
 	}
  done:
-	proc_compose_imsg(env->sc_ps, id, -1, IMSG_SNMPSOCK, s, NULL, 0);
+	proc_compose_imsg(env->sc_ps, id, -1, IMSG_SNMPSOCK, -1, s, NULL, 0);
 }
 
 int
@@ -245,8 +242,7 @@ snmp_sock(int fd, short event, void *arg)
 	env->sc_snmp = -1;
 	snmp_agentx = NULL;
  reopen:
-	proc_compose_imsg(env->sc_ps, snmp_procid, -1,
-	    IMSG_SNMPSOCK, -1, NULL, 0);
+	proc_compose(env->sc_ps, snmp_procid, IMSG_SNMPSOCK, NULL, 0);
 	return;
 }
 
@@ -274,8 +270,7 @@ snmp_agentx_process(struct agentx_handle *h, struct agentx_pdu *pdu, void *arg)
 		snmp_agentx_free(snmp_agentx);
 		env->sc_snmp = -1;
 		snmp_agentx = NULL;
-		proc_compose_imsg(env->sc_ps, snmp_procid, -1,
-		    IMSG_SNMPSOCK, -1, NULL, 0);
+		proc_compose(env->sc_ps, snmp_procid, IMSG_SNMPSOCK, NULL, 0);
 		break;
 
 	case AGENTX_GET_BULK:

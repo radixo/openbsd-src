@@ -1,4 +1,4 @@
-/*	$OpenBSD: ffs_alloc.c,v 1.104 2015/03/14 03:38:52 jsg Exp $	*/
+/*	$OpenBSD: ffs_alloc.c,v 1.105 2015/09/27 05:25:00 guenther Exp $	*/
 /*	$NetBSD: ffs_alloc.c,v 1.11 1996/05/11 18:27:09 mycroft Exp $	*/
 
 /*

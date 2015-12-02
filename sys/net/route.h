@@ -1,4 +1,4 @@
-/*	$OpenBSD: route.h,v 1.120 2015/11/06 17:55:55 mpi Exp $	*/
+/*	$OpenBSD: route.h,v 1.125 2015/12/02 13:29:26 claudio Exp $	*/
 /*	$NetBSD: route.h,v 1.9 1996/02/13 22:00:49 christos Exp $	*/
 
 /*
@@ -99,7 +99,7 @@ struct rtentry {
 	struct art_node	*rt_node;	/* ART entry */
 	struct sockaddr	*rt_dest;	/* destination */
 	struct sockaddr *rt_mask;	/* mask (radix tree compat) */
-	SLIST_ENTRY(rtentry)  rt_next;	/* Next multipath entry to our dst. */
+	struct srpl_entry rt_next;	/* Next multipath entry to our dst. */
 #endif
 	struct sockaddr	*rt_gateway;	/* value */
 	struct ifnet	*rt_ifp;	/* the answer: interface to use */
@@ -340,8 +340,7 @@ void		 rtlabel_unref(u_int16_t);
 /*
  * Values for additional argument to rtalloc()
  */
-#define	RT_REPORT	0x1
-#define	RT_RESOLVE	0x2
+#define	RT_RESOLVE	1
 
 extern struct rtstat rtstat;
 extern const struct sockaddr_rtin rt_defmask4;
@@ -377,8 +376,9 @@ unsigned long		 rt_timer_queue_count(struct rttimer_queue *);
 void			 rt_timer_timer(void *);
 
 int	 rtisvalid(struct rtentry *);
+int	 rt_hash(struct rtentry *, uint32_t *);
 #ifdef SMALL_KERNEL
-#define	 rtalloc_mpath(dst, s, rid) rtalloc((dst), RT_REPORT|RT_RESOLVE, (rid))
+#define	 rtalloc_mpath(dst, s, rid) rtalloc((dst), RT_RESOLVE, (rid))
 #else
 struct	 rtentry *rtalloc_mpath(struct sockaddr *, uint32_t *, u_int);
 #endif
@@ -392,9 +392,7 @@ int	 rt_ifa_del(struct ifaddr *, int, struct sockaddr *);
 int	 rt_ifa_addlocal(struct ifaddr *);
 int	 rt_ifa_dellocal(struct ifaddr *);
 int	 rtioctl(u_long, caddr_t, struct proc *);
-void	 rtredirect(struct sockaddr *, struct sockaddr *,
-			 struct sockaddr *, int, struct sockaddr *,
-			 struct rtentry **, u_int);
+void	 rtredirect(struct sockaddr *, struct sockaddr *, struct sockaddr *, struct rtentry **, unsigned int);
 int	 rtrequest(int, struct rt_addrinfo *, u_int8_t, struct rtentry **,
 	     u_int);
 void	 rt_if_remove(struct ifnet *);
@@ -402,7 +400,7 @@ void	 rt_if_remove(struct ifnet *);
 void	 rt_if_track(struct ifnet *);
 int	 rt_if_linkstate_change(struct rtentry *, void *, u_int);
 #endif
-int	 rtdeletemsg(struct rtentry *, u_int);
+int	 rtdeletemsg(struct rtentry *, struct ifnet *, u_int);
 #endif /* _KERNEL */
 
 #endif /* _NET_ROUTE_H_ */

@@ -1,4 +1,4 @@
-/*	$OpenBSD: scores.c,v 1.12 2014/11/16 04:49:49 guenther Exp $	*/
+/*	$OpenBSD: scores.c,v 1.15 2015/11/26 14:43:18 tb Exp $	*/
 /*	$NetBSD: scores.c,v 1.2 1995/04/22 07:42:38 cgd Exp $	*/
 
 /*-
@@ -94,8 +94,8 @@ static char *thisuser(void);
 static void
 getscores(FILE **fpp)
 {
-	int sd, mint, mask, i;
-	char *mstr, *human;
+	int sd, mint, mask, i, ret;
+	char *mstr, *human, *home;
 	char scorepath[PATH_MAX];
 	FILE *sf;
 
@@ -109,9 +109,15 @@ getscores(FILE **fpp)
 		mstr = "r";
 		human = "reading";
 	}
-	if (!getenv("HOME"))
-		return;
-	snprintf(scorepath, sizeof(scorepath), "%s/%s", getenv("HOME"), ".tetris.scores");
+
+	home = getenv("HOME");
+	if (home == NULL || *home == '\0')
+		err(1, "getenv");
+
+	ret = snprintf(scorepath, sizeof(scorepath), "%s/%s", home, ".tetris.scores");
+	if (ret < 0 || ret >= PATH_MAX)
+		errc(1, ENAMETOOLONG, "%s/%s", home, ".tetris.scores");
+
 	sd = open(scorepath, mint, 0666);
 	if (sd < 0) {
 		if (fpp == NULL) {
@@ -211,10 +217,13 @@ thisuser(void)
 
 	if (u[0])
 		return (u);
-	p = getlogin();
-	if (p == NULL || *p == '\0') {
+	p = getenv("LOGNAME");
+	if (p == NULL || *p == '\0')
+		p = getenv("USER");
+	if (p == NULL || *p == '\0')
+		p = getlogin();
+	if (p == NULL || *p == '\0')
 		p = "  ???";
-	}
 	strlcpy(u, p, sizeof(u));
 	return (u);
 }

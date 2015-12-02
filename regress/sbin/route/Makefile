@@ -1,10 +1,6 @@
-# $OpenBSD: Makefile,v 1.7 2015/08/31 08:34:46 mpi Exp $
+# $OpenBSD: Makefile,v 1.9 2015/11/30 09:46:08 mpi Exp $
 
 RDOMAIN?=	5
-
-NET=	192.0.3.0
-MASK=	255.255.255.0
-GW=	192.0.2.1
 
 .MAIN: all
 
@@ -34,15 +30,15 @@ GW=	192.0.2.1
 .endif
 .endif
 
-netmask:
-.for cmd in add delete
-.for mod in -net -dst
-	@${SUDO} route -nt ${cmd} ${mod} ${NET}/24 ${GW}
-	@${SUDO} route -nt ${cmd} ${mod} ${NET} -netmask ${MASK} ${GW}
-.endfor
-.endfor
-
 RCMD=		${SUDO} route -T ${RDOMAIN} -n
+
+netmask:
+.for mod in -net -dst
+.for cmd in add delete
+	${RCMD} -t ${cmd} ${mod} 192.0.3/24 192.0.2.1
+	${RCMD} -t ${cmd} ${mod} 192.0.4.0 -netmask 255.255.255.0 192.0.2.1
+.endfor
+.endfor
 
 n=	1
 RTTEST_TARGETS+:=rttest${n}
@@ -247,6 +243,15 @@ rttest${n}:
 	${RCMD} get -inet6 2001:ee0:2001:c0::/64 2>&1 | \
 		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
+# Verify order of multiple priorities
+n=	21
+RTTEST_TARGETS+:=rttest${n}
+rttest${n}:
+	${RCMD} add 10.8.1/24 -gateway 192.0.2.3 -priority 4
+	${RCMD} add 10.8.1/24 -gateway 192.0.2.3 -priority 3
+	${RCMD} add 10.8.1/24 -gateway 192.0.2.3 -priority 5
+	${RCMD} show -inet 2>&1 | \
+		diff -u ${.CURDIR}/${.TARGET}.ok /dev/stdin
 
 REGRESS_TARGETS=netmask ${RTTEST_TARGETS}
 REGRESS_ROOT_TARGETS=${REGRESS_TARGETS}
