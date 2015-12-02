@@ -173,6 +173,14 @@ ffs_alloc(struct inode *ip, daddr_t lbn, daddr_t bpref, int size, int flags,
 	}
 #endif /* WAPBL */
 nospace:
+#ifdef WAPBL
+	if (flags & B_CONTIG) {
+		/*
+		 * Fail silently -- it's up to our caller to report errors.
+		 */
+		return (ENOSPC);
+	}
+#endif /* WAPBL */
 	if (ratecheck(&fsfull_last, &fserr_interval)) {
 		ffs_fserr(fs, cred->cr_uid, "file system full");
 		uprintf("\n%s: write failed, file system is full\n",
@@ -1041,7 +1049,7 @@ ffs_dirpref(struct inode *pip)
 		maxcontigdirs = 1;
 
 	/*
-	 * Limit number of dirs in one cg and reserve space for 
+	 * Limit number of dirs in one cg and reserve space for
 	 * regular files, but only if we have no deficit in
 	 * inodes or space.
 	 *
@@ -1143,7 +1151,7 @@ ffs1_blkpref(struct inode *ip, daddr_t lbn, int indx, int flags, int32_t *bap)
 			return ip->i_ffs_first_data_blk + blkstofrags(fs, lbn);
 	}
 #endif /* WAPBL */
-	
+
 	/*
 	 * Allocation of indirect blocks is indicated by passing negative
 	 * values in indx: -1 for single indirect, -2 for double indirect,
@@ -1265,7 +1273,7 @@ ffs2_blkpref(struct inode *ip, daddr_t lbn, int indx, int flags, int64_t *bap)
 			return ip->i_ffs_first_data_blk + blkstofrags(fs, lbn);
 	}
 #endif /* WAPBL */
-	
+
 	/*
 	 * Allocation of indirect blocks is indicated by passing negative
 	 * values in indx: -1 for single indirect, -2 for double indirect,
@@ -1384,7 +1392,7 @@ ffs_hashalloc(struct inode *ip, int cg, daddr_t pref, int size, int flags,
 	if (flags & B_CONTIG)
 		return (result);
 #endif /* WAPBL */
-	
+
 	/*
 	 * 2: quadratic rehash
 	 */

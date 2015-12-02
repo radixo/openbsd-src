@@ -49,7 +49,6 @@
  * Per-filesystem inode extensions.
  */
 struct ffs_inode_ext {
-	daddr_t *ffs_snapblklist;       /* Collect expunged snapshot blocks. */
 	/* follow two fields are used by contiguous allocation code only. */
 	daddr_t ffs_first_data_blk;     /* first data block on disk. */
 	daddr_t ffs_first_indir_blk;    /* first indirect block on disk. */
@@ -140,10 +139,10 @@ struct inode {
 };
 
 struct inode_vtbl {
-	int (* iv_truncate)(struct inode *, off_t, int, 
+	int (* iv_truncate)(struct inode *, off_t, int,
 	    struct ucred *);
 	int (* iv_update)(struct inode *, int waitfor);
-	int (* iv_inode_alloc)(struct inode *, mode_t mode, 
+	int (* iv_inode_alloc)(struct inode *, mode_t mode,
 	    struct ucred *, struct vnode **);
 	int (* iv_inode_free)(struct inode *, ufsino_t ino, mode_t mode);
 	int (* iv_buf_alloc)(struct inode *, off_t, int, struct ucred *,
@@ -167,7 +166,7 @@ struct inode_vtbl {
 #define UFS_BUF_ALLOC(ip, startoffset, size, cred, flags, bpp) \
     ((ip)->i_vtbl->iv_buf_alloc)((ip), (startoffset), (size), (cred), \
         (flags), (bpp))
- 
+
 #define UFS_BUFATOFF(ip, offset, res, bpp) \
     ((ip)->i_vtbl->iv_bufatoff)((ip), (offset), (res), (bpp))
 

@@ -80,6 +80,11 @@ ffs1_balloc(struct inode *ip, off_t startoffset, int size, struct ucred *cred,
 	int deallocated, osize, nsize, num, i, error;
 	int32_t *allocib, *blkp, *allocblk, allociblk[NIADDR+1];
 	int unwindidx = -1;
+	int b_metaonly_flags = flags;
+
+#ifdef WAPBL
+	b_metaonly_flags |= B_METAONLY;
+#endif /* WAPBL */
 
 	vp = ITOV(ip);
 	fs = ip->i_fs;
@@ -237,9 +242,9 @@ ffs1_balloc(struct inode *ip, off_t startoffset, int size, struct ucred *cred,
 	allocblk = allociblk;
 	if (nb == 0) {
 		pref = ffs1_blkpref(ip, lbn, -indirs[0].in_off - 1,
-		    flags | B_METAONLY, NULL);
+		    b_metaonly_flags, NULL);
 	        error = ffs_alloc(ip, lbn, pref, (int)fs->fs_bsize,
-		    flags | B_METAONLY, cred, &newb);
+		    b_metaonly_flags, cred, &newb);
 		if (error)
 			goto fail;
 		nb = newb;
@@ -286,9 +291,9 @@ ffs1_balloc(struct inode *ip, off_t startoffset, int size, struct ucred *cred,
 		}
 		if (pref == 0)
 			pref = ffs1_blkpref(ip, lbn, i - num - 1,
-			    flags | B_METAONLY, NULL);
+			    b_metaonly_flags, NULL);
 		error = ffs_alloc(ip, lbn, pref, (int)fs->fs_bsize,
-		    flags | B_METAONLY, cred, &newb);
+		    b_metaonly_flags, cred, &newb);
 		if (error) {
 			brelse(bp);
 			goto fail;
@@ -327,14 +332,6 @@ ffs1_balloc(struct inode *ip, off_t startoffset, int size, struct ucred *cred,
 		}
 	}
 
-#ifdef WAPBL
-	if (flags & B_METAONLY) {
-		KASSERT(bpp != NULL);
-		*bpp = bp;
-		return (0);
-	}
-#endif /* WAPBL */
-	
 	/*
 	 * Get the data block, allocating if necessary.
 	 */
@@ -451,7 +448,12 @@ ffs2_balloc(struct inode *ip, off_t off, int size, struct ucred *cred,
 	struct fs *fs;
 	struct vnode *vp;
 	struct proc *p;
-	
+	int b_metaonly_flags = flags;
+
+#ifdef WAPBL
+	b_metaonly_flags |= flags;
+#endif /* WAPBL */
+
 	vp = ITOV(ip);
 	fs = ip->i_fs;
 	p = curproc;
@@ -628,9 +630,9 @@ ffs2_balloc(struct inode *ip, off_t off, int size, struct ucred *cred,
 
 	if (nb == 0) {
 		pref = ffs2_blkpref(ip, lbn, -indirs[0].in_off - 1,
-		    flags | B_METAONLY, NULL);
+		    b_metaonly_flags, NULL);
 		error = ffs_alloc(ip, lbn, pref, (int) fs->fs_bsize,
-		    flags | B_METAONLY, cred, &newb);
+		    b_metaonly_flags, cred, &newb);
 		if (error)
 			goto fail;
 
@@ -685,10 +687,10 @@ ffs2_balloc(struct inode *ip, off_t off, int size, struct ucred *cred,
 
 		if (pref == 0)
 			pref = ffs2_blkpref(ip, lbn, i - num - 1,
-			    flags | B_METAONLY, NULL);
+			    b_metaonly_flags, NULL);
 
 		error = ffs_alloc(ip, lbn, pref, (int) fs->fs_bsize,
-		    flags | B_METAONLY, cred, &newb);
+		    b_metaonly_flags, cred, &newb);
 		if (error) {
 			brelse(bp);
 			goto fail;
