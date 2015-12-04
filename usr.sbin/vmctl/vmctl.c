@@ -14,10 +14,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-/*
- * vmmctl(8) - control VMM subsystem
- */
-
 #include <sys/types.h>
 #include <sys/queue.h>
 #include <sys/uio.h>
@@ -38,7 +34,7 @@
 #include <unistd.h>
 
 #include "vmd.h"
-#include "parser.h"
+#include "vmctl.h"
 
 extern char *__progname;
 uint32_t info_id;
@@ -115,17 +111,19 @@ start_vm(const char *name, int memsize, int nnics, int ndisks, char **disks,
 int
 start_vm_complete(struct imsg *imsg, int *ret)
 {
+	struct vmop_start_result *vmr;
 	int res;
 
 	if (imsg->hdr.type == IMSG_VMDOP_START_VM_RESPONSE) {
-		res = *(int *)imsg->data;
+		vmr = (struct vmop_start_result *)imsg->data;
+		res = vmr->vmr_result;
 		if (res) {
 			fprintf(stderr, "%s: start VM command failed (%d) - "
 			    "%s\n", __progname, res, strerror(res));
-			*ret = EIO;	
+			*ret = EIO;
 		} else {
-			fprintf(stdout, "%s: start VM command successful\n",
-			    __progname);
+			fprintf(stdout, "%s: start VM command successful, "
+			    "tty %s\n", __progname, vmr->vmr_ttyname);
 			*ret = 0;
 		}
 	} else {
@@ -156,7 +154,7 @@ terminate_vm(uint32_t terminate_id)
 	imsg_compose(ibuf, IMSG_VMDOP_TERMINATE_VM_REQUEST, 0, 0, -1,
 	    &vtp, sizeof(struct vm_terminate_params));
 }
- 
+
 /*
  * terminate_vm_complete
  *
@@ -184,7 +182,7 @@ terminate_vm_complete(struct imsg *imsg, int *ret)
 
 	if (imsg->hdr.type == IMSG_VMDOP_TERMINATE_VM_RESPONSE) {
 		res = *(int *)imsg->data;
- 		if (res) {
+		if (res) {
 			fprintf(stderr, "%s: terminate VM command failed "
 			    "(%d) - %s\n", __progname, res, strerror(res));
 			*ret = EIO;
@@ -358,6 +356,6 @@ create_imagefile(const char *imgfile_path, long imgsize)
 		return (ret);
 	}
 
-	ret = close(fd);	
+	ret = close(fd);
 	return (ret);
 }

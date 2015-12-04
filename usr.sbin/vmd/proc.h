@@ -1,4 +1,4 @@
-/*	$OpenBSD: proc.h,v 1.2 2015/12/02 09:39:41 reyk Exp $	*/
+/*	$OpenBSD: proc.h,v 1.5 2015/12/03 08:42:11 reyk Exp $	*/
 
 /*
  * Copyright (c) 2010-2015 Reyk Floeter <reyk@openbsd.org>
@@ -16,6 +16,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <sys/socket.h>
 #include <sys/queue.h>
 #include <sys/uio.h>
 
@@ -26,12 +27,13 @@
 #define _PROC_H
 
 enum {
-        IMSG_NONE,
+	IMSG_NONE,
 	IMSG_CTL_OK,
 	IMSG_CTL_FAIL,
 	IMSG_CTL_VERBOSE,
 	IMSG_CTL_END,
 	IMSG_CTL_NOTIFY,
+	IMSG_CTL_RESET,
 	IMSG_PROC_MAX
 };
 
@@ -71,10 +73,11 @@ struct {
 
 struct ctl_conn {
 	TAILQ_ENTRY(ctl_conn)	 entry;
-	u_int8_t		 flags;
-	u_int			 waiting;
+	uint8_t			 flags;
+	unsigned int		 waiting;
 #define CTL_CONN_NOTIFY		 0x01
 	struct imsgev		 iev;
+	struct sockpeercred	 peercred;
 
 };
 TAILQ_HEAD(ctl_connlist, ctl_conn);
@@ -84,8 +87,13 @@ extern  struct ctl_connlist ctl_conns;
 enum privsep_procid {
 	PROC_PARENT	= 0,
 	PROC_CONTROL,
+	PROC_VMM,
 	PROC_MAX,
 } privsep_process;
+
+#define CONFIG_RELOAD		0x00
+#define CONFIG_VMS		0x01
+#define CONFIG_ALL		0xff
 
 struct privsep_pipes {
 	int				*pp_pipes[PROC_MAX];
@@ -98,15 +106,17 @@ struct privsep {
 	struct imsgev			*ps_ievs[PROC_MAX];
 	const char			*ps_title[PROC_MAX];
 	pid_t				 ps_pid[PROC_MAX];
+	uint8_t				 ps_what[PROC_MAX];
+
 	struct passwd			*ps_pw;
 	int				 ps_noaction;
 
 	struct control_sock		 ps_csock;
 	struct control_socks		 ps_rcsocks;
 
-	u_int				 ps_instances[PROC_MAX];
-	u_int				 ps_ninstances;
-	u_int				 ps_instance;
+	unsigned int			 ps_instances[PROC_MAX];
+	unsigned int			 ps_ninstances;
+	unsigned int			 ps_instance;
 
 	/* Event and signal handlers */
 	struct event			 ps_evsigint;
@@ -130,7 +140,7 @@ struct privsep_proc {
 	struct privsep		*p_ps;
 	void			*p_env;
 	void			(*p_shutdown)(void);
-	u_int			 p_instance;
+	unsigned int		 p_instance;
 };
 
 /* proc.c */

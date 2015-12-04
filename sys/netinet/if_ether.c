@@ -1,4 +1,4 @@
-/*	$OpenBSD: if_ether.c,v 1.193 2015/12/02 13:29:26 claudio Exp $	*/
+/*	$OpenBSD: if_ether.c,v 1.196 2015/12/02 21:09:06 claudio Exp $	*/
 /*	$NetBSD: if_ether.c,v 1.31 1996/05/11 12:59:58 mycroft Exp $	*/
 
 /*
@@ -401,11 +401,6 @@ arpresolve(struct ifnet *ifp, struct rtentry *rt0, struct mbuf *m,
 				arprequest(ifp,
 				    &satosin(rt->rt_ifa->ifa_addr)->sin_addr.s_addr,
 				    &satosin(dst)->sin_addr.s_addr,
-#if NCARP > 0
-				    (rt->rt_ifp->if_type == IFT_CARP) ?
-					((struct arpcom *) rt->rt_ifp->if_softc
-					)->ac_enaddr :
-#endif
 				    ac->ac_enaddr);
 			else {
 				rt->rt_flags |= RTF_REJECT;
@@ -565,19 +560,24 @@ in_arpinput(struct mbuf *m)
 					   ether_sprintf(ea->arp_sha),
 					   ifp->if_xname);
 					goto out;
-				} else if (rt->rt_ifp != ifp) {
+				} else if (rt->rt_ifidx != ifp->if_index) {
 #if NCARP > 0
 					if (ifp->if_type != IFT_CARP)
 #endif
 					{
+						struct ifnet *rifp = if_get(
+						    rt->rt_ifidx);
+						if (rifp == NULL)
+							goto out;
 						inet_ntop(AF_INET, &isaddr,
 						    addr, sizeof(addr));
 						log(LOG_WARNING, "arp: attempt"
 						   " to overwrite entry for"
 						   " %s on %s by %s on %s\n",
-						   addr, rt->rt_ifp->if_xname,
+						   addr, rifp->if_xname,
 						   ether_sprintf(ea->arp_sha),
 						   ifp->if_xname);
+						if_put(rifp);
 					}
 					goto out;
 				} else {
@@ -592,13 +592,17 @@ in_arpinput(struct mbuf *m)
 			changed = 1;
 			}
 		} else if (!if_isconnected(ifp, rt->rt_ifidx)) {
+			struct ifnet *rifp = if_get(rt->rt_ifidx);
+			if (rifp == NULL)
+				goto out;
 			inet_ntop(AF_INET, &isaddr, addr, sizeof(addr));
 			log(LOG_WARNING,
 			    "arp: attempt to add entry for %s "
 			    "on %s by %s on %s\n", addr,
-			    rt->rt_ifp->if_xname,
+			    rifp->if_xname,
 			    ether_sprintf(ea->arp_sha),
 			    ifp->if_xname);
+			if_put(rifp);
 			goto out;
 		}
 		sdl->sdl_alen = sizeof(ea->arp_sha);
@@ -644,10 +648,9 @@ out:
 		rt = arplookup(itaddr.s_addr, 0, SIN_PROXY, rdomain);
 		if (rt == NULL)
 			goto out;
-#if NCARP > 0
-		if (rt->rt_ifp->if_type == IFT_CARP && ifp->if_type != IFT_CARP)
+		/* protect from possible duplicates only owner should respond */
+		if (rt->rt_ifidx != ifp->if_index)
 			goto out;
-#endif
 		memcpy(ea->arp_tha, ea->arp_sha, sizeof(ea->arp_sha));
 		sdl = satosdl(rt->rt_gateway);
 		memcpy(ea->arp_sha, LLADDR(sdl), sizeof(ea->arp_sha));
